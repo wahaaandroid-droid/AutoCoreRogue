@@ -284,8 +284,7 @@ const createEnemyRanks = (stage: number): CombatActor["rank"][] => {
       "elite",
       "elite",
       "elite",
-      "elite",
-      ...Array.from({ length: 26 }, () => "normal" as const),
+      ...Array.from({ length: 20 }, () => "normal" as const),
     ];
   }
   if (stage === 5) {
@@ -293,14 +292,13 @@ const createEnemyRanks = (stage: number): CombatActor["rank"][] => {
       "elite",
       "elite",
       "elite",
-      "elite",
-      ...Array.from({ length: 22 }, () => "normal" as const),
+      ...Array.from({ length: 17 }, () => "normal" as const),
     ];
   }
 
-  const normalCountByStage = [0, 18, 22, 26, 30, 30, 34, 34];
-  const normalCount = normalCountByStage[stage] ?? 34;
-  const eliteCount = stage >= 6 ? 4 : 0;
+  const normalCountByStage = [0, 14, 17, 20, 23, 23, 26, 26];
+  const normalCount = normalCountByStage[stage] ?? 26;
+  const eliteCount = stage >= 6 ? 3 : 0;
   return [
     ...Array.from({ length: eliteCount }, () => "elite" as const),
     ...Array.from({ length: normalCount }, () => "normal" as const),
@@ -308,7 +306,7 @@ const createEnemyRanks = (stage: number): CombatActor["rank"][] => {
 };
 
 const activeEnemyCap = (stage: number): number =>
-  stage >= 7 ? 13 : stage >= 5 ? 12 : stage >= 3 ? 10 : 8;
+  stage >= 7 ? 11 : stage >= 5 ? 10 : stage >= 3 ? 8 : 7;
 
 const spawnEnemies = (
   stage: number,

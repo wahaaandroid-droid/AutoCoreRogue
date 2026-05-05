@@ -1,6 +1,6 @@
 export const SLOTS = ["HEAD", "BODY", "L-ARM", "R-ARM", "LEGS"] as const;
 
-export const SQUAD_SIZE = 4;
+export const SQUAD_SIZE = 3;
 
 export type PartSlot = (typeof SLOTS)[number];
 
