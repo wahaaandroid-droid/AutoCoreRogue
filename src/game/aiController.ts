@@ -47,16 +47,18 @@ const isConditionMet = (condition: AiConditionId, context: AiRuntimeContext): bo
 export const evaluateAiRules = (
   rules: AiRule[],
   context: AiRuntimeContext,
-): AiDecision => {
+): AiDecision[] => {
+  const decisions: AiDecision[] = [];
+
   for (const rule of rules) {
     if (rule.enabled && isConditionMet(rule.condition, context)) {
-      return {
+      decisions.push({
         action: rule.action,
         ruleId: rule.id,
         condition: rule.condition,
-      };
+      });
     }
   }
 
-  return { action: "idle" };
+  return decisions.length > 0 ? decisions : [{ action: "idle" }];
 };

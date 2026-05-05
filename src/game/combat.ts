@@ -494,10 +494,6 @@ const applyPlayerAction = (
   target: CombatActor | undefined,
 ): void => {
   const player = state.player;
-  player.ax = 0;
-  player.ay = 0;
-  player.guard = false;
-
   if (!target) {
     return;
   }
@@ -826,23 +822,31 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
   });
 
   const bladeEngageDistance = target ? state.player.radius + target.radius + 284 : 0;
+  const hasDefensiveDecision = decision.some(
+    (item) => item.action === "retreat" || item.action === "guard" || item.action === "boostDodge",
+  );
   if (
     target &&
     stats.leftWeaponKind === "blade" &&
     state.leftCooldown <= 0 &&
     targetDistance <= bladeEngageDistance &&
-    decision.action !== "retreat" &&
-    decision.action !== "guard" &&
-    decision.action !== "boostDodge"
+    !hasDefensiveDecision
   ) {
-    decision.action = "shootLeft";
-    decision.ruleId = "blade-priority";
-    decision.condition = "leftReady";
+    decision.push({
+      action: "shootLeft",
+      ruleId: "blade-priority",
+      condition: "leftReady",
+    });
   }
 
-  state.activeAction = decision.action;
-  state.activeRuleId = decision.ruleId;
-  applyPlayerAction(state, stats, decision.action, target);
+  state.player.ax = 0;
+  state.player.ay = 0;
+  state.player.guard = false;
+  state.activeAction = decision[0].action;
+  state.activeRuleId = decision[0].ruleId;
+  for (const item of decision) {
+    applyPlayerAction(state, stats, item.action, target);
+  }
 
   for (const enemy of state.enemies) {
     if (enemy.hp > 0) {
