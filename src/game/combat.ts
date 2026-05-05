@@ -71,6 +71,8 @@ export interface CombatState {
 
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
+const ENEMY_HP_MULTIPLIER = 9;
+const PLAYER_DAMAGE_MULTIPLIER = 0.48;
 let nextId = 1;
 
 const uid = (prefix: string): string => `${prefix}-${nextId++}`;
@@ -86,7 +88,8 @@ const normalize = (dx: number, dy: number): { x: number; y: number; distance: nu
 const damageAfterDefense = (raw: number, target: CombatActor): number => {
   const mitigation = Math.min(0.68, target.defense / (target.defense + 380));
   const guard = target.guard ? 0.72 : 1;
-  return Math.max(2, raw * (1 - mitigation) * guard);
+  const teamScale = target.team === "enemy" ? PLAYER_DAMAGE_MULTIPLIER : 1;
+  return Math.max(2, raw * teamScale * (1 - mitigation) * guard);
 };
 
 const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): void => {
@@ -158,10 +161,10 @@ const createPlayer = (stats: DerivedStats): CombatActor => ({
 const createEnemy = (stage: number, index: number, rank: CombatActor["rank"]): CombatActor => {
   const angle = -Math.PI * 0.85 + index * 0.55;
   const distance = rank === "boss" ? 235 : 215 + index * 16;
-  const hpScale = rank === "boss" ? 3.1 : rank === "elite" ? 1.85 : 1;
+  const hpScale = (rank === "boss" ? 3.1 : rank === "elite" ? 1.85 : 1) * ENEMY_HP_MULTIPLIER;
   const attackScale = rank === "boss" ? 1.65 : rank === "elite" ? 1.28 : 1;
   const baseHp = 128 + stage * 34;
-  const baseAttack = 20 + stage * 4.5;
+  const baseAttack = 10 + stage * 2.2;
 
   return {
     id: uid("enemy"),
