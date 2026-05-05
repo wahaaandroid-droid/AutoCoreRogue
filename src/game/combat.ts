@@ -56,6 +56,7 @@ export interface CombatState {
   rightCooldown: number;
   leftCooldown: number;
   missileCooldown: number;
+  boostCooldown: number;
   rightResource: WeaponResource;
   leftResource: WeaponResource;
   rightAmmo: number;
@@ -223,6 +224,7 @@ export const createCombatState = (stage: number, stats: DerivedStats): CombatSta
   rightCooldown: 0.2,
   leftCooldown: 0.35,
   missileCooldown: 1.5,
+  boostCooldown: 0,
   rightResource: stats.rightResource,
   leftResource: stats.leftResource,
   rightAmmo: stats.rightAmmoMax,
@@ -484,12 +486,15 @@ const applyPlayerAction = (
       break;
     case "boostDodge": {
       const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
-      if (spendEnergy(player, cost)) {
+      if (state.boostCooldown <= 0 && spendEnergy(player, cost)) {
         player.vx += perpendicular.x * player.moveSpeed * 2.08;
         player.vy += perpendicular.y * player.moveSpeed * 2.08;
         applyThrust(player, perpendicular.x, perpendicular.y, 1.28);
         pushBoostBurst(state, player, perpendicular);
+        state.boostCooldown = 0.5;
         state.soundEvents.push("boost");
+      } else {
+        applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 0.48);
       }
       break;
     }
@@ -705,6 +710,7 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
   state.rightCooldown = Math.max(0, state.rightCooldown - dt);
   state.leftCooldown = Math.max(0, state.leftCooldown - dt);
   state.missileCooldown = Math.max(0, state.missileCooldown - dt);
+  state.boostCooldown = Math.max(0, state.boostCooldown - dt);
 
   const target = nearestEnemy(state);
   const targetDistance = target
