@@ -47,7 +47,7 @@ playerDirectionSpritesImage.src = playerDirectionSpritesUrl;
 const enemyDirectionSpritesImage = new Image();
 enemyDirectionSpritesImage.src = enemyDirectionSpritesUrl;
 
-const DIRECTION_COLUMNS = 8;
+const DIRECTION_COLUMNS = 4;
 const PLAYER_SPRITE_ROWS = 5;
 const ENEMY_SPRITE_ROWS = 7;
 
@@ -82,17 +82,17 @@ const drawAtlasSprite = (
   return true;
 };
 
-const positiveModulo = (value: number, divisor: number): number =>
-  ((value % divisor) + divisor) % divisor;
-
 const directionIndexFor = (actor: CombatActor): number => {
-  const facingX = Math.abs(actor.facingX) + Math.abs(actor.facingY) > 0.001 ? actor.facingX : actor.vx;
-  const facingY = Math.abs(actor.facingX) + Math.abs(actor.facingY) > 0.001 ? actor.facingY : actor.vy;
+  const hasFacing = Math.abs(actor.facingX) + Math.abs(actor.facingY) > 0.001;
+  const facingX = hasFacing ? actor.facingX : actor.vx;
+  const facingY = hasFacing ? actor.facingY : actor.vy;
   if (Math.abs(facingX) + Math.abs(facingY) <= 0.001) {
     return 0;
   }
-  const angle = Math.atan2(facingY, facingX);
-  return positiveModulo(Math.round((angle + Math.PI / 2) / (Math.PI / 4)), DIRECTION_COLUMNS);
+  if (Math.abs(facingY) >= Math.abs(facingX)) {
+    return facingY < 0 ? 0 : 1;
+  }
+  return facingX < 0 ? 2 : 3;
 };
 
 const playerSpriteRow = (actor: CombatActor): number => {
