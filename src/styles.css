@@ -472,6 +472,7 @@ select {
 .combat-layout {
   display: grid;
   grid-template-columns: 220px minmax(700px, 1fr) 220px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
 }
@@ -488,12 +489,18 @@ select {
   background: #020506;
   min-height: 0;
   display: grid;
+  place-items: start center;
+  overflow: hidden;
 }
 
 .combat-canvas-wrap canvas {
-  width: 100%;
-  height: 100%;
   display: block;
+  width: min(100%, calc((100vh - 100px) * 1.719298));
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  aspect-ratio: 980 / 570;
+  object-fit: contain;
 }
 
 .meter-label,

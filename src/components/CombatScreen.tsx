@@ -5,6 +5,7 @@ import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType } from "../types";
 import arenaFloorUrl from "../assets/arena-floor.png";
+import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
 
 interface CombatScreenProps {
@@ -28,6 +29,8 @@ const cooldownPercent = (value: number, max: number): number => {
 
 const arenaFloorImage = new Image();
 arenaFloorImage.src = arenaFloorUrl;
+const boostBurstImage = new Image();
+boostBurstImage.src = boostBurstUrl;
 const combatSpritesImage = new Image();
 combatSpritesImage.src = combatSpritesUrl;
 
@@ -241,16 +244,33 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
 
   if (effect.kind === "boost") {
     ctx.rotate(effect.rotation ?? 0);
+    if (boostBurstImage.complete && boostBurstImage.naturalWidth > 0) {
+      const spriteWidth = effect.size * (4.1 + progress * 2.2);
+      const spriteHeight = effect.size * (2.25 + progress * 1.1);
+      ctx.save();
+      ctx.globalAlpha *= 0.95 - progress * 0.22;
+      ctx.shadowBlur = 28;
+      ctx.drawImage(
+        boostBurstImage,
+        -spriteWidth * 0.86,
+        -spriteHeight * 0.5,
+        spriteWidth,
+        spriteHeight,
+      );
+      ctx.restore();
+    }
     ctx.lineCap = "round";
     ctx.lineWidth = 3;
+    ctx.strokeStyle = progress < 0.35 ? "#f6fbff" : effect.color;
     ctx.beginPath();
-    ctx.ellipse(0, 0, effect.size * (0.55 + progress * 0.85), effect.size * (0.22 + progress * 0.32), 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, effect.size * (0.65 + progress * 1.08), effect.size * (0.26 + progress * 0.38), 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.globalAlpha *= 0.48;
+    ctx.strokeStyle = effect.color;
     ctx.beginPath();
-    ctx.moveTo(-effect.size * (1.35 + progress), -effect.size * 0.23);
+    ctx.moveTo(-effect.size * (1.8 + progress * 1.4), -effect.size * 0.3);
     ctx.lineTo(effect.size * 0.18, 0);
-    ctx.lineTo(-effect.size * (1.35 + progress), effect.size * 0.23);
+    ctx.lineTo(-effect.size * (1.8 + progress * 1.4), effect.size * 0.3);
     ctx.stroke();
     ctx.restore();
     return;
