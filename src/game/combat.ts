@@ -365,10 +365,10 @@ const performBladeAttack = (
       kind: "slash",
       x: strikeX,
       y: strikeY,
-      life: 0.24,
-      maxLife: 0.24,
+      life: 0.38,
+      maxLife: 0.38,
       color: "#8dfff1",
-      size: 62,
+      size: 82,
       rotation,
     }),
   );
@@ -512,9 +512,9 @@ const applyPlayerAction = (
       break;
     case "shootLeft":
       if (stats.leftWeaponKind === "blade") {
-        const bladeReach = player.radius + target.radius + 94;
+        const bladeReach = player.radius + target.radius + 118;
         if (toTarget.distance > bladeReach) {
-          applyThrust(player, toTarget.x, toTarget.y, 1.45);
+          applyThrust(player, toTarget.x, toTarget.y, 1.72);
           break;
         }
 
@@ -722,6 +722,21 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
     leftCanPay: canPayWeapon(state, "left"),
     enemyProjectileDistance: nearestEnemyProjectileDistance(state),
   });
+
+  const bladeEngageDistance = target ? state.player.radius + target.radius + 284 : 0;
+  if (
+    target &&
+    stats.leftWeaponKind === "blade" &&
+    state.leftCooldown <= 0 &&
+    targetDistance <= bladeEngageDistance &&
+    decision.action !== "retreat" &&
+    decision.action !== "guard" &&
+    decision.action !== "boostDodge"
+  ) {
+    decision.action = "shootLeft";
+    decision.ruleId = "blade-priority";
+    decision.condition = "leftReady";
+  }
 
   state.activeAction = decision.action;
   state.activeRuleId = decision.ruleId;
