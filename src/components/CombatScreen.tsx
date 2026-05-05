@@ -245,7 +245,7 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   if (effect.kind === "boost") {
     ctx.rotate(effect.rotation ?? 0);
     if (boostBurstImage.complete && boostBurstImage.naturalWidth > 0) {
-      const spriteWidth = effect.size * (4.1 + progress * 2.2);
+      const spriteWidth = effect.size * (4.1 + progress * 2.2) * 0.2;
       const spriteHeight = effect.size * (2.25 + progress * 1.1);
       ctx.save();
       ctx.globalAlpha *= 0.95 - progress * 0.22;
@@ -259,19 +259,6 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
       );
       ctx.restore();
     }
-    ctx.lineCap = "round";
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = progress < 0.35 ? "#f6fbff" : effect.color;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, effect.size * (0.65 + progress * 1.08), effect.size * (0.26 + progress * 0.38), 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha *= 0.48;
-    ctx.strokeStyle = effect.color;
-    ctx.beginPath();
-    ctx.moveTo(-effect.size * (1.8 + progress * 1.4), -effect.size * 0.3);
-    ctx.lineTo(effect.size * 0.18, 0);
-    ctx.lineTo(-effect.size * (1.8 + progress * 1.4), effect.size * 0.3);
-    ctx.stroke();
     ctx.restore();
     return;
   }
