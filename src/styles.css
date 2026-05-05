@@ -276,6 +276,40 @@ select {
   color: var(--green);
 }
 
+.target-priority-panel {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(160px, 220px);
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(138, 216, 255, .16);
+  background: rgba(5, 10, 12, .34);
+}
+
+.target-priority-panel div {
+  display: grid;
+  gap: 3px;
+}
+
+.target-priority-panel span,
+.target-priority-panel small {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.target-priority-panel strong {
+  color: var(--text);
+}
+
+.target-priority-panel small {
+  grid-column: 1 / -1;
+}
+
+.ai-flow-card.target-card {
+  border-color: rgba(84, 244, 167, .34);
+}
+
 .mech-preview-panel {
   display: grid;
   grid-template-rows: auto 1fr;

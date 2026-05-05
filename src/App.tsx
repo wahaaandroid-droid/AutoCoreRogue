@@ -14,7 +14,7 @@ import {
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
 import { unlockCombatAudio } from "./game/sound";
-import { AiRule, Loadout, PartSlot, PilotUpgrades, ScreenId, SQUAD_SIZE } from "./types";
+import { AiRule, Loadout, PartSlot, PilotUpgrades, ScreenId, SQUAD_SIZE, TargetPriorityId } from "./types";
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
@@ -24,6 +24,8 @@ const createInitialAiSlotCounts = (): number[] =>
   Array.from({ length: SQUAD_SIZE }, () => 5);
 const createInitialAiRulesByUnit = (): AiRule[][] =>
   Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules());
+const createInitialTargetPriorities = (): TargetPriorityId[] =>
+  Array.from({ length: SQUAD_SIZE }, () => "nearest");
 const createInitialUnitHp = (): number[] =>
   createInitialLoadouts().map((unitLoadout) => calculateDerivedStats(unitLoadout, baseUpgrades).hpMax);
 const createInitialSortieEnabled = (): boolean[] =>
@@ -38,6 +40,9 @@ export default function App() {
   const [upgrades, setUpgrades] = useState<PilotUpgrades>(() => cloneUpgrades());
   const [aiSlotCounts, setAiSlotCounts] = useState<number[]>(() => createInitialAiSlotCounts());
   const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() => createInitialAiRulesByUnit());
+  const [targetPrioritiesByUnit, setTargetPrioritiesByUnit] = useState<TargetPriorityId[]>(() =>
+    createInitialTargetPriorities(),
+  );
   const [unitHpByUnit, setUnitHpByUnit] = useState<number[]>(() => createInitialUnitHp());
   const [sortieEnabled, setSortieEnabled] = useState<boolean[]>(() => createInitialSortieEnabled());
   const [repairKitStock, setRepairKitStock] = useState(0);
@@ -79,6 +84,12 @@ export default function App() {
   const changeActiveAiRules = (rules: AiRule[]) => {
     setAiRulesByUnit((current) =>
       current.map((unitRules, index) => (index === activeUnitIndex ? rules : unitRules)),
+    );
+  };
+
+  const changeActiveTargetPriority = (priority: TargetPriorityId) => {
+    setTargetPrioritiesByUnit((current) =>
+      current.map((unitPriority, index) => (index === activeUnitIndex ? priority : unitPriority)),
     );
   };
 
@@ -133,6 +144,7 @@ export default function App() {
     setUpgrades(cloneUpgrades());
     setAiSlotCounts(createInitialAiSlotCounts());
     setAiRulesByUnit(createInitialAiRulesByUnit());
+    setTargetPrioritiesByUnit(createInitialTargetPriorities());
     setUnitHpByUnit(createInitialUnitHp());
     setSortieEnabled(createInitialSortieEnabled());
     setRepairKitStock(0);
@@ -269,8 +281,10 @@ export default function App() {
           slotCount={aiSlotCounts[activeUnitIndex] ?? 5}
           activeUnitIndex={activeUnitIndex}
           statsByUnit={statsByUnit}
+          targetPriority={targetPrioritiesByUnit[activeUnitIndex] ?? "nearest"}
           onSelectUnit={setActiveUnitIndex}
           onChangeRules={changeActiveAiRules}
+          onChangeTargetPriority={changeActiveTargetPriority}
           onOpenAssemble={() => setScreen("assemble")}
           onOpenMap={() => setScreen("map")}
           onStartCombat={startCombat}
@@ -283,6 +297,7 @@ export default function App() {
           unitHpByUnit={unitHpByUnit}
           sortieEnabled={sortieEnabled}
           rulesByUnit={normalizedRulesByUnit}
+          targetPrioritiesByUnit={targetPrioritiesByUnit}
           activeUnitIndex={activeUnitIndex}
           onSelectUnit={setActiveUnitIndex}
           onVictory={handleVictory}

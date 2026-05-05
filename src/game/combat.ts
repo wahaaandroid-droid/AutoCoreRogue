@@ -6,7 +6,7 @@ import {
   Effect,
   Projectile,
 } from "./projectiles";
-import { AiActionId, AiRule, DerivedStats, LegType, WeaponResource } from "../types";
+import { AiActionId, AiRule, DerivedStats, LegType, TargetPriorityId, WeaponResource } from "../types";
 
 export interface CombatActor {
   id: string;
@@ -399,20 +399,49 @@ const livingPlayerUnits = (state: CombatState): PlayerCombatUnit[] =>
 const livingPlayerActors = (state: CombatState): CombatActor[] =>
   livingPlayerUnits(state).map((unit) => unit.actor);
 
-const nearestEnemy = (state: CombatState, player: CombatActor): CombatActor | undefined => {
-  let best: CombatActor | undefined;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const enemy of state.enemies) {
-    if (enemy.hp <= 0) {
-      continue;
-    }
-    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-    if (distance < bestDistance) {
-      best = enemy;
-      bestDistance = distance;
-    }
+const livingEnemies = (state: CombatState): CombatActor[] =>
+  state.enemies.filter((enemy) => enemy.hp > 0);
+
+const enemyDistance = (player: CombatActor, enemy: CombatActor): number =>
+  Math.hypot(enemy.x - player.x, enemy.y - player.y);
+
+const rankScore = (enemy: CombatActor): number =>
+  enemy.rank === "boss" ? 3 : enemy.rank === "elite" ? 2 : 1;
+
+const nearestEnemyDistance = (state: CombatState, player: CombatActor): number =>
+  livingEnemies(state).reduce(
+    (nearest, enemy) => Math.min(nearest, enemyDistance(player, enemy)),
+    Number.POSITIVE_INFINITY,
+  );
+
+const selectEnemyTarget = (
+  state: CombatState,
+  player: CombatActor,
+  priority: TargetPriorityId = "nearest",
+): CombatActor | undefined => {
+  const enemies = livingEnemies(state);
+  if (enemies.length === 0) {
+    return undefined;
   }
-  return best;
+
+  const sorted = [...enemies].sort((a, b) => {
+    const distanceA = enemyDistance(player, a);
+    const distanceB = enemyDistance(player, b);
+
+    switch (priority) {
+      case "lowestHp":
+        return a.hp - b.hp || distanceA - distanceB;
+      case "lowestHpPercent":
+        return a.hp / a.maxHp - b.hp / b.maxHp || distanceA - distanceB;
+      case "eliteFirst":
+        return rankScore(b) - rankScore(a) || a.hp / a.maxHp - b.hp / b.maxHp || distanceA - distanceB;
+      case "nearest":
+      default:
+        return distanceA - distanceB;
+    }
+  });
+
+  return sorted[0];
 };
 
 const nearestPlayerUnit = (state: CombatState, enemy: CombatActor): PlayerCombatUnit | undefined => {
@@ -1002,7 +1031,12 @@ const updateEffects = (state: CombatState, dt: number): void => {
     .filter((effect) => effect.life > 0);
 };
 
-export const stepCombat = (state: CombatState, dt: number, rulesByUnit: AiRule[][]): CombatState => {
+export const stepCombat = (
+  state: CombatState,
+  dt: number,
+  rulesByUnit: AiRule[][],
+  targetPrioritiesByUnit: TargetPriorityId[] = [],
+): CombatState => {
   if (state.status !== "running") {
     return state;
   }
@@ -1028,16 +1062,17 @@ export const stepCombat = (state: CombatState, dt: number, rulesByUnit: AiRule[]
     unit.missileCooldown = Math.max(0, unit.missileCooldown - dt);
     unit.boostCooldown = Math.max(0, unit.boostCooldown - dt);
 
-    const target = nearestEnemy(state, player);
+    const target = selectEnemyTarget(state, player, targetPrioritiesByUnit[unit.unitIndex] ?? "nearest");
     const targetDistance = target
       ? Math.hypot(target.x - player.x, target.y - player.y)
       : Number.POSITIVE_INFINITY;
+    const threatDistance = nearestEnemyDistance(state, player);
     const rules = rulesByUnit[unit.unitIndex] ?? rulesByUnit[0] ?? [];
     const decision = evaluateAiRules(rules, {
       en: player.en,
       hpPercent: player.hp / player.maxHp,
       enPercent: player.en / player.maxEn,
-      nearestEnemyDistance: targetDistance,
+      nearestEnemyDistance: threatDistance,
       rightCooldown: unit.rightCooldown,
       leftCooldown: unit.leftCooldown,
       missileCooldown: unit.missileCooldown,

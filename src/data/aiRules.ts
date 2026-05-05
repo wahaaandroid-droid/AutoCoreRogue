@@ -1,4 +1,4 @@
-import { AiActionId, AiConditionId, AiRule } from "../types";
+import { AiActionId, AiConditionId, AiRule, TargetPriorityId } from "../types";
 
 export interface ConditionDefinition {
   id: AiConditionId;
@@ -10,6 +10,12 @@ export interface ActionDefinition {
   id: AiActionId;
   label: string;
   tint: string;
+}
+
+export interface TargetPriorityDefinition {
+  id: TargetPriorityId;
+  label: string;
+  description: string;
 }
 
 export const conditionDefinitions: ConditionDefinition[] = [
@@ -36,11 +42,21 @@ export const actionDefinitions: ActionDefinition[] = [
   { id: "idle", label: "何もしない", tint: "gray" },
 ];
 
+export const targetPriorityDefinitions: TargetPriorityDefinition[] = [
+  { id: "nearest", label: "近い敵", description: "距離が最も近い敵を狙う" },
+  { id: "lowestHp", label: "HPが低い敵", description: "残HPが最も少ない敵を狙う" },
+  { id: "lowestHpPercent", label: "HP割合が低い敵", description: "削れている敵を優先して狙う" },
+  { id: "eliteFirst", label: "強敵優先", description: "ボスやエリートを優先して狙う" },
+];
+
 export const getConditionLabel = (condition: AiConditionId): string =>
   conditionDefinitions.find((item) => item.id === condition)?.label ?? condition;
 
 export const getActionLabel = (action: AiActionId): string =>
   actionDefinitions.find((item) => item.id === action)?.label ?? action;
+
+export const getTargetPriorityLabel = (priority: TargetPriorityId): string =>
+  targetPriorityDefinitions.find((item) => item.id === priority)?.label ?? priority;
 
 export const createEmptyRule = (index: number): AiRule => ({
   id: `rule-${index + 1}`,

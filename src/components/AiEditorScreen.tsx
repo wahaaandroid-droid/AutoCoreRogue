@@ -4,16 +4,20 @@ import {
   ensureAiRuleSlots,
   getActionLabel,
   getConditionLabel,
+  getTargetPriorityLabel,
+  targetPriorityDefinitions,
 } from "../data/aiRules";
-import { AiActionId, AiConditionId, AiRule, DerivedStats } from "../types";
+import { AiActionId, AiConditionId, AiRule, DerivedStats, TargetPriorityId } from "../types";
 
 interface AiEditorScreenProps {
   rules: AiRule[];
   slotCount: number;
   activeUnitIndex: number;
   statsByUnit: DerivedStats[];
+  targetPriority: TargetPriorityId;
   onSelectUnit: (index: number) => void;
   onChangeRules: (rules: AiRule[]) => void;
+  onChangeTargetPriority: (priority: TargetPriorityId) => void;
   onOpenAssemble: () => void;
   onOpenMap: () => void;
   onStartCombat: () => void;
@@ -24,8 +28,10 @@ export default function AiEditorScreen({
   slotCount,
   activeUnitIndex,
   statsByUnit,
+  targetPriority,
   onSelectUnit,
   onChangeRules,
+  onChangeTargetPriority,
   onOpenAssemble,
   onOpenMap,
   onStartCombat,
@@ -60,6 +66,25 @@ export default function AiEditorScreen({
               <small>SPD {unitStats.moveSpeed}</small>
             </button>
           ))}
+        </div>
+        <div className="target-priority-panel">
+          <div>
+            <span>ターゲット優先</span>
+            <strong>{getTargetPriorityLabel(targetPriority)}</strong>
+          </div>
+          <select
+            value={targetPriority}
+            onChange={(event) => onChangeTargetPriority(event.target.value as TargetPriorityId)}
+          >
+            {targetPriorityDefinitions.map((priority) => (
+              <option key={priority.id} value={priority.id}>
+                {priority.label}
+              </option>
+            ))}
+          </select>
+          <small>
+            {targetPriorityDefinitions.find((priority) => priority.id === targetPriority)?.description}
+          </small>
         </div>
         <div className="ai-table">
           <div className="ai-row ai-head">
@@ -109,6 +134,12 @@ export default function AiEditorScreen({
       <section className="panel ai-flow-panel">
         <div className="section-title">PRIORITY STACK</div>
         <div className="ai-flow-list">
+          <div className="ai-flow-card target-card">
+            <span className="priority-dot">T</span>
+            <span>ターゲット</span>
+            <span className="flow-arrow">LOCK</span>
+            <strong>{getTargetPriorityLabel(targetPriority)}</strong>
+          </div>
           {normalizedRules.map((rule, index) => (
             <div className={`ai-flow-card ${rule.enabled ? "" : "disabled"}`} key={rule.id}>
               <span className="priority-dot">{index + 1}</span>

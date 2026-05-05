@@ -3,7 +3,7 @@ import { getActionLabel, getConditionLabel } from "../data/aiRules";
 import { CombatActor, CombatState, PlayerCombatUnit, createCombatState, stepCombat } from "../game/combat";
 import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
-import { AiRule, DerivedStats, LegType } from "../types";
+import { AiRule, DerivedStats, LegType, TargetPriorityId } from "../types";
 import arenaFloorUrl from "../assets/arena-floor.png";
 import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
@@ -14,6 +14,7 @@ interface CombatScreenProps {
   unitHpByUnit: number[];
   sortieEnabled: boolean[];
   rulesByUnit: AiRule[][];
+  targetPrioritiesByUnit: TargetPriorityId[];
   activeUnitIndex: number;
   onSelectUnit: (index: number) => void;
   onVictory: (unitHpByUnit: number[]) => void;
@@ -340,6 +341,7 @@ export default function CombatScreen({
   unitHpByUnit,
   sortieEnabled,
   rulesByUnit,
+  targetPrioritiesByUnit,
   activeUnitIndex,
   onSelectUnit,
   onVictory,
@@ -381,7 +383,7 @@ export default function CombatScreen({
     const frame = (now: number) => {
       const dt = Math.min(0.033, Math.max(0.001, (now - last) / 1000));
       last = now;
-      const current = stepCombat(stateRef.current, dt, rulesByUnit);
+      const current = stepCombat(stateRef.current, dt, rulesByUnit, targetPrioritiesByUnit);
       playCombatSoundEvents(current.soundEvents);
       drawCombat(ctx, current);
 
@@ -419,7 +421,7 @@ export default function CombatScreen({
 
     animation = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(animation);
-  }, [onDefeat, onVictory, rulesByUnit, stage]);
+  }, [onDefeat, onVictory, rulesByUnit, stage, targetPrioritiesByUnit]);
 
   if (!activeUnit || !activeStats) {
     return null;

@@ -107,6 +107,12 @@ export type AiActionId =
   | "guard"
   | "idle";
 
+export type TargetPriorityId =
+  | "nearest"
+  | "lowestHp"
+  | "lowestHpPercent"
+  | "eliteFirst";
+
 export interface AiRule {
   id: string;
   condition: AiConditionId;
