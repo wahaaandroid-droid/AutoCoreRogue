@@ -330,12 +330,12 @@ const pushBoostBurst = (
 ): void => {
   const angle = Math.atan2(direction.y, direction.x);
   const side = { x: -direction.y, y: direction.x };
-  const backX = actor.x - direction.x * (actor.radius + 16);
-  const backY = actor.y - direction.y * (actor.radius + 16);
+  const backX = actor.x - direction.x * (actor.radius + 5);
+  const backY = actor.y - direction.y * (actor.radius + 5);
 
   pushMoveEffect(state, backX, backY, color, 34, 0.34, angle);
-  pushMoveEffect(state, backX - direction.x * 15 + side.x * 9, backY - direction.y * 15 + side.y * 9, "#8af6ff", 18, 0.26, angle);
-  pushMoveEffect(state, backX - direction.x * 18 - side.x * 9, backY - direction.y * 18 - side.y * 9, "#ffb35a", 15, 0.22, angle);
+  pushMoveEffect(state, backX - direction.x * 5 + side.x * 6, backY - direction.y * 5 + side.y * 6, "#8af6ff", 18, 0.26, angle);
+  pushMoveEffect(state, backX - direction.x * 6 - side.x * 6, backY - direction.y * 6 - side.y * 6, "#ffb35a", 15, 0.22, angle);
 };
 
 const fireProjectile = (
