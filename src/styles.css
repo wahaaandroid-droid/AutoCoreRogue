@@ -156,7 +156,9 @@ select {
   grid-template-columns: 280px 1fr 270px;
   grid-template-rows: minmax(440px, 52vh) 1fr;
   gap: 12px;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .slot-panel,
@@ -170,6 +172,12 @@ select {
 .run-panel {
   padding: 14px;
   min-height: 0;
+}
+
+.slot-panel,
+.mech-preview-panel,
+.status-panel {
+  overflow: auto;
 }
 
 .slot-list {
@@ -249,6 +257,12 @@ select {
 
 .screen-actions.compact-actions {
   margin-top: 10px;
+}
+
+.slot-panel .screen-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .screen-actions.vertical {
