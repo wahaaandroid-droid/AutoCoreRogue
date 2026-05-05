@@ -7,12 +7,18 @@ interface AssembleScreenProps {
   loadouts: Loadout[];
   unlockedPartIds: string[];
   statsByUnit: DerivedStats[];
+  unitHpByUnit: number[];
+  sortieEnabled: boolean[];
+  repairKitStock: number;
   activeUnitIndex: number;
   onSelectUnit: (index: number) => void;
   onChangeLoadout: (slot: PartSlot, partId: string) => void;
+  onToggleSortie: (index: number) => void;
+  onUseRepairKit: (index: number) => void;
   onOpenAi: () => void;
   onOpenMap: () => void;
   onStartCombat: () => void;
+  canStartCombat: boolean;
 }
 
 const statRows = [
@@ -30,16 +36,24 @@ export default function AssembleScreen({
   loadouts,
   unlockedPartIds,
   statsByUnit,
+  unitHpByUnit,
+  sortieEnabled,
+  repairKitStock,
   activeUnitIndex,
   onSelectUnit,
   onChangeLoadout,
+  onToggleSortie,
+  onUseRepairKit,
   onOpenAi,
   onOpenMap,
   onStartCombat,
+  canStartCombat,
 }: AssembleScreenProps) {
   const [activeSlot, setActiveSlot] = useState<PartSlot>("LEGS");
   const loadout = loadouts[activeUnitIndex] ?? loadouts[0];
   const stats = statsByUnit[activeUnitIndex] ?? statsByUnit[0];
+  const currentHp = Math.min(unitHpByUnit[activeUnitIndex] ?? stats.hpMax, stats.hpMax);
+  const canRepair = repairKitStock > 0 && currentHp < stats.hpMax;
   const build = buildFromLoadout(loadout);
   const unlocked = new Set(unlockedPartIds);
 
@@ -55,9 +69,33 @@ export default function AssembleScreen({
               onClick={() => onSelectUnit(index)}
             >
               <strong>UNIT {index + 1}</strong>
-              <small>HP {unitStats.hpMax}</small>
+              <small>
+                HP {Math.ceil(Math.min(unitHpByUnit[index] ?? unitStats.hpMax, unitStats.hpMax))} / {unitStats.hpMax}
+              </small>
+              <small>{sortieEnabled[index] && (unitHpByUnit[index] ?? unitStats.hpMax) > 0 ? "出撃 ON" : "出撃 OFF"}</small>
             </button>
           ))}
+        </div>
+        <div className="kit-panel">
+          <div>
+            <span>リペアキット</span>
+            <strong>{repairKitStock}</strong>
+          </div>
+          <div>
+            <span>選択ユニットHP</span>
+            <strong>{Math.ceil(currentHp)} / {stats.hpMax}</strong>
+          </div>
+          <div className="screen-actions compact-actions">
+            <button
+              onClick={() => onToggleSortie(activeUnitIndex)}
+              disabled={currentHp <= 0}
+            >
+              {sortieEnabled[activeUnitIndex] && currentHp > 0 ? "出撃 ON" : "出撃 OFF"}
+            </button>
+            <button onClick={() => onUseRepairKit(activeUnitIndex)} disabled={!canRepair}>
+              リペアキット使用
+            </button>
+          </div>
         </div>
         <div className="slot-list">
           {SLOTS.map((slot) => {
@@ -80,7 +118,7 @@ export default function AssembleScreen({
         <div className="screen-actions">
           <button onClick={onOpenMap}>MAP</button>
           <button onClick={onOpenAi}>AI EDIT</button>
-          <button className="primary" onClick={onStartCombat}>出撃</button>
+          <button className="primary" onClick={onStartCombat} disabled={!canStartCombat}>出撃</button>
         </div>
       </section>
 

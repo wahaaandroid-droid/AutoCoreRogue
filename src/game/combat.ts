@@ -44,6 +44,7 @@ export interface CombatActor {
 }
 
 export interface PlayerCombatUnit {
+  unitIndex: number;
   actor: CombatActor;
   stats: DerivedStats;
   activeAction: AiActionId;
@@ -185,24 +186,37 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   rank: "normal",
 });
 
-const createPlayerUnit = (stats: DerivedStats, index: number): PlayerCombatUnit => ({
-  actor: createPlayerActor(stats, index),
-  stats,
-  activeAction: "idle",
-  rightCooldown: 0.2 + index * 0.08,
-  leftCooldown: 0.35 + index * 0.08,
-  missileCooldown: 1.5 + index * 0.16,
-  boostCooldown: 0,
-  rightResource: stats.rightResource,
-  leftResource: stats.leftResource,
-  rightAmmo: stats.rightAmmoMax,
-  rightAmmoMax: stats.rightAmmoMax,
-  leftAmmo: stats.leftAmmoMax,
-  leftAmmoMax: stats.leftAmmoMax,
-  rightEnergyCost: stats.rightEnergyCost,
-  leftEnergyCost: stats.leftEnergyCost,
-  missileEnergyCost: stats.missileEnergyCost,
-});
+const createPlayerUnit = (
+  stats: DerivedStats,
+  unitIndex: number,
+  formationIndex: number,
+  currentHp: number,
+): PlayerCombatUnit => {
+  const actor = createPlayerActor(stats, unitIndex);
+  actor.x = ARENA_WIDTH * (PLAYER_FORMATION[formationIndex]?.x ?? 0.5);
+  actor.y = ARENA_HEIGHT * (PLAYER_FORMATION[formationIndex]?.y ?? 0.58);
+  actor.hp = clamp(currentHp, 0, stats.hpMax);
+
+  return {
+    unitIndex,
+    actor,
+    stats,
+    activeAction: "idle",
+    rightCooldown: 0.2 + formationIndex * 0.08,
+    leftCooldown: 0.35 + formationIndex * 0.08,
+    missileCooldown: 1.5 + formationIndex * 0.16,
+    boostCooldown: 0,
+    rightResource: stats.rightResource,
+    leftResource: stats.leftResource,
+    rightAmmo: stats.rightAmmoMax,
+    rightAmmoMax: stats.rightAmmoMax,
+    leftAmmo: stats.leftAmmoMax,
+    leftAmmoMax: stats.leftAmmoMax,
+    rightEnergyCost: stats.rightEnergyCost,
+    leftEnergyCost: stats.leftEnergyCost,
+    missileEnergyCost: stats.missileEnergyCost,
+  };
+};
 
 const createEnemy = (
   stage: number,
@@ -346,15 +360,28 @@ const refillEnemyWave = (state: CombatState): void => {
   state.spawnedEnemyCount += incoming.length;
 };
 
-export const createCombatState = (stage: number, statsByUnit: DerivedStats[]): CombatState => {
+export const createCombatState = (
+  stage: number,
+  statsByUnit: DerivedStats[],
+  unitHpByUnit: number[],
+  sortieEnabled: boolean[],
+): CombatState => {
   const wave = createInitialEnemies(stage);
+  const players = statsByUnit
+    .map((stats, unitIndex) => ({ stats, unitIndex }))
+    .filter(({ stats, unitIndex }) =>
+      (sortieEnabled[unitIndex] ?? true) && (unitHpByUnit[unitIndex] ?? stats.hpMax) > 0,
+    )
+    .map(({ stats, unitIndex }, formationIndex) =>
+      createPlayerUnit(stats, unitIndex, formationIndex, unitHpByUnit[unitIndex] ?? stats.hpMax),
+    );
 
   return {
     width: ARENA_WIDTH,
     height: ARENA_HEIGHT,
     time: 0,
     stage,
-    players: statsByUnit.map((stats, index) => createPlayerUnit(stats, index)),
+    players,
     enemies: wave.enemies,
     enemyQueue: wave.enemyQueue,
     enemyTotal: wave.enemyTotal,
@@ -1005,7 +1032,7 @@ export const stepCombat = (state: CombatState, dt: number, rulesByUnit: AiRule[]
     const targetDistance = target
       ? Math.hypot(target.x - player.x, target.y - player.y)
       : Number.POSITIVE_INFINITY;
-    const rules = rulesByUnit[unitIndex] ?? rulesByUnit[0] ?? [];
+    const rules = rulesByUnit[unit.unitIndex] ?? rulesByUnit[0] ?? [];
     const decision = evaluateAiRules(rules, {
       en: player.en,
       hpPercent: player.hp / player.maxHp,

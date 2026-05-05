@@ -17,6 +17,9 @@ const rewardGlyph = (reward: RewardOption): string => {
   if (reward.payload.kind === "cooldown") {
     return "CD";
   }
+  if (reward.payload.kind === "repairKit") {
+    return "KIT";
+  }
   return reward.payload.stat.toUpperCase();
 };
 

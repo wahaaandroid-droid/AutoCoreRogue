@@ -4,7 +4,8 @@ export type RewardPayload =
   | { kind: "part"; partId: string }
   | { kind: "stat"; stat: "hp" | "enCapacity" | "enRegen" | "attack" | "defense"; amount: number }
   | { kind: "cooldown"; multiplier: number }
-  | { kind: "aiSlot"; amount: number };
+  | { kind: "aiSlot"; amount: number }
+  | { kind: "repairKit"; amount: number };
 
 export interface RewardOption {
   id: string;
@@ -16,6 +17,14 @@ export interface RewardOption {
 }
 
 const staticRewards: RewardOption[] = [
+  {
+    id: "repair-kit",
+    title: "リペアキット",
+    subtitle: "応急修理資材",
+    description: "リペアキットを1個ストック。ASSEMBLEで選択中ユニットを全回復できる。",
+    accent: "green",
+    payload: { kind: "repairKit", amount: 1 },
+  },
   {
     id: "hp-boost",
     title: "HP強化",
@@ -98,12 +107,13 @@ export const generateRewardOptions = (
   const rotating = staticRewards.filter((reward) => reward.id !== "ai-slot");
   const first = rotating[(stage + 1) % rotating.length];
   const second = rotating[(stage + 3) % rotating.length];
-  const pool = [...partRewards, first, second, aiReward].filter(Boolean) as RewardOption[];
+  const repairReward = staticRewards.find((reward) => reward.id === "repair-kit");
+  const pool = [repairReward, ...partRewards, first, second, aiReward].filter(Boolean) as RewardOption[];
   const unique = new Map<string, RewardOption>();
 
   for (const reward of pool) {
     unique.set(reward.id, reward);
   }
 
-  return [...unique.values()].slice(0, 3);
+  return [...unique.values()].slice(0, 4);
 };

@@ -58,6 +58,12 @@ button:hover {
   transform: translateY(-1px);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
 button.primary {
   border-color: rgba(54, 207, 255, 0.62);
   background: linear-gradient(180deg, rgba(14, 91, 120, 0.95), rgba(11, 39, 52, 0.95));
@@ -183,7 +189,7 @@ select {
 }
 
 .unit-switcher button {
-  min-height: 54px;
+  min-height: 66px;
   text-align: left;
   padding: 8px 10px;
 }
@@ -241,8 +247,33 @@ select {
   margin-top: 14px;
 }
 
+.screen-actions.compact-actions {
+  margin-top: 10px;
+}
+
 .screen-actions.vertical {
   display: grid;
+}
+
+.kit-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid rgba(84, 244, 167, 0.22);
+  background: rgba(8, 24, 20, 0.28);
+}
+
+.kit-panel > div:not(.screen-actions) {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kit-panel strong {
+  color: var(--green);
 }
 
 .mech-preview-panel {
@@ -683,7 +714,7 @@ select {
 
 .reward-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 

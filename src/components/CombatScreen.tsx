@@ -11,10 +11,12 @@ import combatSpritesUrl from "../assets/combat-sprites.png";
 interface CombatScreenProps {
   stage: number;
   statsByUnit: DerivedStats[];
+  unitHpByUnit: number[];
+  sortieEnabled: boolean[];
   rulesByUnit: AiRule[][];
   activeUnitIndex: number;
   onSelectUnit: (index: number) => void;
-  onVictory: () => void;
+  onVictory: (unitHpByUnit: number[]) => void;
   onDefeat: () => void;
   onOpenAssemble: () => void;
   onOpenAi: () => void;
@@ -316,8 +318,8 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState) => {
   for (const enemy of state.enemies) {
     drawMech(ctx, enemy, false, enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped");
   }
-  state.players.forEach((unit, index) => {
-    drawMech(ctx, unit.actor, true, unit.stats.legType, `U${index + 1}`);
+  state.players.forEach((unit) => {
+    drawMech(ctx, unit.actor, true, unit.stats.legType, `U${unit.unitIndex + 1}`);
   });
 
   if (state.status !== "running") {
@@ -335,6 +337,8 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState) => {
 export default function CombatScreen({
   stage,
   statsByUnit,
+  unitHpByUnit,
+  sortieEnabled,
   rulesByUnit,
   activeUnitIndex,
   onSelectUnit,
@@ -344,21 +348,21 @@ export default function CombatScreen({
   onOpenAi,
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef<CombatState>(createCombatState(stage, statsByUnit));
+  const stateRef = useRef<CombatState>(createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled));
   const resolvedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
-  const clampedUnitIndex = Math.min(activeUnitIndex, Math.max(0, snapshot.players.length - 1));
-  const activeUnit = snapshot.players[clampedUnitIndex] ?? snapshot.players[0];
-  const activeStats = statsByUnit[clampedUnitIndex] ?? statsByUnit[0];
-  const activeRules = rulesByUnit[clampedUnitIndex] ?? rulesByUnit[0] ?? [];
+  const activeUnit = snapshot.players.find((unit) => unit.unitIndex === activeUnitIndex) ?? snapshot.players[0];
+  const selectedUnitIndex = activeUnit?.unitIndex ?? 0;
+  const activeStats = statsByUnit[selectedUnitIndex] ?? statsByUnit[0];
+  const activeRules = rulesByUnit[selectedUnitIndex] ?? rulesByUnit[0] ?? [];
   const rulesById = useMemo(() => new Map(activeRules.map((rule) => [rule.id, rule])), [activeRules]);
   const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
   useEffect(() => {
-    stateRef.current = createCombatState(stage, statsByUnit);
+    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled);
     resolvedRef.current = false;
     setSnapshot(stateRef.current);
-  }, [stage, statsByUnit]);
+  }, [stage, statsByUnit, unitHpByUnit, sortieEnabled]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -398,7 +402,12 @@ export default function CombatScreen({
         resolvedRef.current = true;
         window.setTimeout(() => {
           if (current.status === "victory") {
-            onVictory();
+            onVictory(
+              current.players.reduce<number[]>((hpByUnit, unit) => {
+                hpByUnit[unit.unitIndex] = unit.actor.hp;
+                return hpByUnit;
+              }, []),
+            );
           } else {
             onDefeat();
           }
@@ -434,10 +443,10 @@ export default function CombatScreen({
             {snapshot.players.map((unit, index) => (
               <button
                 key={unit.actor.id}
-                className={`squad-status-row ${clampedUnitIndex === index ? "active" : ""}`}
-                onClick={() => onSelectUnit(index)}
+                className={`squad-status-row ${selectedUnitIndex === unit.unitIndex ? "active" : ""}`}
+                onClick={() => onSelectUnit(unit.unitIndex)}
               >
-                <span>UNIT {index + 1}</span>
+                <span>UNIT {unit.unitIndex + 1}</span>
                 <b>{unit.actor.hp > 0 ? Math.ceil(unit.actor.hp) : "DOWN"}</b>
               </button>
             ))}
@@ -502,7 +511,7 @@ export default function CombatScreen({
         <div className="panel compact radar-panel">
           <div className="section-title">RADAR</div>
           <div className="radar">
-            {snapshot.players.map((unit, index) => (
+            {snapshot.players.map((unit) => (
               <span
                 key={unit.actor.id}
                 className={`radar-player ${unit.actor.hp <= 0 ? "down" : ""}`}
@@ -510,8 +519,8 @@ export default function CombatScreen({
                   left: `${(unit.actor.x / snapshot.width) * 100}%`,
                   top: `${(unit.actor.y / snapshot.height) * 100}%`,
                   background: unit.actor.color,
-                  width: clampedUnitIndex === index ? 10 : 8,
-                  height: clampedUnitIndex === index ? 10 : 8,
+                  width: selectedUnitIndex === unit.unitIndex ? 10 : 8,
+                  height: selectedUnitIndex === unit.unitIndex ? 10 : 8,
                 }}
               />
             ))}
