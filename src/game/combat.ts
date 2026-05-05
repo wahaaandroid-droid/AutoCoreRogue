@@ -34,6 +34,7 @@ export interface CombatActor {
   attack: number;
   cooldown: number;
   cooldownMax: number;
+  boostCooldown: number;
   guard: boolean;
   legType?: LegType;
   color: string;
@@ -72,7 +73,7 @@ export interface CombatState {
 
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
-const ENEMY_HP_MULTIPLIER = 9;
+const ENEMY_HP_MULTIPLIER = 4.5;
 const PLAYER_DAMAGE_MULTIPLIER = 0.48;
 let nextId = 1;
 
@@ -94,8 +95,8 @@ const damageAfterDefense = (raw: number, target: CombatActor): number => {
 };
 
 const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): void => {
-  actor.ax += x * actor.moveSpeed * 4.85 * strength;
-  actor.ay += y * actor.moveSpeed * 4.85 * strength;
+  actor.ax += x * actor.moveSpeed * 3.15 * strength;
+  actor.ay += y * actor.moveSpeed * 3.15 * strength;
 };
 
 const maxSpeedFor = (actor: CombatActor): number => {
@@ -110,20 +111,20 @@ const maxSpeedFor = (actor: CombatActor): number => {
 
 const dragFor = (actor: CombatActor): number => {
   if (actor.team === "enemy") {
-    return actor.rank === "boss" ? 2.2 : 2.6;
+    return actor.rank === "boss" ? 1.35 : 1.55;
   }
 
   switch (actor.legType) {
     case "hover":
-      return 1.15;
+      return 0.88;
     case "tank":
-      return 1.8;
+      return 1.18;
     case "reverse":
-      return 2.65;
+      return 1.75;
     case "quad":
-      return 2.25;
+      return 1.5;
     default:
-      return 2.4;
+      return 1.58;
   }
 };
 
@@ -153,6 +154,7 @@ const createPlayer = (stats: DerivedStats): CombatActor => ({
   attack: Math.max(stats.rightAttack, stats.leftAttack),
   cooldown: 0,
   cooldownMax: 1,
+  boostCooldown: 0,
   guard: false,
   legType: stats.legType,
   color: "#8ad8ff",
@@ -193,6 +195,7 @@ const createEnemy = (stage: number, index: number, rank: CombatActor["rank"]): C
     attack: baseAttack * attackScale,
     cooldown: 0.4 + index * 0.35,
     cooldownMax: rank === "boss" ? 0.82 : rank === "elite" ? 1.0 : 1.18,
+    boostCooldown: 1.1 + index * 0.18,
     guard: false,
     color: rank === "boss" ? "#ff6a42" : rank === "elite" ? "#d889ff" : "#f1b15b",
     rank,
@@ -262,6 +265,36 @@ const nearestEnemyProjectileDistance = (state: CombatState): number => {
     }
     best = Math.min(best, Math.hypot(projectile.x - state.player.x, projectile.y - state.player.y));
   }
+  return best;
+};
+
+const nearestPlayerProjectileThreat = (
+  state: CombatState,
+  enemy: CombatActor,
+): { distance: number; x: number; y: number } | undefined => {
+  let best: { distance: number; x: number; y: number } | undefined;
+  for (const projectile of state.projectiles) {
+    if (projectile.owner !== "player") {
+      continue;
+    }
+
+    const dx = projectile.x - enemy.x;
+    const dy = projectile.y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 92) {
+      continue;
+    }
+
+    const closing = (projectile.vx * dx + projectile.vy * dy) < 0;
+    if (!closing && distance > 48) {
+      continue;
+    }
+
+    if (!best || distance < best.distance) {
+      best = { distance, x: dx / Math.max(1, distance), y: dy / Math.max(1, distance) };
+    }
+  }
+
   return best;
 };
 
@@ -388,6 +421,9 @@ const performBladeAttack = (
   );
 
   target.hp = Math.max(0, target.hp - damageAfterDefense(damage, target));
+  const knockback = target.rank === "boss" ? 95 : target.rank === "elite" ? 145 : 205;
+  target.vx += aim.x * knockback;
+  target.vy += aim.y * knockback;
   state.soundEvents.push("blade", "hit");
   state.effects.push(
     createEffect({
@@ -471,18 +507,18 @@ const applyPlayerAction = (
   const perpendicular = { x: -toTarget.y * strafeDirection, y: toTarget.x * strafeDirection };
   const rangeBias = toTarget.distance > 285 ? 0.44 : toTarget.distance < 118 ? -0.62 : 0.05;
   const combatDrift = () => {
-    applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 0.78);
+    applyThrust(player, perpendicular.x * 0.45 + toTarget.x * rangeBias, perpendicular.y * 0.45 + toTarget.y * rangeBias, 0.5);
   };
 
   switch (action) {
     case "approach":
-      applyThrust(player, toTarget.x, toTarget.y, 1.1);
+      applyThrust(player, toTarget.x, toTarget.y, 0.82);
       break;
     case "retreat":
-      applyThrust(player, -toTarget.x, -toTarget.y, 1.0);
+      applyThrust(player, -toTarget.x, -toTarget.y, 0.68);
       break;
     case "strafe":
-      applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 1.0);
+      applyThrust(player, perpendicular.x * 0.55 + toTarget.x * rangeBias, perpendicular.y * 0.55 + toTarget.y * rangeBias, 0.58);
       break;
     case "boostDodge": {
       const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
@@ -494,7 +530,7 @@ const applyPlayerAction = (
         state.boostCooldown = 0.5;
         state.soundEvents.push("boost");
       } else {
-        applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 0.48);
+        applyThrust(player, perpendicular.x * 0.35 + toTarget.x * rangeBias, perpendicular.y * 0.35 + toTarget.y * rangeBias, 0.32);
       }
       break;
     }
@@ -519,11 +555,11 @@ const applyPlayerAction = (
       if (stats.leftWeaponKind === "blade") {
         const bladeReach = player.radius + target.radius + 118;
         if (toTarget.distance > bladeReach) {
-          applyThrust(player, toTarget.x, toTarget.y, 1.72);
+          applyThrust(player, toTarget.x, toTarget.y, 1.15);
           break;
         }
 
-        applyThrust(player, toTarget.x, toTarget.y, 0.85);
+        applyThrust(player, toTarget.x, toTarget.y, 0.58);
         if (state.leftCooldown <= 0 && consumeWeapon(state, "left")) {
           player.vx += toTarget.x * player.moveSpeed * 0.88;
           player.vy += toTarget.y * player.moveSpeed * 0.88;
@@ -560,7 +596,7 @@ const applyPlayerAction = (
       break;
     case "guard":
       player.guard = true;
-      applyThrust(player, -toTarget.x, -toTarget.y, 0.3);
+      applyThrust(player, -toTarget.x, -toTarget.y, 0.2);
       break;
     case "idle":
       combatDrift();
@@ -574,13 +610,26 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   enemy.ax = 0;
   enemy.ay = 0;
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
+  enemy.boostCooldown = Math.max(0, enemy.boostCooldown - dt);
+
+  const threat = nearestPlayerProjectileThreat(state, enemy);
+  if (threat && enemy.boostCooldown <= 0) {
+    const dodgeSide = Math.sin(state.time * 3.1 + enemy.x * 0.013) > 0 ? 1 : -1;
+    const dodge = { x: -threat.y * dodgeSide, y: threat.x * dodgeSide };
+    enemy.vx += dodge.x * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55);
+    enemy.vy += dodge.y * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55);
+    applyThrust(enemy, dodge.x, dodge.y, enemy.rank === "boss" ? 0.65 : 0.85);
+    pushBoostBurst(state, enemy, dodge, enemy.rank === "elite" ? "#d889ff" : "#ff9d42");
+    state.soundEvents.push("boost");
+    enemy.boostCooldown = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 0.85 : 1.25;
+  }
 
   if (toPlayer.distance > enemy.range * 0.82) {
-    applyThrust(enemy, toPlayer.x, toPlayer.y, 0.8);
+    applyThrust(enemy, toPlayer.x, toPlayer.y, 0.42);
   } else {
     const drift = Math.sin(state.time * 1.5 + enemy.x * 0.01) > 0 ? 1 : -1;
-    const pressure = toPlayer.distance < enemy.range * 0.46 ? -0.45 : 0.08;
-    applyThrust(enemy, -toPlayer.y * drift + toPlayer.x * pressure, toPlayer.x * drift + toPlayer.y * pressure, 0.46);
+    const pressure = toPlayer.distance < enemy.range * 0.46 ? -0.32 : 0.06;
+    applyThrust(enemy, -toPlayer.y * drift * 0.38 + toPlayer.x * pressure, toPlayer.x * drift * 0.38 + toPlayer.y * pressure, 0.24);
   }
 
   if (toPlayer.distance <= enemy.range && enemy.cooldown <= 0) {
@@ -637,6 +686,53 @@ const updatePositions = (state: CombatState, dt: number): void => {
     actor.vy *= drag;
     actor.ax = 0;
     actor.ay = 0;
+  }
+};
+
+const resolveActorCollisions = (state: CombatState): void => {
+  const actors = [state.player, ...state.enemies].filter((actor) => actor.hp > 0);
+  const minX = 36;
+  const maxX = state.width - 36;
+  const minY = 36;
+  const maxY = state.height - 36;
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let a = 0; a < actors.length; a += 1) {
+      for (let b = a + 1; b < actors.length; b += 1) {
+        const first = actors[a];
+        const second = actors[b];
+        const dx = second.x - first.x;
+        const dy = second.y - first.y;
+        const distance = Math.hypot(dx, dy);
+        const minimum = first.radius + second.radius + 3;
+        if (distance >= minimum) {
+          continue;
+        }
+
+        const normalX = distance > 0.001 ? dx / distance : Math.cos(a + b);
+        const normalY = distance > 0.001 ? dy / distance : Math.sin(a + b);
+        const overlap = minimum - Math.max(distance, 0.001);
+        const firstMass = first.radius * (first.team === "player" ? 1.15 : first.rank === "boss" ? 1.8 : 1);
+        const secondMass = second.radius * (second.team === "player" ? 1.15 : second.rank === "boss" ? 1.8 : 1);
+        const totalMass = firstMass + secondMass;
+        const firstPush = (overlap * secondMass) / totalMass;
+        const secondPush = (overlap * firstMass) / totalMass;
+
+        first.x = clamp(first.x - normalX * firstPush, minX, maxX);
+        first.y = clamp(first.y - normalY * firstPush, minY, maxY);
+        second.x = clamp(second.x + normalX * secondPush, minX, maxX);
+        second.y = clamp(second.y + normalY * secondPush, minY, maxY);
+
+        const relativeVelocity = (second.vx - first.vx) * normalX + (second.vy - first.vy) * normalY;
+        if (relativeVelocity < 0) {
+          const impulse = relativeVelocity * -0.42;
+          first.vx -= normalX * impulse * (secondMass / totalMass);
+          first.vy -= normalY * impulse * (secondMass / totalMass);
+          second.vx += normalX * impulse * (firstMass / totalMass);
+          second.vy += normalY * impulse * (firstMass / totalMass);
+        }
+      }
+    }
   }
 };
 
@@ -755,6 +851,7 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
   }
 
   updatePositions(state, dt);
+  resolveActorCollisions(state);
   updateHits(state, dt);
   updateEffects(state, dt);
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0);
