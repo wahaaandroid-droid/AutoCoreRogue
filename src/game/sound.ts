@@ -54,7 +54,13 @@ const playTone = (
   oscillator.stop(now + duration + 0.03);
 };
 
-const playNoise = (context: AudioContext, duration: number, gainValue: number): void => {
+const playNoise = (
+  context: AudioContext,
+  duration: number,
+  gainValue: number,
+  frequency = 680,
+  q = 1.1,
+): void => {
   const sampleRate = context.sampleRate;
   const buffer = context.createBuffer(1, Math.floor(sampleRate * duration), sampleRate);
   const data = buffer.getChannelData(0);
@@ -68,8 +74,8 @@ const playNoise = (context: AudioContext, duration: number, gainValue: number): 
   const now = context.currentTime;
 
   filter.type = "bandpass";
-  filter.frequency.setValueAtTime(680, now);
-  filter.Q.setValueAtTime(1.1, now);
+  filter.frequency.setValueAtTime(frequency, now);
+  filter.Q.setValueAtTime(q, now);
   gain.gain.setValueAtTime(gainValue, now);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   source.buffer = buffer;
@@ -89,8 +95,14 @@ const playEvent = (context: AudioContext, event: CombatSoundEvent): void => {
       playTone(context, "sawtooth", 190, 92, 0.22, 0.045);
       break;
     case "boost":
-      playTone(context, "sawtooth", 120, 68, 0.18, 0.04);
-      playNoise(context, 0.16, 0.03);
+      playTone(context, "sawtooth", 820, 95, 0.21, 0.062);
+      playTone(context, "triangle", 1480, 420, 0.11, 0.026);
+      playNoise(context, 0.22, 0.058, 1450, 0.74);
+      break;
+    case "blade":
+      playTone(context, "sawtooth", 1180, 260, 0.16, 0.048);
+      playTone(context, "triangle", 520, 940, 0.09, 0.032);
+      playNoise(context, 0.12, 0.035, 2200, 1.6);
       break;
     case "hit":
       playNoise(context, 0.11, 0.04);

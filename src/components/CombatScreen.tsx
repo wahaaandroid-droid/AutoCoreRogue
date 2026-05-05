@@ -218,11 +218,45 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
     ctx.restore();
     return;
   }
-  ctx.translate(-effect.x, -effect.y);
   ctx.strokeStyle = effect.color;
   ctx.fillStyle = effect.color;
   ctx.shadowColor = effect.color;
   ctx.shadowBlur = 20;
+
+  if (effect.kind === "slash") {
+    ctx.rotate(effect.rotation ?? 0);
+    ctx.lineCap = "round";
+    ctx.lineWidth = 7 * (1 - progress * 0.35);
+    ctx.beginPath();
+    ctx.arc(10, 0, effect.size * (0.35 + progress * 0.2), -0.82, 0.82);
+    ctx.stroke();
+    ctx.globalAlpha *= 0.48;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(8, 0, effect.size * (0.62 + progress * 0.18), -0.68, 0.68);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  if (effect.kind === "boost") {
+    ctx.rotate(effect.rotation ?? 0);
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, effect.size * (0.55 + progress * 0.85), effect.size * (0.22 + progress * 0.32), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha *= 0.48;
+    ctx.beginPath();
+    ctx.moveTo(-effect.size * (1.35 + progress), -effect.size * 0.23);
+    ctx.lineTo(effect.size * 0.18, 0);
+    ctx.lineTo(-effect.size * (1.35 + progress), effect.size * 0.23);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  ctx.translate(-effect.x, -effect.y);
   if (effect.kind === "explosion") {
     ctx.beginPath();
     ctx.arc(effect.x, effect.y, effect.size * progress, 0, Math.PI * 2);

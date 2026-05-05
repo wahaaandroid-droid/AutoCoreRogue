@@ -40,7 +40,7 @@ export interface CombatActor {
   rank: "normal" | "elite" | "boss";
 }
 
-export type CombatSoundEvent = "shoot" | "missile" | "boost" | "hit" | "defeat";
+export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
 
 export interface CombatState {
   width: number;
@@ -263,19 +263,44 @@ const nearestEnemyProjectileDistance = (state: CombatState): number => {
   return best;
 };
 
-const pushMoveEffect = (state: CombatState, x: number, y: number, color: string, size = 13): void => {
+const pushMoveEffect = (
+  state: CombatState,
+  x: number,
+  y: number,
+  color: string,
+  size = 13,
+  life = 0.22,
+  rotation?: number,
+): void => {
   state.effects.push(
     createEffect({
       id: uid("effect"),
       kind: "boost",
       x,
       y,
-      life: 0.22,
-      maxLife: 0.22,
+      life,
+      maxLife: life,
       color,
       size,
+      rotation,
     }),
   );
+};
+
+const pushBoostBurst = (
+  state: CombatState,
+  actor: CombatActor,
+  direction: { x: number; y: number },
+  color = "#21e0ff",
+): void => {
+  const angle = Math.atan2(direction.y, direction.x);
+  const side = { x: -direction.y, y: direction.x };
+  const backX = actor.x - direction.x * (actor.radius + 16);
+  const backY = actor.y - direction.y * (actor.radius + 16);
+
+  pushMoveEffect(state, backX, backY, color, 34, 0.34, angle);
+  pushMoveEffect(state, backX - direction.x * 15 + side.x * 9, backY - direction.y * 15 + side.y * 9, "#8af6ff", 18, 0.26, angle);
+  pushMoveEffect(state, backX - direction.x * 18 - side.x * 9, backY - direction.y * 18 - side.y * 9, "#ffb35a", 15, 0.22, angle);
 };
 
 const fireProjectile = (
@@ -319,6 +344,61 @@ const fireProjectile = (
     }),
   );
   state.soundEvents.push(kind === "missile" ? "missile" : "shoot");
+};
+
+const performBladeAttack = (
+  state: CombatState,
+  source: CombatActor,
+  target: CombatActor,
+  damage: number,
+  reach: number,
+): void => {
+  const aim = normalize(target.x - source.x, target.y - source.y);
+  const rotation = Math.atan2(aim.y, aim.x);
+  const strikeDistance = Math.min(reach * 0.72, aim.distance * 0.58);
+  const strikeX = source.x + aim.x * strikeDistance;
+  const strikeY = source.y + aim.y * strikeDistance;
+
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "slash",
+      x: strikeX,
+      y: strikeY,
+      life: 0.24,
+      maxLife: 0.24,
+      color: "#8dfff1",
+      size: 62,
+      rotation,
+    }),
+  );
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "muzzle",
+      x: source.x + aim.x * (source.radius + 10),
+      y: source.y + aim.y * (source.radius + 10),
+      life: 0.11,
+      maxLife: 0.11,
+      color: "#d7fff6",
+      size: 20,
+    }),
+  );
+
+  target.hp = Math.max(0, target.hp - damageAfterDefense(damage, target));
+  state.soundEvents.push("blade", "hit");
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "explosion",
+      x: target.x - aim.x * target.radius * 0.35,
+      y: target.y - aim.y * target.radius * 0.35,
+      life: 0.18,
+      maxLife: 0.18,
+      color: "#9fffee",
+      size: 22,
+    }),
+  );
 };
 
 const spendEnergy = (actor: CombatActor, amount: number): boolean => {
@@ -405,10 +485,10 @@ const applyPlayerAction = (
     case "boostDodge": {
       const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
       if (spendEnergy(player, cost)) {
-        player.vx += perpendicular.x * player.moveSpeed * 1.85;
-        player.vy += perpendicular.y * player.moveSpeed * 1.85;
-        applyThrust(player, perpendicular.x, perpendicular.y, 1.15);
-        pushMoveEffect(state, player.x - perpendicular.x * 18, player.y - perpendicular.y * 18, "#21e0ff", 22);
+        player.vx += perpendicular.x * player.moveSpeed * 2.08;
+        player.vy += perpendicular.y * player.moveSpeed * 2.08;
+        applyThrust(player, perpendicular.x, perpendicular.y, 1.28);
+        pushBoostBurst(state, player, perpendicular);
         state.soundEvents.push("boost");
       }
       break;
@@ -431,10 +511,27 @@ const applyPlayerAction = (
       }
       break;
     case "shootLeft":
+      if (stats.leftWeaponKind === "blade") {
+        const bladeReach = player.radius + target.radius + 94;
+        if (toTarget.distance > bladeReach) {
+          applyThrust(player, toTarget.x, toTarget.y, 1.45);
+          break;
+        }
+
+        applyThrust(player, toTarget.x, toTarget.y, 0.85);
+        if (state.leftCooldown <= 0 && consumeWeapon(state, "left")) {
+          player.vx += toTarget.x * player.moveSpeed * 0.88;
+          player.vy += toTarget.y * player.moveSpeed * 0.88;
+          performBladeAttack(state, player, target, stats.leftAttack * 1.55, bladeReach);
+          state.leftCooldown = stats.leftCooldown;
+        }
+        break;
+      }
+
       combatDrift();
       if (state.leftCooldown <= 0 && consumeWeapon(state, "left")) {
         const ballistic = state.leftResource === "ballistic";
-        const kind = ballistic && stats.leftCooldown > 1.0 ? "missile" : ballistic ? "bullet" : "pulse";
+        const kind = stats.leftWeaponKind === "missile" ? "missile" : ballistic ? "bullet" : "pulse";
         fireProjectile(
           state,
           player,

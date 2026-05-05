@@ -19,13 +19,14 @@ export interface Projectile {
 
 export interface Effect {
   id: string;
-  kind: "explosion" | "boost" | "muzzle";
+  kind: "explosion" | "boost" | "muzzle" | "slash";
   x: number;
   y: number;
   life: number;
   maxLife: number;
   color: string;
   size: number;
+  rotation?: number;
 }
 
 export interface HomingTarget {

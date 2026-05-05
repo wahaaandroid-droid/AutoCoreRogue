@@ -8,6 +8,8 @@ export type Rarity = "common" | "rare" | "elite";
 
 export type WeaponResource = "energy" | "ballistic";
 
+export type WeaponKind = "gun" | "missile" | "blade";
+
 export interface PartStats {
   hp: number;
   enCapacity: number;
@@ -30,6 +32,7 @@ export interface Part {
   description: string;
   legType?: LegType;
   weaponResource?: WeaponResource;
+  weaponKind?: WeaponKind;
   energyCost?: number;
   ammoCapacity?: number;
   rarity: Rarity;
@@ -69,6 +72,8 @@ export interface DerivedStats {
   leftCooldown: number;
   rightResource: WeaponResource;
   leftResource: WeaponResource;
+  rightWeaponKind: WeaponKind;
+  leftWeaponKind: WeaponKind;
   rightEnergyCost: number;
   leftEnergyCost: number;
   rightAmmoMax: number;
