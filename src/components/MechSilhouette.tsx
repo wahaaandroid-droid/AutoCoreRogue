@@ -1,18 +1,36 @@
-import { LegType } from "../types";
+import { BaseFrameId, LegType } from "../types";
 
 interface MechSilhouetteProps {
   legType: LegType;
+  frameId?: BaseFrameId;
   compact?: boolean;
 }
 
-export default function MechSilhouette({ legType, compact = false }: MechSilhouetteProps) {
+const frameBody = (frameId: BaseFrameId | undefined) => {
+  switch (frameId) {
+    case "light":
+      return { coreX: 109, coreY: 50, coreW: 42, coreH: 34, headX: 116, shoulderW: 18 };
+    case "heavy":
+      return { coreX: 96, coreY: 43, coreW: 68, coreH: 50, headX: 112, shoulderW: 31 };
+    case "quad":
+      return { coreX: 101, coreY: 49, coreW: 58, coreH: 42, headX: 114, shoulderW: 28 };
+    case "tank":
+      return { coreX: 92, coreY: 45, coreW: 76, coreH: 46, headX: 112, shoulderW: 34 };
+    case "medium":
+    default:
+      return { coreX: 105, coreY: 47, coreW: 50, coreH: 40, headX: 114, shoulderW: 24 };
+  }
+};
+
+export default function MechSilhouette({ legType, frameId, compact = false }: MechSilhouetteProps) {
   const width = compact ? 130 : 260;
   const height = compact ? 116 : 230;
   const scale = compact ? 0.5 : 1;
+  const body = frameBody(frameId);
 
   return (
     <svg
-      className={`mech-silhouette leg-${legType}`}
+      className={`mech-silhouette leg-${legType} frame-${frameId ?? "medium"}`}
       viewBox="0 0 260 230"
       width={width}
       height={height}
@@ -30,10 +48,10 @@ export default function MechSilhouette({ legType, compact = false }: MechSilhoue
       </defs>
       <g filter={`url(#glow-${legType}-${compact ? "c" : "l"})`}>
         <ellipse cx="130" cy="205" rx="82" ry="13" fill="rgba(54, 215, 255, .13)" />
-        <rect x="105" y="47" width="50" height="40" rx="8" className="mech-core" />
-        <rect x="114" y="23" width="32" height="24" rx="7" className="mech-head" />
-        <rect x="82" y="62" width="24" height="56" rx="8" className="mech-shoulder" />
-        <rect x="154" y="62" width="24" height="56" rx="8" className="mech-shoulder" />
+        <rect x={body.coreX} y={body.coreY} width={body.coreW} height={body.coreH} rx="8" className="mech-core" />
+        <rect x={body.headX} y="23" width="32" height="24" rx="7" className="mech-head" />
+        <rect x={body.coreX - body.shoulderW} y="62" width={body.shoulderW} height="56" rx="8" className="mech-shoulder" />
+        <rect x={body.coreX + body.coreW} y="62" width={body.shoulderW} height="56" rx="8" className="mech-shoulder" />
         <rect x="58" y="83" width="22" height="66" rx="6" className="mech-arm-left" />
         <rect x="180" y="77" width="24" height="78" rx="6" className="mech-arm-right" />
         <rect x="44" y="126" width="38" height="12" rx="4" className="weapon-left" />

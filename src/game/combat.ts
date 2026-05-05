@@ -6,7 +6,7 @@ import {
   Effect,
   Projectile,
 } from "./projectiles";
-import { AiActionId, AiRule, DerivedStats, LegType, TargetPriorityId, WeaponResource } from "../types";
+import { AiActionId, AiRule, BaseFrameId, DerivedStats, LegType, TargetPriorityId, WeaponResource } from "../types";
 
 export interface CombatActor {
   id: string;
@@ -36,9 +36,11 @@ export interface CombatActor {
   cooldownMax: number;
   boostCooldown: number;
   guard: boolean;
+  frameId?: BaseFrameId;
   legType?: LegType;
   color: string;
   rank: "normal" | "elite" | "boss";
+  enemyRole?: "drone" | "scout" | "sniper" | "bruiser" | "jammer";
   entryBoostTime?: number;
   entryBoostPulse?: number;
 }
@@ -66,6 +68,11 @@ export interface PlayerCombatUnit {
 
 export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
 
+export interface CombatReport {
+  damageByUnit: number[];
+  ruleHitsByUnit: Record<string, number>[];
+}
+
 export interface CombatState {
   width: number;
   height: number;
@@ -79,6 +86,7 @@ export interface CombatState {
   projectiles: Projectile[];
   effects: Effect[];
   soundEvents: CombatSoundEvent[];
+  report: CombatReport;
   status: "running" | "victory" | "defeat";
 }
 
@@ -181,6 +189,7 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   cooldownMax: 1,
   boostCooldown: 0,
   guard: false,
+  frameId: stats.frameId,
   legType: stats.legType,
   color: PLAYER_COLORS[index] ?? PLAYER_COLORS[0],
   rank: "normal",
@@ -225,10 +234,33 @@ const createEnemy = (
   total: number,
   enterFromOffscreen = false,
 ): CombatActor => {
+  const role = (() => {
+    if (rank === "boss") {
+      return "jammer" as const;
+    }
+    if (rank === "elite") {
+      return stage >= 6 ? "bruiser" as const : "sniper" as const;
+    }
+    if (stage === 2) {
+      return "scout" as const;
+    }
+    if (stage === 3) {
+      return index % 2 === 0 ? "sniper" as const : "drone" as const;
+    }
+    if (stage === 4) {
+      return index % 3 === 0 ? "bruiser" as const : "scout" as const;
+    }
+    if (stage >= 6) {
+      return (["scout", "sniper", "bruiser", "drone"] as const)[index % 4];
+    }
+    return "drone" as const;
+  })();
   const angle = -Math.PI * 0.94 + ((index + 0.5) / Math.max(1, total)) * Math.PI * 1.88;
   const distance = rank === "boss" ? 235 : 228 + (index % 3) * 28;
-  const hpScale = rank === "boss" ? 3.1 : rank === "elite" ? 1.85 : 1;
-  const attackScale = rank === "boss" ? 1.65 : rank === "elite" ? 1.28 : 1;
+  const roleHpScale = role === "bruiser" ? 1.32 : role === "scout" ? 0.78 : role === "sniper" ? 0.9 : 1;
+  const roleAttackScale = role === "sniper" ? 1.25 : role === "bruiser" ? 1.12 : role === "scout" ? 0.84 : 1;
+  const hpScale = (rank === "boss" ? 3.1 : rank === "elite" ? 1.85 : 1) * roleHpScale;
+  const attackScale = (rank === "boss" ? 1.65 : rank === "elite" ? 1.28 : 1) * roleAttackScale;
   const baseHp = 128 + stage * 34;
   const baseAttack = 10 + stage * 2.2;
   const spawnX = rank === "boss"
@@ -258,7 +290,17 @@ const createEnemy = (
 
   return {
     id: uid("enemy"),
-    name: rank === "boss" ? "Signal Tyrant" : rank === "elite" ? "Gatebreaker" : "Drone Frame",
+    name: rank === "boss"
+      ? "Signal Tyrant"
+      : rank === "elite"
+        ? role === "sniper" ? "Gatebreaker Artillery" : "Gatebreaker Bulwark"
+        : role === "scout"
+          ? "Scout Frame"
+          : role === "sniper"
+            ? "Lance Frame"
+            : role === "bruiser"
+              ? "Bulwark Frame"
+              : "Drone Frame",
     team: "enemy",
     x: enterFromOffscreen ? entryX : clamp(spawnX, 52, ARENA_WIDTH - 52),
     y: enterFromOffscreen ? entryY : clamp(spawnY, 52, ARENA_HEIGHT - 52),
@@ -276,51 +318,52 @@ const createEnemy = (
     leftAmmo: 0,
     leftAmmoMax: 0,
     enRegen: 0,
-    defense: rank === "boss" ? 78 + stage * 6 : rank === "elite" ? 56 + stage * 5 : 30 + stage * 4,
-    moveSpeed: rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5,
-    range: rank === "boss" ? 380 : rank === "elite" ? 330 : 275,
+    defense: (rank === "boss" ? 78 + stage * 6 : rank === "elite" ? 56 + stage * 5 : 30 + stage * 4) +
+      (role === "bruiser" ? 22 : role === "scout" ? -8 : 0),
+    moveSpeed: (rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5) *
+      (role === "scout" ? 1.34 : role === "sniper" ? 0.72 : role === "bruiser" ? 0.82 : 1),
+    range: role === "sniper" ? 430 : role === "bruiser" ? 230 : rank === "boss" ? 380 : rank === "elite" ? 330 : 275,
     attack: baseAttack * attackScale,
     cooldown: 0.4 + index * 0.35,
-    cooldownMax: rank === "boss" ? 0.82 : rank === "elite" ? 1.0 : 1.18,
+    cooldownMax: role === "scout" ? 0.92 : role === "sniper" ? 1.46 : rank === "boss" ? 0.82 : rank === "elite" ? 1.0 : 1.18,
     boostCooldown: 1.1 + index * 0.18,
     guard: false,
     color: rank === "boss" ? "#ff6a42" : rank === "elite" ? "#d889ff" : "#f1b15b",
     rank,
+    enemyRole: role,
     entryBoostTime: enterFromOffscreen ? 1.15 : undefined,
     entryBoostPulse: enterFromOffscreen ? 0 : undefined,
   };
 };
 
-const createEnemyRanks = (stage: number): CombatActor["rank"][] => {
+const createEnemyRanks = (stage: number, playerCount: number): CombatActor["rank"][] => {
   if (stage === 7) {
     return [
       "boss",
       "elite",
       "elite",
-      "elite",
-      ...Array.from({ length: 20 }, () => "normal" as const),
+      ...Array.from({ length: playerCount >= 3 ? 14 : 10 }, () => "normal" as const),
     ];
   }
   if (stage === 5) {
     return [
       "elite",
       "elite",
-      "elite",
-      ...Array.from({ length: 17 }, () => "normal" as const),
+      ...Array.from({ length: playerCount >= 3 ? 12 : 10 }, () => "normal" as const),
     ];
   }
 
-  const normalCountByStage = [0, 14, 17, 20, 23, 23, 26, 26];
+  const normalCountByStage = [0, 6, 8, 11, 13, 13, 16, 16];
   const normalCount = normalCountByStage[stage] ?? 26;
-  const eliteCount = stage >= 6 ? 3 : 0;
+  const eliteCount = stage >= 6 ? Math.min(3, Math.max(1, playerCount)) : 0;
   return [
     ...Array.from({ length: eliteCount }, () => "elite" as const),
     ...Array.from({ length: normalCount }, () => "normal" as const),
   ];
 };
 
-const activeEnemyCap = (stage: number): number =>
-  stage >= 7 ? 11 : stage >= 5 ? 10 : stage >= 3 ? 8 : 7;
+const activeEnemyCap = (stage: number, playerCount: number): number =>
+  Math.min(stage >= 7 ? 10 : stage >= 5 ? 9 : stage >= 3 ? 7 : 5, Math.max(5, playerCount * 4));
 
 const spawnEnemies = (
   stage: number,
@@ -335,9 +378,10 @@ const spawnEnemies = (
 
 const createInitialEnemies = (
   stage: number,
+  playerCount: number,
 ): { enemies: CombatActor[]; enemyQueue: CombatActor["rank"][]; enemyTotal: number; spawnedEnemyCount: number } => {
-  const ranks = createEnemyRanks(stage);
-  const initialCount = Math.min(activeEnemyCap(stage), ranks.length);
+  const ranks = createEnemyRanks(stage, playerCount);
+  const initialCount = Math.min(activeEnemyCap(stage, playerCount), ranks.length);
 
   return {
     enemies: spawnEnemies(stage, ranks.slice(0, initialCount), 0, ranks.length),
@@ -348,7 +392,7 @@ const createInitialEnemies = (
 };
 
 const refillEnemyWave = (state: CombatState): void => {
-  const capacity = activeEnemyCap(state.stage) - state.enemies.length;
+  const capacity = activeEnemyCap(state.stage, state.players.length) - state.enemies.length;
   if (capacity <= 0 || state.enemyQueue.length === 0) {
     return;
   }
@@ -365,16 +409,19 @@ export const createCombatState = (
   statsByUnit: DerivedStats[],
   unitHpByUnit: number[],
   sortieEnabled: boolean[],
+  unlockedUnitCount: number,
 ): CombatState => {
-  const wave = createInitialEnemies(stage);
   const players = statsByUnit
     .map((stats, unitIndex) => ({ stats, unitIndex }))
     .filter(({ stats, unitIndex }) =>
-      (sortieEnabled[unitIndex] ?? true) && (unitHpByUnit[unitIndex] ?? stats.hpMax) > 0,
+      unitIndex < unlockedUnitCount &&
+      (sortieEnabled[unitIndex] ?? true) &&
+      (unitHpByUnit[unitIndex] ?? stats.hpMax) > 0,
     )
     .map(({ stats, unitIndex }, formationIndex) =>
       createPlayerUnit(stats, unitIndex, formationIndex, unitHpByUnit[unitIndex] ?? stats.hpMax),
     );
+  const wave = createInitialEnemies(stage, Math.max(1, players.length));
 
   return {
     width: ARENA_WIDTH,
@@ -389,6 +436,10 @@ export const createCombatState = (
     projectiles: [],
     effects: [],
     soundEvents: [],
+    report: {
+      damageByUnit: statsByUnit.map(() => 0),
+      ruleHitsByUnit: statsByUnit.map(() => ({})),
+    },
     status: "running",
   };
 };
@@ -549,6 +600,7 @@ const fireProjectile = (
   color: string,
   radius: number,
   targetId?: string,
+  sourceUnitIndex?: number,
 ): void => {
   const aim = normalize(target.x - source.x, target.y - source.y);
   state.projectiles.push(
@@ -565,6 +617,7 @@ const fireProjectile = (
       life: kind === "missile" ? 2.9 : 1.55,
       color,
       targetId,
+      sourceUnitIndex,
     }),
   );
   state.effects.push(
@@ -621,7 +674,13 @@ const performBladeAttack = (
     }),
   );
 
-  target.hp = Math.max(0, target.hp - damageAfterDefense(damage, target));
+  const resolvedDamage = damageAfterDefense(damage, target);
+  target.hp = Math.max(0, target.hp - resolvedDamage);
+  const sourceUnitIndex = source.id.startsWith("player-") ? Number(source.id.replace("player-", "")) - 1 : undefined;
+  if (sourceUnitIndex !== undefined && Number.isFinite(sourceUnitIndex)) {
+    state.report.damageByUnit[sourceUnitIndex] =
+      (state.report.damageByUnit[sourceUnitIndex] ?? 0) + resolvedDamage;
+  }
   const knockback = target.rank === "boss" ? 95 : target.rank === "elite" ? 145 : 205;
   target.vx += aim.x * knockback;
   target.vy += aim.y * knockback;
@@ -745,6 +804,8 @@ const applyPlayerAction = (
           ballistic ? "bullet" : "pulse",
           ballistic ? "#ff9d42" : "#63cfff",
           ballistic ? 4.6 : 4.2,
+          undefined,
+          unit.unitIndex,
         );
         unit.rightCooldown = stats.rightCooldown;
       }
@@ -781,6 +842,7 @@ const applyPlayerAction = (
           kind === "missile" ? "#ff9c35" : ballistic ? "#ffb15a" : "#54f4a7",
           kind === "missile" ? 6 : ballistic ? 4.5 : 4.8,
           kind === "missile" ? target.id : undefined,
+          unit.unitIndex,
         );
         unit.leftCooldown = stats.leftCooldown;
       }
@@ -788,7 +850,7 @@ const applyPlayerAction = (
     case "fireMissile":
       combatDrift();
       if (unit.missileCooldown <= 0 && spendEnergy(player, unit.missileEnergyCost)) {
-        fireProjectile(state, player, target, stats.missileAttack, 220, "missile", "#ffb13b", 5.8, target.id);
+        fireProjectile(state, player, target, stats.missileAttack, 220, "missile", "#ffb13b", 5.8, target.id, unit.unitIndex);
         unit.missileCooldown = stats.missileCooldown;
       }
       break;
@@ -858,16 +920,30 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
     enemy.boostCooldown = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 0.85 : 1.25;
   }
 
-  if (toPlayer.distance > enemy.range * 0.82) {
-    applyThrust(enemy, toPlayer.x, toPlayer.y, 0.42);
+  const desiredBand =
+    enemy.enemyRole === "sniper"
+      ? { min: enemy.range * 0.68, max: enemy.range * 0.92 }
+      : enemy.enemyRole === "bruiser"
+        ? { min: enemy.range * 0.28, max: enemy.range * 0.62 }
+        : enemy.enemyRole === "scout"
+          ? { min: enemy.range * 0.35, max: enemy.range * 0.74 }
+          : { min: enemy.range * 0.46, max: enemy.range * 0.82 };
+
+  if (toPlayer.distance > desiredBand.max) {
+    applyThrust(enemy, toPlayer.x, toPlayer.y, enemy.enemyRole === "scout" ? 0.62 : 0.42);
+  } else if (toPlayer.distance < desiredBand.min) {
+    applyThrust(enemy, -toPlayer.x, -toPlayer.y, enemy.enemyRole === "sniper" ? 0.52 : 0.28);
   } else {
     const drift = Math.sin(state.time * 1.5 + enemy.x * 0.01) > 0 ? 1 : -1;
-    const pressure = toPlayer.distance < enemy.range * 0.46 ? -0.32 : 0.06;
+    const pressure = enemy.enemyRole === "bruiser" ? 0.16 : enemy.enemyRole === "sniper" ? -0.18 : 0.06;
     applyThrust(enemy, -toPlayer.y * drift * 0.38 + toPlayer.x * pressure, toPlayer.x * drift * 0.38 + toPlayer.y * pressure, 0.24);
   }
 
   if (toPlayer.distance <= enemy.range && enemy.cooldown <= 0) {
-    const missile = enemy.rank === "boss" && Math.sin(state.time * 2) > 0.35;
+    const missile =
+      enemy.rank === "boss" ||
+      enemy.enemyRole === "sniper" ||
+      (enemy.rank === "elite" && Math.sin(state.time * 2) > 0.35);
     fireProjectile(
       state,
       enemy,
@@ -995,7 +1071,12 @@ const updateHits = (state: CombatState, dt: number): void => {
     );
 
     if (hitTarget) {
-      hitTarget.hp = Math.max(0, hitTarget.hp - damageAfterDefense(projectile.damage, hitTarget));
+      const damage = damageAfterDefense(projectile.damage, hitTarget);
+      hitTarget.hp = Math.max(0, hitTarget.hp - damage);
+      if (projectile.owner === "player" && projectile.sourceUnitIndex !== undefined) {
+        state.report.damageByUnit[projectile.sourceUnitIndex] =
+          (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;
+      }
       state.soundEvents.push("hit");
       state.effects.push(
         createEffect({
@@ -1105,6 +1186,11 @@ export const stepCombat = (
     unit.activeAction = decision[0].action;
     unit.activeRuleId = decision[0].ruleId;
     for (const item of decision) {
+      if (item.ruleId) {
+        const unitRuleHits = state.report.ruleHitsByUnit[unit.unitIndex] ?? {};
+        unitRuleHits[item.ruleId] = (unitRuleHits[item.ruleId] ?? 0) + 1;
+        state.report.ruleHitsByUnit[unit.unitIndex] = unitRuleHits;
+      }
       applyPlayerAction(state, unit, item.action, target);
     }
   }

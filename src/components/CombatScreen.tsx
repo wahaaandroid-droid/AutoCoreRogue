@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
-import { CombatActor, CombatState, PlayerCombatUnit, createCombatState, stepCombat } from "../game/combat";
+import { getStagePlan } from "../data/stages";
+import { CombatActor, CombatReport, CombatState, PlayerCombatUnit, createCombatState, stepCombat } from "../game/combat";
 import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType, TargetPriorityId } from "../types";
@@ -13,11 +14,12 @@ interface CombatScreenProps {
   statsByUnit: DerivedStats[];
   unitHpByUnit: number[];
   sortieEnabled: boolean[];
+  unlockedUnitCount: number;
   rulesByUnit: AiRule[][];
   targetPrioritiesByUnit: TargetPriorityId[];
   activeUnitIndex: number;
   onSelectUnit: (index: number) => void;
-  onVictory: (unitHpByUnit: number[]) => void;
+  onVictory: (unitHpByUnit: number[], report: CombatReport) => void;
   onDefeat: () => void;
   onOpenAssemble: () => void;
   onOpenAi: () => void;
@@ -146,7 +148,7 @@ const drawMech = (
   ctx.save();
   ctx.translate(actor.x, actor.y);
   const spriteIndex = isPlayer ? 0 : actor.rank === "boss" ? 3 : actor.rank === "elite" ? 2 : 1;
-  if (drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 3.6 : actor.rank === "elite" ? 3.4 : 3.1))) {
+  if (!isPlayer && drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 3.6 : actor.rank === "elite" ? 3.4 : 3.1))) {
     ctx.restore();
     drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
     if (label) {
@@ -159,22 +161,26 @@ const drawMech = (
   ctx.shadowColor = actor.color;
   ctx.shadowBlur = isPlayer ? 18 : 10;
   ctx.lineWidth = 2;
-  ctx.strokeStyle = isPlayer ? "#b8ecff" : actor.color;
-  ctx.fillStyle = isPlayer ? "#d7f1ff" : "#7c6b52";
+  ctx.strokeStyle = isPlayer ? actor.color : actor.color;
+  ctx.fillStyle = isPlayer ? "rgba(216, 242, 248, .96)" : "#7c6b52";
+  const frameId = actor.frameId ?? "medium";
+  const coreWidth = frameId === "heavy" ? 40 : frameId === "tank" ? 46 : frameId === "light" ? 24 : 30;
+  const coreHeight = frameId === "heavy" ? 38 : frameId === "tank" ? 34 : frameId === "light" ? 30 : 34;
+  const weaponLength = frameId === "quad" || frameId === "tank" ? 42 : frameId === "light" ? 26 : 34;
 
   if (legType === "tank") {
-    ctx.fillRect(-22, -16, 44, 32);
+    ctx.fillRect(-coreWidth / 2, -coreHeight / 2, coreWidth, coreHeight);
     ctx.fillStyle = isPlayer ? "#68d6ff" : actor.color;
-    ctx.fillRect(-26, 10, 52, 11);
-    ctx.fillRect(-26, -21, 52, 11);
+    ctx.fillRect(-34, 11, 68, 12);
+    ctx.fillRect(-34, -23, 68, 12);
   } else if (legType === "quad") {
-    ctx.fillRect(-15, -15, 30, 30);
-    ctx.strokeRect(-27, -24, 16, 17);
-    ctx.strokeRect(-27, 7, 16, 17);
-    ctx.strokeRect(11, -24, 16, 17);
-    ctx.strokeRect(11, 7, 16, 17);
+    ctx.fillRect(-coreWidth / 2, -coreHeight / 2, coreWidth, coreHeight);
+    ctx.strokeRect(-31, -26, 18, 18);
+    ctx.strokeRect(-31, 8, 18, 18);
+    ctx.strokeRect(13, -26, 18, 18);
+    ctx.strokeRect(13, 8, 18, 18);
   } else if (legType === "reverse") {
-    ctx.fillRect(-14, -16, 28, 32);
+    ctx.fillRect(-coreWidth / 2, -coreHeight / 2, coreWidth, coreHeight);
     ctx.beginPath();
     ctx.moveTo(-12, 12);
     ctx.lineTo(-28, 28);
@@ -193,17 +199,17 @@ const drawMech = (
     ctx.arc(0, 0, 31, 0.2, Math.PI - 0.2);
     ctx.stroke();
   } else {
-    ctx.fillRect(-14, -17, 28, 34);
-    ctx.strokeRect(-21, 12, 13, 21);
-    ctx.strokeRect(8, 12, 13, 21);
+    ctx.fillRect(-coreWidth / 2, -coreHeight / 2, coreWidth, coreHeight);
+    ctx.strokeRect(-coreWidth / 2 - 7, 12, frameId === "heavy" ? 16 : 13, frameId === "heavy" ? 25 : 21);
+    ctx.strokeRect(coreWidth / 2 - 6, 12, frameId === "heavy" ? 16 : 13, frameId === "heavy" ? 25 : 21);
   }
 
   ctx.strokeStyle = isPlayer ? "#3ed5ff" : "#ff8d4d";
   ctx.beginPath();
-  ctx.moveTo(14, -9);
-  ctx.lineTo(34, -17);
-  ctx.moveTo(14, 9);
-  ctx.lineTo(34, 17);
+  ctx.moveTo(coreWidth / 2, -9);
+  ctx.lineTo(coreWidth / 2 + weaponLength, -17);
+  ctx.moveTo(coreWidth / 2, 9);
+  ctx.lineTo(coreWidth / 2 + weaponLength, 17);
   ctx.stroke();
   ctx.restore();
 
@@ -340,6 +346,7 @@ export default function CombatScreen({
   statsByUnit,
   unitHpByUnit,
   sortieEnabled,
+  unlockedUnitCount,
   rulesByUnit,
   targetPrioritiesByUnit,
   activeUnitIndex,
@@ -350,21 +357,22 @@ export default function CombatScreen({
   onOpenAi,
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef<CombatState>(createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled));
+  const stateRef = useRef<CombatState>(createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount));
   const resolvedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
   const activeUnit = snapshot.players.find((unit) => unit.unitIndex === activeUnitIndex) ?? snapshot.players[0];
   const selectedUnitIndex = activeUnit?.unitIndex ?? 0;
   const activeStats = statsByUnit[selectedUnitIndex] ?? statsByUnit[0];
   const activeRules = rulesByUnit[selectedUnitIndex] ?? rulesByUnit[0] ?? [];
+  const stagePlan = getStagePlan(stage);
   const rulesById = useMemo(() => new Map(activeRules.map((rule) => [rule.id, rule])), [activeRules]);
   const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
   useEffect(() => {
-    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled);
+    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount);
     resolvedRef.current = false;
     setSnapshot(stateRef.current);
-  }, [stage, statsByUnit, unitHpByUnit, sortieEnabled]);
+  }, [stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -396,6 +404,10 @@ export default function CombatScreen({
           })),
           enemies: [...current.enemies],
           enemyQueue: [...current.enemyQueue],
+          report: {
+            damageByUnit: [...current.report.damageByUnit],
+            ruleHitsByUnit: current.report.ruleHitsByUnit.map((ruleHits) => ({ ...ruleHits })),
+          },
         });
         lastSnapshot = now;
       }
@@ -409,6 +421,7 @@ export default function CombatScreen({
                 hpByUnit[unit.unitIndex] = unit.actor.hp;
                 return hpByUnit;
               }, []),
+              current.report,
             );
           } else {
             onDefeat();
@@ -434,7 +447,7 @@ export default function CombatScreen({
       <section className="combat-hud left">
         <div className="panel compact">
           <div className="section-title">STAGE {stage}</div>
-          <strong>{stage === 7 ? "BOSS" : stage === 5 ? "ELITE" : "WAVE"}</strong>
+          <strong>{stagePlan.label}</strong>
           <small>
             敵 {snapshot.enemyTotal - snapshot.enemyQueue.length - snapshot.enemies.length}/{snapshot.enemyTotal} 撃破
           </small>

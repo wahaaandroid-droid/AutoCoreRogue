@@ -2,24 +2,42 @@ import { useEffect, useMemo, useState } from "react";
 import AssembleScreen from "./components/AssembleScreen";
 import AiEditorScreen from "./components/AiEditorScreen";
 import CombatScreen from "./components/CombatScreen";
+import FrameSelectScreen from "./components/FrameSelectScreen";
 import RewardScreen from "./components/RewardScreen";
 import StageMapScreen from "./components/StageMapScreen";
 import { createInitialAiRules, ensureAiRuleSlots } from "./data/aiRules";
+import { getBaseFrameById, initialFrameId } from "./data/frames";
 import {
   baseUpgrades,
   calculateDerivedStats,
+  createEmptyPartInventory,
+  equippedPartCounts,
   getPartById,
+  grantStarterKit,
   initialLoadout,
-  initialUnlockedPartIds,
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
+import { CombatReport } from "./game/combat";
 import { unlockCombatAudio } from "./game/sound";
-import { AiRule, Loadout, PartSlot, PilotUpgrades, ScreenId, SQUAD_SIZE, TargetPriorityId } from "./types";
+import {
+  AiRule,
+  BaseFrameId,
+  EQUIP_SLOTS,
+  EquipSlot,
+  Loadout,
+  PartInventory,
+  PilotUpgrades,
+  ScreenId,
+  SQUAD_SIZE,
+  TargetPriorityId,
+} from "./types";
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
 const createInitialLoadouts = (): Loadout[] =>
   Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
+const createInitialFrameIds = (): BaseFrameId[] =>
+  Array.from({ length: SQUAD_SIZE }, () => initialFrameId);
 const createInitialAiSlotCounts = (): number[] =>
   Array.from({ length: SQUAD_SIZE }, () => 5);
 const createInitialAiRulesByUnit = (): AiRule[][] =>
@@ -27,16 +45,27 @@ const createInitialAiRulesByUnit = (): AiRule[][] =>
 const createInitialTargetPriorities = (): TargetPriorityId[] =>
   Array.from({ length: SQUAD_SIZE }, () => "nearest");
 const createInitialUnitHp = (): number[] =>
-  createInitialLoadouts().map((unitLoadout) => calculateDerivedStats(unitLoadout, baseUpgrades).hpMax);
+  createInitialLoadouts().map((unitLoadout) =>
+    calculateDerivedStats(unitLoadout, baseUpgrades, initialFrameId).hpMax,
+  );
 const createInitialSortieEnabled = (): boolean[] =>
-  Array.from({ length: SQUAD_SIZE }, () => true);
+  Array.from({ length: SQUAD_SIZE }, () => false);
+
+const countEquippedPart = (loadouts: Loadout[], unlockedUnitCount: number, partId: string): number =>
+  loadouts.slice(0, unlockedUnitCount).reduce((count, loadout) => {
+    const slotCount = EQUIP_SLOTS.filter((slot) => loadout[slot] === partId).length;
+    return count + slotCount;
+  }, 0);
 
 export default function App() {
-  const [screen, setScreen] = useState<ScreenId>("assemble");
+  const [screen, setScreen] = useState<ScreenId>("frameSelect");
   const [stage, setStage] = useState(1);
   const [loadouts, setLoadouts] = useState<Loadout[]>(() => createInitialLoadouts());
+  const [unitFrameIds, setUnitFrameIds] = useState<BaseFrameId[]>(() => createInitialFrameIds());
+  const [unlockedUnitCount, setUnlockedUnitCount] = useState(0);
+  const [pendingUnitIndex, setPendingUnitIndex] = useState(0);
   const [activeUnitIndex, setActiveUnitIndex] = useState(0);
-  const [unlockedPartIds, setUnlockedPartIds] = useState<string[]>(() => [...initialUnlockedPartIds]);
+  const [partInventory, setPartInventory] = useState<PartInventory>(() => createEmptyPartInventory());
   const [upgrades, setUpgrades] = useState<PilotUpgrades>(() => cloneUpgrades());
   const [aiSlotCounts, setAiSlotCounts] = useState<number[]>(() => createInitialAiSlotCounts());
   const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() => createInitialAiRulesByUnit());
@@ -47,11 +76,19 @@ export default function App() {
   const [sortieEnabled, setSortieEnabled] = useState<boolean[]>(() => createInitialSortieEnabled());
   const [repairKitStock, setRepairKitStock] = useState(0);
   const [rewardOptions, setRewardOptions] = useState<RewardOption[]>([]);
+  const [lastCombatReport, setLastCombatReport] = useState<CombatReport | undefined>();
   const [lastOutcome, setLastOutcome] = useState<string | undefined>();
 
   const statsByUnit = useMemo(
-    () => loadouts.map((unitLoadout) => calculateDerivedStats(unitLoadout, upgrades)),
-    [loadouts, upgrades],
+    () =>
+      loadouts.map((unitLoadout, index) =>
+        calculateDerivedStats(unitLoadout, upgrades, unitFrameIds[index] ?? initialFrameId),
+      ),
+    [loadouts, upgrades, unitFrameIds],
+  );
+  const equippedCounts = useMemo(
+    () => equippedPartCounts(loadouts, unlockedUnitCount),
+    [loadouts, unlockedUnitCount],
   );
   const normalizedRulesByUnit = useMemo(
     () =>
@@ -61,10 +98,11 @@ export default function App() {
     [aiRulesByUnit, aiSlotCounts],
   );
   const sortieReady = useMemo(
-    () => statsByUnit.some((stats, index) =>
-      (sortieEnabled[index] ?? true) && (unitHpByUnit[index] ?? stats.hpMax) > 0,
-    ),
-    [sortieEnabled, statsByUnit, unitHpByUnit],
+    () =>
+      statsByUnit.slice(0, unlockedUnitCount).some((stats, index) =>
+        (sortieEnabled[index] ?? false) && (unitHpByUnit[index] ?? stats.hpMax) > 0,
+      ),
+    [sortieEnabled, statsByUnit, unitHpByUnit, unlockedUnitCount],
   );
 
   useEffect(() => {
@@ -73,11 +111,58 @@ export default function App() {
     );
   }, [statsByUnit]);
 
-  const changeLoadout = (slot: PartSlot, partId: string) => {
+  useEffect(() => {
+    if (unlockedUnitCount > 0 && activeUnitIndex >= unlockedUnitCount) {
+      setActiveUnitIndex(unlockedUnitCount - 1);
+    }
+  }, [activeUnitIndex, unlockedUnitCount]);
+
+  const changeLoadout = (slot: EquipSlot, partId: string) => {
+    if (activeUnitIndex >= unlockedUnitCount) {
+      return;
+    }
+
+    const part = getPartById(partId);
+    if (part.slot !== slot) {
+      setLastOutcome("このスロットには装備できません");
+      return;
+    }
+
+    const activeLoadout = loadouts[activeUnitIndex];
+    if (!activeLoadout || activeLoadout[slot] === partId) {
+      return;
+    }
+
+    const owned = partInventory[partId] ?? 0;
+    const used = countEquippedPart(loadouts, unlockedUnitCount, partId);
+    const available = owned - used;
+    const donorIndex = loadouts.findIndex(
+      (unitLoadout, index) =>
+        index < unlockedUnitCount && index !== activeUnitIndex && unitLoadout[slot] === partId,
+    );
+
+    if (available <= 0 && donorIndex < 0) {
+      setLastOutcome(`${part.name} の空き在庫がありません`);
+      return;
+    }
+
+    const previousPartId = activeLoadout[slot];
     setLoadouts((current) =>
-      current.map((unitLoadout, index) =>
-        index === activeUnitIndex ? { ...unitLoadout, [slot]: partId } : unitLoadout,
-      ),
+      current.map((unitLoadout, index) => {
+        if (index === activeUnitIndex) {
+          return { ...unitLoadout, [slot]: partId };
+        }
+        if (index === donorIndex) {
+          return { ...unitLoadout, [slot]: previousPartId };
+        }
+        return unitLoadout;
+      }),
+    );
+
+    setLastOutcome(
+      donorIndex >= 0
+        ? `UNIT ${donorIndex + 1} から ${part.name} を付け替え`
+        : `${part.name} を装備`,
     );
   };
 
@@ -94,6 +179,11 @@ export default function App() {
   };
 
   const toggleSortie = (unitIndex: number) => {
+    if (unitIndex >= unlockedUnitCount) {
+      setLastOutcome(`UNIT ${unitIndex + 1} は未配備です`);
+      return;
+    }
+
     const unitHp = unitHpByUnit[unitIndex] ?? statsByUnit[unitIndex]?.hpMax ?? 0;
     if (unitHp <= 0) {
       setLastOutcome(`UNIT ${unitIndex + 1} は大破中: リペアキットが必要`);
@@ -103,7 +193,7 @@ export default function App() {
     setSortieEnabled((current) => {
       const next = current.map((enabled, index) => (index === unitIndex ? !enabled : enabled));
       const hasReadyUnit = next.some((enabled, index) =>
-        enabled && (unitHpByUnit[index] ?? statsByUnit[index]?.hpMax ?? 0) > 0,
+        index < unlockedUnitCount && enabled && (unitHpByUnit[index] ?? statsByUnit[index]?.hpMax ?? 0) > 0,
       );
       if (!hasReadyUnit) {
         setLastOutcome("最低1体は出撃ONにしてください");
@@ -114,6 +204,9 @@ export default function App() {
   };
 
   const useRepairKit = (unitIndex: number) => {
+    if (unitIndex >= unlockedUnitCount) {
+      return;
+    }
     if (repairKitStock <= 0) {
       setLastOutcome("リペアキットのストックがありません");
       return;
@@ -139,8 +232,11 @@ export default function App() {
   const resetRun = () => {
     setStage(1);
     setLoadouts(createInitialLoadouts());
+    setUnitFrameIds(createInitialFrameIds());
+    setUnlockedUnitCount(0);
+    setPendingUnitIndex(0);
     setActiveUnitIndex(0);
-    setUnlockedPartIds([...initialUnlockedPartIds]);
+    setPartInventory(createEmptyPartInventory());
     setUpgrades(cloneUpgrades());
     setAiSlotCounts(createInitialAiSlotCounts());
     setAiRulesByUnit(createInitialAiRulesByUnit());
@@ -149,13 +245,39 @@ export default function App() {
     setSortieEnabled(createInitialSortieEnabled());
     setRepairKitStock(0);
     setRewardOptions([]);
+    setLastCombatReport(undefined);
   };
 
-  const handleVictory = (remainingHpByUnit: number[]) => {
+  const selectFrame = (frameId: BaseFrameId) => {
+    const unitIndex = pendingUnitIndex;
+    const frame = getBaseFrameById(frameId);
+    const unitStats = calculateDerivedStats(initialLoadout, upgrades, frameId);
+
+    setLoadouts((current) =>
+      current.map((unitLoadout, index) => (index === unitIndex ? cloneLoadout() : unitLoadout)),
+    );
+    setUnitFrameIds((current) =>
+      current.map((currentFrameId, index) => (index === unitIndex ? frameId : currentFrameId)),
+    );
+    setPartInventory((current) => grantStarterKit(current));
+    setUnlockedUnitCount((current) => Math.max(current, unitIndex + 1));
+    setSortieEnabled((current) =>
+      current.map((enabled, index) => (index === unitIndex ? true : enabled)),
+    );
+    setUnitHpByUnit((current) =>
+      current.map((hp, index) => (index === unitIndex ? unitStats.hpMax : hp)),
+    );
+    setActiveUnitIndex(unitIndex);
+    setLastOutcome(`UNIT ${unitIndex + 1}: ${frame.name} 配備`);
+    setScreen(unitIndex === 0 ? "assemble" : "map");
+  };
+
+  const handleVictory = (remainingHpByUnit: number[], report: CombatReport) => {
     setUnitHpByUnit((current) =>
       current.map((hp, index) => remainingHpByUnit[index] ?? hp),
     );
-    setRewardOptions(generateRewardOptions(stage, unlockedPartIds, aiSlotCounts[activeUnitIndex] ?? 5));
+    setLastCombatReport(report);
+    setRewardOptions(generateRewardOptions(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5));
     setLastOutcome(`STAGE ${stage} CLEAR`);
     setScreen("reward");
   };
@@ -163,7 +285,7 @@ export default function App() {
   const handleDefeat = () => {
     resetRun();
     setLastOutcome("機体大破: ランを最初から再開");
-    setScreen("assemble");
+    setScreen("frameSelect");
   };
 
   const applyReward = (reward: RewardOption) => {
@@ -171,14 +293,19 @@ export default function App() {
 
     if (payload.kind === "part") {
       const part = getPartById(payload.partId);
-      setUnlockedPartIds((current) =>
-        current.includes(part.id) ? current : [...current, part.id],
-      );
-      setLoadouts((current) =>
-        current.map((unitLoadout, index) =>
-          index === activeUnitIndex ? { ...unitLoadout, [part.slot]: part.id } : unitLoadout,
-        ),
-      );
+      setPartInventory((current) => ({
+        ...current,
+        [part.id]: (current[part.id] ?? 0) + 1,
+      }));
+      if (activeUnitIndex < unlockedUnitCount && EQUIP_SLOTS.includes(part.slot as EquipSlot)) {
+        setLoadouts((current) =>
+          current.map((unitLoadout, index) =>
+            index === activeUnitIndex
+              ? { ...unitLoadout, [part.slot as EquipSlot]: part.id }
+              : unitLoadout,
+          ),
+        );
+      }
     }
 
     if (payload.kind === "stat") {
@@ -210,11 +337,27 @@ export default function App() {
     if (stage >= 7) {
       resetRun();
       setLastOutcome("RUN COMPLETE: 新しいランを開始");
-      setScreen("assemble");
+      setScreen("frameSelect");
       return;
     }
 
-    setStage((current) => current + 1);
+    const nextStage = stage + 1;
+    setStage(nextStage);
+
+    if (stage === 2 && unlockedUnitCount < 2) {
+      setPendingUnitIndex(1);
+      setLastOutcome(`${reward.title} を獲得 / UNIT 2 配備選択`);
+      setScreen("frameSelect");
+      return;
+    }
+
+    if (stage === 5 && unlockedUnitCount < 3) {
+      setPendingUnitIndex(2);
+      setLastOutcome(`${reward.title} を獲得 / UNIT 3 配備選択`);
+      setScreen("frameSelect");
+      return;
+    }
+
     setLastOutcome(`${reward.title} を獲得`);
     setScreen("map");
   };
@@ -222,13 +365,14 @@ export default function App() {
   const startCombat = () => {
     if (!sortieReady) {
       setLastOutcome("出撃可能なユニットがありません");
-      setScreen("assemble");
+      setScreen(unlockedUnitCount === 0 ? "frameSelect" : "assemble");
       return;
     }
     unlockCombatAudio();
     setScreen("combat");
   };
 
+  const hasUnit = unlockedUnitCount > 0;
   const topNav = (
     <header className="app-header">
       <div>
@@ -237,13 +381,17 @@ export default function App() {
         <small>browser prototype</small>
       </div>
       <nav>
-        <button className={screen === "assemble" ? "active" : ""} onClick={() => setScreen("assemble")}>
+        <button
+          className={screen === "assemble" ? "active" : ""}
+          onClick={() => setScreen("assemble")}
+          disabled={!hasUnit}
+        >
           ASSEMBLE
         </button>
-        <button className={screen === "ai" ? "active" : ""} onClick={() => setScreen("ai")}>
+        <button className={screen === "ai" ? "active" : ""} onClick={() => setScreen("ai")} disabled={!hasUnit}>
           AI
         </button>
-        <button className={screen === "map" ? "active" : ""} onClick={() => setScreen("map")}>
+        <button className={screen === "map" ? "active" : ""} onClick={() => setScreen("map")} disabled={!hasUnit}>
           MAP
         </button>
         <button className="primary" onClick={startCombat} disabled={!sortieReady}>
@@ -256,15 +404,27 @@ export default function App() {
   return (
     <div className="app-shell">
       {topNav}
-      {screen === "assemble" && (
+      {screen === "frameSelect" && (
+        <FrameSelectScreen
+          unitIndex={pendingUnitIndex}
+          stage={stage}
+          lastOutcome={lastOutcome}
+          onSelectFrame={selectFrame}
+        />
+      )}
+      {screen === "assemble" && hasUnit && (
         <AssembleScreen
           loadouts={loadouts}
-          unlockedPartIds={unlockedPartIds}
+          unitFrameIds={unitFrameIds}
+          unlockedUnitCount={unlockedUnitCount}
+          partInventory={partInventory}
+          equippedCounts={equippedCounts}
           statsByUnit={statsByUnit}
           unitHpByUnit={unitHpByUnit}
           sortieEnabled={sortieEnabled}
           repairKitStock={repairKitStock}
           activeUnitIndex={activeUnitIndex}
+          lastOutcome={lastOutcome}
           onSelectUnit={setActiveUnitIndex}
           onChangeLoadout={changeLoadout}
           onToggleSortie={toggleSortie}
@@ -275,11 +435,12 @@ export default function App() {
           canStartCombat={sortieReady}
         />
       )}
-      {screen === "ai" && (
+      {screen === "ai" && hasUnit && (
         <AiEditorScreen
           rules={normalizedRulesByUnit[activeUnitIndex]}
           slotCount={aiSlotCounts[activeUnitIndex] ?? 5}
           activeUnitIndex={activeUnitIndex}
+          unlockedUnitCount={unlockedUnitCount}
           statsByUnit={statsByUnit}
           targetPriority={targetPrioritiesByUnit[activeUnitIndex] ?? "nearest"}
           onSelectUnit={setActiveUnitIndex}
@@ -290,12 +451,13 @@ export default function App() {
           onStartCombat={startCombat}
         />
       )}
-      {screen === "combat" && (
+      {screen === "combat" && hasUnit && (
         <CombatScreen
           stage={stage}
           statsByUnit={statsByUnit}
           unitHpByUnit={unitHpByUnit}
           sortieEnabled={sortieEnabled}
+          unlockedUnitCount={unlockedUnitCount}
           rulesByUnit={normalizedRulesByUnit}
           targetPrioritiesByUnit={targetPrioritiesByUnit}
           activeUnitIndex={activeUnitIndex}
@@ -307,12 +469,19 @@ export default function App() {
         />
       )}
       {screen === "reward" && (
-        <RewardScreen stage={stage} rewards={rewardOptions} onPickReward={applyReward} />
+        <RewardScreen
+          stage={stage}
+          rewards={rewardOptions}
+          report={lastCombatReport}
+          rulesByUnit={normalizedRulesByUnit}
+          onPickReward={applyReward}
+        />
       )}
-      {screen === "map" && (
+      {screen === "map" && hasUnit && (
         <StageMapScreen
           stage={stage}
           lastOutcome={lastOutcome}
+          unlockedUnitCount={unlockedUnitCount}
           onOpenAssemble={() => setScreen("assemble")}
           onOpenAi={() => setScreen("ai")}
           onStartCombat={startCombat}

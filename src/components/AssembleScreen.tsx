@@ -1,18 +1,23 @@
 import { useState } from "react";
-import { buildFromLoadout, getLegLabel, partsBySlot } from "../data/parts";
-import { DerivedStats, Loadout, PartSlot, SLOTS } from "../types";
+import { getBaseFrameById } from "../data/frames";
+import { buildFromLoadout, getLegLabel, partsBySlot, unitsEquippingPart } from "../data/parts";
+import { BaseFrameId, DerivedStats, EQUIP_SLOTS, EquipSlot, Loadout, PartInventory } from "../types";
 import MechSilhouette from "./MechSilhouette";
 
 interface AssembleScreenProps {
   loadouts: Loadout[];
-  unlockedPartIds: string[];
+  unitFrameIds: BaseFrameId[];
+  unlockedUnitCount: number;
+  partInventory: PartInventory;
+  equippedCounts: PartInventory;
   statsByUnit: DerivedStats[];
   unitHpByUnit: number[];
   sortieEnabled: boolean[];
   repairKitStock: number;
   activeUnitIndex: number;
+  lastOutcome?: string;
   onSelectUnit: (index: number) => void;
-  onChangeLoadout: (slot: PartSlot, partId: string) => void;
+  onChangeLoadout: (slot: EquipSlot, partId: string) => void;
   onToggleSortie: (index: number) => void;
   onUseRepairKit: (index: number) => void;
   onOpenAi: () => void;
@@ -34,12 +39,16 @@ const statRows = [
 
 export default function AssembleScreen({
   loadouts,
-  unlockedPartIds,
+  unitFrameIds,
+  unlockedUnitCount,
+  partInventory,
+  equippedCounts,
   statsByUnit,
   unitHpByUnit,
   sortieEnabled,
   repairKitStock,
   activeUnitIndex,
+  lastOutcome,
   onSelectUnit,
   onChangeLoadout,
   onToggleSortie,
@@ -49,32 +58,51 @@ export default function AssembleScreen({
   onStartCombat,
   canStartCombat,
 }: AssembleScreenProps) {
-  const [activeSlot, setActiveSlot] = useState<PartSlot>("LEGS");
+  const [activeSlot, setActiveSlot] = useState<EquipSlot>("R-ARM");
   const loadout = loadouts[activeUnitIndex] ?? loadouts[0];
   const stats = statsByUnit[activeUnitIndex] ?? statsByUnit[0];
   const currentHp = Math.min(unitHpByUnit[activeUnitIndex] ?? stats.hpMax, stats.hpMax);
   const canRepair = repairKitStock > 0 && currentHp < stats.hpMax;
   const build = buildFromLoadout(loadout);
-  const unlocked = new Set(unlockedPartIds);
+  const activeFrame = getBaseFrameById(unitFrameIds[activeUnitIndex] ?? stats.frameId);
+
+  const partStatus = (partId: string) => {
+    const owned = partInventory[partId] ?? 0;
+    const equipped = equippedCounts[partId] ?? 0;
+    const units = unitsEquippingPart(loadouts, unlockedUnitCount, partId);
+    return { owned, equipped, available: owned - equipped, units };
+  };
 
   return (
     <main className="screen-grid assemble-screen">
       <section className="panel slot-panel">
         <div className="section-title">ASSEMBLE</div>
         <div className="unit-switcher">
-          {statsByUnit.map((unitStats, index) => (
+          {statsByUnit.map((unitStats, index) => {
+            const locked = index >= unlockedUnitCount;
+            const frame = getBaseFrameById(unitFrameIds[index] ?? unitStats.frameId);
+            return (
             <button
               key={index}
-              className={activeUnitIndex === index ? "active" : ""}
+              className={`${activeUnitIndex === index ? "active" : ""} ${locked ? "locked" : ""}`}
               onClick={() => onSelectUnit(index)}
+              disabled={locked}
             >
               <strong>UNIT {index + 1}</strong>
-              <small>
-                HP {Math.ceil(Math.min(unitHpByUnit[index] ?? unitStats.hpMax, unitStats.hpMax))} / {unitStats.hpMax}
-              </small>
-              <small>{sortieEnabled[index] && (unitHpByUnit[index] ?? unitStats.hpMax) > 0 ? "出撃 ON" : "出撃 OFF"}</small>
+              {locked ? (
+                <small>未配備</small>
+              ) : (
+                <>
+                  <small>{frame.typeLabel} / {frame.role}</small>
+                  <small>
+                    HP {Math.ceil(Math.min(unitHpByUnit[index] ?? unitStats.hpMax, unitStats.hpMax))} / {unitStats.hpMax}
+                  </small>
+                  <small>{sortieEnabled[index] && (unitHpByUnit[index] ?? unitStats.hpMax) > 0 ? "出撃 ON" : "出撃 OFF"}</small>
+                </>
+              )}
             </button>
-          ))}
+            );
+          })}
         </div>
         <div className="kit-panel">
           <div>
@@ -98,7 +126,7 @@ export default function AssembleScreen({
           </div>
         </div>
         <div className="slot-list">
-          {SLOTS.map((slot) => {
+          {EQUIP_SLOTS.map((slot) => {
             const part = build[slot];
             return (
               <button
@@ -125,8 +153,8 @@ export default function AssembleScreen({
       <section className="panel mech-preview-panel">
         <div className="section-title">FRAME PREVIEW</div>
         <div className="mech-preview">
-          <MechSilhouette legType={stats.legType} />
-          <div className="leg-badge">{getLegLabel(stats.legType)}</div>
+          <MechSilhouette frameId={activeFrame.id} legType={stats.legType} />
+          <div className="leg-badge">{activeFrame.typeLabel} / {getLegLabel(stats.legType)}</div>
         </div>
       </section>
 
@@ -140,6 +168,10 @@ export default function AssembleScreen({
             </div>
           ))}
           <div>
+            <dt>ベース</dt>
+            <dd>{activeFrame.typeLabel}</dd>
+          </div>
+          <div>
             <dt>右攻撃</dt>
             <dd>{stats.rightAttack}</dd>
           </div>
@@ -151,11 +183,12 @@ export default function AssembleScreen({
         {stats.overloadRatio > 0 && (
           <div className="warning-line">積載超過: 機動とクールダウンにペナルティ</div>
         )}
+        {lastOutcome && <div className="outcome-line">{lastOutcome}</div>}
       </section>
 
       <section className="panel parts-browser">
         <div className="tab-row">
-          {SLOTS.map((slot) => (
+          {EQUIP_SLOTS.map((slot) => (
             <button
               key={slot}
               className={activeSlot === slot ? "active" : ""}
@@ -167,16 +200,29 @@ export default function AssembleScreen({
         </div>
         <div className="part-card-grid">
           {partsBySlot(activeSlot)
-            .filter((part) => unlocked.has(part.id))
-            .map((part) => (
+            .filter((part) => (partInventory[part.id] ?? 0) > 0 || loadout[activeSlot] === part.id)
+            .map((part) => {
+              const status = partStatus(part.id);
+              const equippedHere = loadout[activeSlot] === part.id;
+              const canUse = equippedHere || status.available > 0 || status.units.some((unitIndex) => unitIndex !== activeUnitIndex);
+              return (
               <button
                 key={part.id}
-                className={`part-card ${loadout[activeSlot] === part.id ? "selected" : ""}`}
+                className={`part-card ${equippedHere ? "selected" : ""} ${!canUse ? "unavailable" : ""}`}
                 onClick={() => onChangeLoadout(activeSlot, part.id)}
+                disabled={!canUse}
               >
                 <span className={`mini-part-icon slot-${part.slot.replace("-", "").toLowerCase()}`} />
                 <strong>{part.name}</strong>
                 <small>{part.description}</small>
+                <span className="part-stat-line inventory-line">
+                  所持 {status.owned} / 装備 {status.equipped}
+                </span>
+                {status.units.length > 0 && (
+                  <span className="part-stat-line equipped-line">
+                    装備中 {status.units.map((unitIndex) => `U${unitIndex + 1}`).join(", ")}
+                  </span>
+                )}
                 <span className="part-stat-line">
                   ATK {part.stats.attack} / RNG {part.stats.range} / WT {part.stats.weight}
                 </span>
@@ -188,7 +234,8 @@ export default function AssembleScreen({
                   </span>
                 )}
               </button>
-            ))}
+              );
+            })}
         </div>
       </section>
     </main>

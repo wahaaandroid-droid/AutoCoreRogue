@@ -1,14 +1,18 @@
 import {
+  BaseFrameId,
   DerivedStats,
+  EQUIP_SLOTS,
+  EquipSlot,
   LegType,
   Loadout,
   MechBuild,
   Part,
+  PartInventory,
   PartSlot,
   PartStats,
   PilotUpgrades,
-  SLOTS,
 } from "../types";
+import { getBaseFrameById, initialFrameId } from "./frames";
 
 const zeroStats: PartStats = {
   hp: 0,
@@ -443,12 +447,27 @@ export const initialLoadout: Loadout = {
   BODY: "body-aegis",
   "L-ARM": "larm-pulse-needle",
   "R-ARM": "rarm-rail-carbine",
-  LEGS: "legs-biped-strider",
 };
 
 export const initialUnlockedPartIds = parts
   .filter((part) => part.initial)
   .map((part) => part.id);
+
+export const starterKitPartIds: string[] = parts
+  .filter((part) => part.initial && part.slot !== "LEGS")
+  .map((part) => part.id);
+
+export const createEmptyPartInventory = (): PartInventory => ({});
+
+export const grantStarterKit = (inventory: PartInventory): PartInventory => {
+  const next = { ...inventory };
+  for (const partId of starterKitPartIds) {
+    next[partId] = (next[partId] ?? 0) + 1;
+  }
+  return next;
+};
+
+export const createInitialPartInventory = (): PartInventory => grantStarterKit(createEmptyPartInventory());
 
 export const getPartById = (partId: string): Part => {
   const part = parts.find((item) => item.id === partId);
@@ -461,8 +480,11 @@ export const getPartById = (partId: string): Part => {
 export const partsBySlot = (slot: PartSlot): Part[] =>
   parts.filter((part) => part.slot === slot);
 
+export const playableParts = (): Part[] =>
+  parts.filter((part) => part.slot !== "LEGS");
+
 export const buildFromLoadout = (loadout: Loadout): MechBuild =>
-  SLOTS.reduce((build, slot) => {
+  EQUIP_SLOTS.reduce((build, slot) => {
     build[slot] = getPartById(loadout[slot]);
     return build;
   }, {} as MechBuild);
@@ -480,9 +502,11 @@ export const getLegLabel = (legType: LegType): string => legLabels[legType];
 export const calculateDerivedStats = (
   loadout: Loadout,
   upgrades: PilotUpgrades,
+  frameId: BaseFrameId = initialFrameId,
 ): DerivedStats => {
   const build = buildFromLoadout(loadout);
-  const selected = SLOTS.map((slot) => build[slot]);
+  const frame = getBaseFrameById(frameId);
+  const selected = EQUIP_SLOTS.map((slot) => build[slot]);
   const total = selected.reduce<PartStats>(
     (sum, part) => ({
       hp: sum.hp + part.stats.hp,
@@ -497,21 +521,26 @@ export const calculateDerivedStats = (
       attack: sum.attack + part.stats.attack,
       cooldown: sum.cooldown + part.stats.cooldown,
     }),
-    { ...zeroStats },
+    { ...frame.stats },
   );
 
   const right = build["R-ARM"];
   const left = build["L-ARM"];
-  const legs = build.LEGS;
-  const legType = legs.legType ?? "biped";
+  const legType = frame.legType;
   const loadLimit = Math.max(1, total.loadLimit);
   const overloadRatio = Math.max(0, (total.weight - loadLimit) / loadLimit);
   const overloadPenalty = 1 + overloadRatio * 0.7;
   const mobilityPenalty = Math.max(0.45, 1 - overloadRatio * 0.45);
   const legCooldownBonus = legType === "quad" ? 0.94 : legType === "tank" ? 1.08 : 1;
   const dodgeMoveBonus = legType === "reverse" ? 1.08 : legType === "hover" ? 1.04 : 1;
+  const frameCooldownOffset = frame.stats.cooldown;
+  const cooldownPenalty = Math.max(0.82, legCooldownBonus * overloadPenalty + frameCooldownOffset);
+  const supportRange = total.range - right.stats.range - left.stats.range;
+  const supportAttack = total.attack - right.stats.attack - left.stats.attack;
 
   return {
+    frameId,
+    frameName: frame.name,
     hpMax: Math.round(total.hp + upgrades.hp),
     enMax: Math.round(total.enCapacity + upgrades.enCapacity),
     enRegen: Math.max(8, total.enRegen + upgrades.enRegen),
@@ -522,17 +551,17 @@ export const calculateDerivedStats = (
     loadLimit: Math.round(loadLimit),
     overloadRatio,
     legType,
-    rightRange: Math.round(right.stats.range + total.range - right.stats.range),
-    leftRange: Math.round(left.stats.range + total.range - left.stats.range),
-    rightAttack: Math.round(right.stats.attack + total.attack - right.stats.attack + upgrades.attack),
-    leftAttack: Math.round(left.stats.attack + total.attack - left.stats.attack + upgrades.attack),
+    rightRange: Math.round(right.stats.range + supportRange),
+    leftRange: Math.round(left.stats.range + supportRange),
+    rightAttack: Math.round(right.stats.attack + supportAttack + upgrades.attack),
+    leftAttack: Math.round(left.stats.attack + supportAttack + upgrades.attack),
     rightCooldown: Math.max(
       0.18,
-      right.stats.cooldown * upgrades.cooldownMultiplier * legCooldownBonus * overloadPenalty,
+      right.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
     ),
     leftCooldown: Math.max(
       0.2,
-      left.stats.cooldown * upgrades.cooldownMultiplier * legCooldownBonus * overloadPenalty,
+      left.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
     ),
     rightResource: right.weaponResource ?? "energy",
     leftResource: left.weaponResource ?? "energy",
@@ -543,7 +572,40 @@ export const calculateDerivedStats = (
     rightAmmoMax: right.weaponResource === "ballistic" ? right.ammoCapacity ?? 32 : 0,
     leftAmmoMax: left.weaponResource === "ballistic" ? left.ammoCapacity ?? 32 : 0,
     missileAttack: Math.round(58 + total.attack * 0.45 + upgrades.attack * 0.7),
-    missileCooldown: Math.max(1.25, 2.8 * upgrades.cooldownMultiplier * overloadPenalty),
+    missileCooldown: Math.max(1.25, 2.8 * upgrades.cooldownMultiplier * cooldownPenalty),
     missileEnergyCost: 9,
   };
+};
+
+export const equippedPartCounts = (
+  loadouts: Loadout[],
+  unlockedUnitCount: number,
+): PartInventory => {
+  const counts: PartInventory = {};
+  for (let unitIndex = 0; unitIndex < unlockedUnitCount; unitIndex += 1) {
+    const loadout = loadouts[unitIndex];
+    if (!loadout) {
+      continue;
+    }
+    for (const slot of EQUIP_SLOTS) {
+      const partId = loadout[slot];
+      counts[partId] = (counts[partId] ?? 0) + 1;
+    }
+  }
+  return counts;
+};
+
+export const unitsEquippingPart = (
+  loadouts: Loadout[],
+  unlockedUnitCount: number,
+  partId: string,
+): number[] => {
+  const units: number[] = [];
+  for (let unitIndex = 0; unitIndex < unlockedUnitCount; unitIndex += 1) {
+    const loadout = loadouts[unitIndex];
+    if (loadout && EQUIP_SLOTS.some((slot: EquipSlot) => loadout[slot] === partId)) {
+      units.push(unitIndex);
+    }
+  }
+  return units;
 };

@@ -15,6 +15,7 @@ export interface Projectile {
   life: number;
   color: string;
   targetId?: string;
+  sourceUnitIndex?: number;
 }
 
 export interface Effect {

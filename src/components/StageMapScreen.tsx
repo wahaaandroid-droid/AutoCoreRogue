@@ -1,44 +1,37 @@
+import { getStagePlan, stagePlans } from "../data/stages";
+
 interface StageMapScreenProps {
   stage: number;
   lastOutcome?: string;
+  unlockedUnitCount: number;
   onOpenAssemble: () => void;
   onOpenAi: () => void;
   onStartCombat: () => void;
 }
 
-const stageType = (stage: number): "normal" | "elite" | "boss" => {
-  if (stage === 7) {
-    return "boss";
-  }
-  if (stage === 5) {
-    return "elite";
-  }
-  return "normal";
-};
-
 export default function StageMapScreen({
   stage,
   lastOutcome,
+  unlockedUnitCount,
   onOpenAssemble,
   onOpenAi,
   onStartCombat,
 }: StageMapScreenProps) {
-  const nodes = Array.from({ length: 7 }, (_, index) => index + 1);
+  const currentPlan = getStagePlan(stage);
 
   return (
     <main className="map-screen">
       <section className="panel map-panel">
         <div className="section-title">RUN MAP</div>
         <div className="map-track">
-          {nodes.map((node) => {
-            const type = stageType(node);
+          {stagePlans.map((plan) => {
             return (
               <div
-                key={node}
-                className={`map-node ${type} ${node < stage ? "cleared" : ""} ${node === stage ? "current" : ""}`}
+                key={plan.stage}
+                className={`map-node ${plan.type} ${plan.stage < stage ? "cleared" : ""} ${plan.stage === stage ? "current" : ""}`}
               >
-                <span>{node}</span>
-                <small>{type === "boss" ? "BOSS" : type === "elite" ? "ELITE" : "BATTLE"}</small>
+                <span>{plan.stage}</span>
+                <small>{plan.label}</small>
               </div>
             );
           })}
@@ -58,8 +51,12 @@ export default function StageMapScreen({
             <dd>STAGE {stage}</dd>
           </div>
           <div>
+            <dt>小隊</dt>
+            <dd>{unlockedUnitCount} / 3</dd>
+          </div>
+          <div>
             <dt>戦闘種別</dt>
-            <dd>{stageType(stage).toUpperCase()}</dd>
+            <dd>{currentPlan.label}</dd>
           </div>
         </dl>
         <div className="legend">

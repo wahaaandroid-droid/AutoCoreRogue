@@ -13,6 +13,7 @@ interface AiEditorScreenProps {
   rules: AiRule[];
   slotCount: number;
   activeUnitIndex: number;
+  unlockedUnitCount: number;
   statsByUnit: DerivedStats[];
   targetPriority: TargetPriorityId;
   onSelectUnit: (index: number) => void;
@@ -27,6 +28,7 @@ export default function AiEditorScreen({
   rules,
   slotCount,
   activeUnitIndex,
+  unlockedUnitCount,
   statsByUnit,
   targetPriority,
   onSelectUnit,
@@ -59,11 +61,12 @@ export default function AiEditorScreen({
           {statsByUnit.map((unitStats, index) => (
             <button
               key={index}
-              className={activeUnitIndex === index ? "active" : ""}
+              className={`${activeUnitIndex === index ? "active" : ""} ${index >= unlockedUnitCount ? "locked" : ""}`}
               onClick={() => onSelectUnit(index)}
+              disabled={index >= unlockedUnitCount}
             >
               <strong>UNIT {index + 1}</strong>
-              <small>SPD {unitStats.moveSpeed}</small>
+              <small>{index >= unlockedUnitCount ? "未配備" : `SPD ${unitStats.moveSpeed}`}</small>
             </button>
           ))}
         </div>

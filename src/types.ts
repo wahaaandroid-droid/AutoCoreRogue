@@ -1,8 +1,13 @@
-export const SLOTS = ["HEAD", "BODY", "L-ARM", "R-ARM", "LEGS"] as const;
+export const EQUIP_SLOTS = ["HEAD", "BODY", "L-ARM", "R-ARM"] as const;
+export const PART_SLOTS = [...EQUIP_SLOTS, "LEGS"] as const;
 
 export const SQUAD_SIZE = 3;
 
-export type PartSlot = (typeof SLOTS)[number];
+export type EquipSlot = (typeof EQUIP_SLOTS)[number];
+
+export type PartSlot = (typeof PART_SLOTS)[number];
+
+export type BaseFrameId = "light" | "medium" | "heavy" | "quad" | "tank";
 
 export type LegType = "biped" | "quad" | "reverse" | "tank" | "hover";
 
@@ -26,6 +31,18 @@ export interface PartStats {
   cooldown: number;
 }
 
+export interface BaseFrame {
+  id: BaseFrameId;
+  name: string;
+  typeLabel: string;
+  role: string;
+  description: string;
+  legType: LegType;
+  color: string;
+  accent: "blue" | "green" | "orange" | "purple";
+  stats: PartStats;
+}
+
 export interface Part {
   id: string;
   slot: PartSlot;
@@ -42,9 +59,11 @@ export interface Part {
   stats: PartStats;
 }
 
-export type Loadout = Record<PartSlot, string>;
+export type Loadout = Record<EquipSlot, string>;
 
-export type MechBuild = Record<PartSlot, Part>;
+export type MechBuild = Record<EquipSlot, Part>;
+
+export type PartInventory = Record<string, number>;
 
 export interface PilotUpgrades {
   hp: number;
@@ -56,6 +75,8 @@ export interface PilotUpgrades {
 }
 
 export interface DerivedStats {
+  frameId: BaseFrameId;
+  frameName: string;
   hpMax: number;
   enMax: number;
   enRegen: number;
@@ -120,4 +141,4 @@ export interface AiRule {
   enabled: boolean;
 }
 
-export type ScreenId = "assemble" | "ai" | "combat" | "reward" | "map";
+export type ScreenId = "frameSelect" | "assemble" | "ai" | "combat" | "reward" | "map";

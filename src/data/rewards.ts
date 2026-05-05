@@ -1,4 +1,5 @@
-import { parts } from "./parts";
+import { PartInventory } from "../types";
+import { playableParts } from "./parts";
 
 export type RewardPayload =
   | { kind: "part"; partId: string }
@@ -83,22 +84,29 @@ const staticRewards: RewardOption[] = [
   },
 ];
 
-const rewardIconSeed = ["新しい武器", "新しい脚部", "試作パーツ"];
+const rewardIconSeed = ["新しい武器", "新しいコア", "試作パーツ"];
 
 export const generateRewardOptions = (
   stage: number,
-  unlockedPartIds: string[],
+  partInventory: PartInventory,
   aiSlotCount: number,
 ): RewardOption[] => {
-  const lockedParts = parts.filter((part) => !unlockedPartIds.includes(part.id));
-  const partRewards = lockedParts.slice(0, 3).map<RewardOption>((part, index) => ({
-    id: `part-${part.id}`,
-    title: rewardIconSeed[index % rewardIconSeed.length],
-    subtitle: part.name,
-    description: `${part.slot} / ${part.rarity.toUpperCase()} を入手`,
-    accent: part.slot === "LEGS" ? "green" : part.slot.includes("ARM") ? "orange" : "blue",
-    payload: { kind: "part", partId: part.id },
-  }));
+  const parts = playableParts();
+  const lockedParts = parts.filter((part) => (partInventory[part.id] ?? 0) === 0);
+  const duplicateParts = parts.filter((part) => (partInventory[part.id] ?? 0) > 0 && !part.initial);
+  const rotatedDuplicates = duplicateParts.slice(stage % Math.max(1, duplicateParts.length));
+  const partCandidates = [...lockedParts, ...rotatedDuplicates, ...duplicateParts].slice(0, 3);
+  const partRewards = partCandidates.map<RewardOption>((part, index) => {
+    const owned = partInventory[part.id] ?? 0;
+    return {
+      id: `part-${part.id}`,
+      title: owned > 0 ? "追加パーツ" : rewardIconSeed[index % rewardIconSeed.length],
+      subtitle: part.name,
+      description: `${part.slot} / ${part.rarity.toUpperCase()} を1個入手${owned > 0 ? `（所持 ${owned}）` : ""}`,
+      accent: part.slot.includes("ARM") ? "orange" : "blue",
+      payload: { kind: "part", partId: part.id },
+    };
+  });
 
   const aiReward =
     aiSlotCount < 8
