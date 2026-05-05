@@ -36,6 +36,8 @@ export interface CombatActor {
   cooldownMax: number;
   boostCooldown: number;
   guard: boolean;
+  facingX: number;
+  facingY: number;
   frameId?: BaseFrameId;
   legType?: LegType;
   color: string;
@@ -189,6 +191,8 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   cooldownMax: 1,
   boostCooldown: 0,
   guard: false,
+  facingX: 0,
+  facingY: -1,
   frameId: stats.frameId,
   legType: stats.legType,
   color: PLAYER_COLORS[index] ?? PLAYER_COLORS[0],
@@ -328,6 +332,8 @@ const createEnemy = (
     cooldownMax: role === "scout" ? 0.92 : role === "sniper" ? 1.46 : rank === "boss" ? 0.82 : rank === "elite" ? 1.0 : 1.18,
     boostCooldown: 1.1 + index * 0.18,
     guard: false,
+    facingX: rank === "boss" ? 0 : -entryDirection.x,
+    facingY: rank === "boss" ? 1 : -entryDirection.y,
     color: rank === "boss" ? "#ff6a42" : rank === "elite" ? "#d889ff" : "#f1b15b",
     rank,
     enemyRole: role,
@@ -760,6 +766,8 @@ const applyPlayerAction = (
   }
 
   const toTarget = normalize(target.x - player.x, target.y - player.y);
+  player.facingX = toTarget.x;
+  player.facingY = toTarget.y;
   const strafeDirection = Math.sin(state.time * 2.7) > 0 ? 1 : -1;
   const perpendicular = { x: -toTarget.y * strafeDirection, y: toTarget.x * strafeDirection };
   const rangeBias = toTarget.distance > 285 ? 0.44 : toTarget.distance < 118 ? -0.62 : 0.05;
@@ -871,6 +879,8 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   }
   const player = targetUnit.actor;
   const toPlayer = normalize(player.x - enemy.x, player.y - enemy.y);
+  enemy.facingX = toPlayer.x;
+  enemy.facingY = toPlayer.y;
   enemy.ax = 0;
   enemy.ay = 0;
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);

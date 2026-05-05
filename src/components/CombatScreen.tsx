@@ -8,6 +8,8 @@ import { AiRule, DerivedStats, LegType, TargetPriorityId } from "../types";
 import arenaFloorUrl from "../assets/arena-floor.png";
 import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
+import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
+import enemyDirectionSpritesUrl from "../assets/enemy-direction-sprites.png";
 
 interface CombatScreenProps {
   stage: number;
@@ -40,6 +42,14 @@ const boostBurstImage = new Image();
 boostBurstImage.src = boostBurstUrl;
 const combatSpritesImage = new Image();
 combatSpritesImage.src = combatSpritesUrl;
+const playerDirectionSpritesImage = new Image();
+playerDirectionSpritesImage.src = playerDirectionSpritesUrl;
+const enemyDirectionSpritesImage = new Image();
+enemyDirectionSpritesImage.src = enemyDirectionSpritesUrl;
+
+const DIRECTION_COLUMNS = 8;
+const PLAYER_SPRITE_ROWS = 5;
+const ENEMY_SPRITE_ROWS = 7;
 
 const spriteCell = (index: number) => ({
   column: index % 4,
@@ -62,6 +72,84 @@ const drawAtlasSprite = (
     combatSpritesImage,
     cell.column * cellWidth,
     cell.row * cellHeight,
+    cellWidth,
+    cellHeight,
+    -size / 2,
+    -size / 2,
+    size,
+    size,
+  );
+  return true;
+};
+
+const positiveModulo = (value: number, divisor: number): number =>
+  ((value % divisor) + divisor) % divisor;
+
+const directionIndexFor = (actor: CombatActor): number => {
+  const facingX = Math.abs(actor.facingX) + Math.abs(actor.facingY) > 0.001 ? actor.facingX : actor.vx;
+  const facingY = Math.abs(actor.facingX) + Math.abs(actor.facingY) > 0.001 ? actor.facingY : actor.vy;
+  if (Math.abs(facingX) + Math.abs(facingY) <= 0.001) {
+    return 0;
+  }
+  const angle = Math.atan2(facingY, facingX);
+  return positiveModulo(Math.round((angle + Math.PI / 2) / (Math.PI / 4)), DIRECTION_COLUMNS);
+};
+
+const playerSpriteRow = (actor: CombatActor): number => {
+  switch (actor.frameId) {
+    case "light":
+      return 0;
+    case "medium":
+      return 1;
+    case "heavy":
+      return 2;
+    case "quad":
+      return 3;
+    case "tank":
+      return 4;
+    default:
+      return 1;
+  }
+};
+
+const enemySpriteRow = (actor: CombatActor): number => {
+  if (actor.rank === "boss") {
+    return 6;
+  }
+  if (actor.rank === "elite") {
+    return actor.enemyRole === "bruiser" ? 5 : 4;
+  }
+  switch (actor.enemyRole) {
+    case "scout":
+      return 1;
+    case "sniper":
+      return 2;
+    case "bruiser":
+      return 3;
+    case "drone":
+    default:
+      return 0;
+  }
+};
+
+const drawDirectionalSprite = (
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  rows: number,
+  row: number,
+  direction: number,
+  size: number,
+): boolean => {
+  if (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
+    return false;
+  }
+
+  const cellWidth = image.naturalWidth / DIRECTION_COLUMNS;
+  const cellHeight = image.naturalHeight / rows;
+  ctx.drawImage(
+    image,
+    direction * cellWidth,
+    row * cellHeight,
     cellWidth,
     cellHeight,
     -size / 2,
@@ -147,6 +235,35 @@ const drawMech = (
 ) => {
   ctx.save();
   ctx.translate(actor.x, actor.y);
+  const direction = directionIndexFor(actor);
+  const directionalImage = isPlayer ? playerDirectionSpritesImage : enemyDirectionSpritesImage;
+  const directionalRows = isPlayer ? PLAYER_SPRITE_ROWS : ENEMY_SPRITE_ROWS;
+  const directionalRow = isPlayer ? playerSpriteRow(actor) : enemySpriteRow(actor);
+  const directionalSize =
+    actor.radius *
+    (isPlayer
+      ? actor.frameId === "tank"
+        ? 7.3
+        : actor.frameId === "quad"
+          ? 7.1
+          : actor.frameId === "heavy"
+            ? 6.7
+            : 6.2
+      : actor.rank === "boss"
+        ? 7.5
+        : actor.rank === "elite"
+          ? 6.7
+          : actor.enemyRole === "sniper"
+            ? 6.2
+            : 5.8);
+  if (drawDirectionalSprite(ctx, directionalImage, directionalRows, directionalRow, direction, directionalSize)) {
+    ctx.restore();
+    drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
+    if (label) {
+      drawUnitTag(ctx, actor, label);
+    }
+    return;
+  }
   const spriteIndex = isPlayer ? 0 : actor.rank === "boss" ? 3 : actor.rank === "elite" ? 2 : 1;
   if (!isPlayer && drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 3.6 : actor.rank === "elite" ? 3.4 : 3.1))) {
     ctx.restore();
