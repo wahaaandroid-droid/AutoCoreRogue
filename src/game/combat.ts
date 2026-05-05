@@ -39,6 +39,8 @@ export interface CombatActor {
   legType?: LegType;
   color: string;
   rank: "normal" | "elite" | "boss";
+  entryBoostTime?: number;
+  entryBoostPulse?: number;
 }
 
 export interface PlayerCombatUnit {
@@ -89,6 +91,9 @@ const uid = (prefix: string): string => `${prefix}-${nextId++}`;
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
+const isEntryBoosting = (actor: CombatActor): boolean =>
+  actor.team === "enemy" && (actor.entryBoostTime ?? 0) > 0;
+
 const normalize = (dx: number, dy: number): { x: number; y: number; distance: number } => {
   const distance = Math.max(1, Math.hypot(dx, dy));
   return { x: dx / distance, y: dy / distance, distance };
@@ -108,6 +113,9 @@ const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): vo
 
 const maxSpeedFor = (actor: CombatActor): number => {
   if (actor.team === "enemy") {
+    if (isEntryBoosting(actor)) {
+      return actor.moveSpeed * (actor.rank === "boss" ? 1.25 : actor.rank === "elite" ? 1.72 : 1.92);
+    }
     return actor.moveSpeed * (actor.rank === "boss" ? 0.82 : 0.96);
   }
 
@@ -201,6 +209,7 @@ const createEnemy = (
   index: number,
   rank: CombatActor["rank"],
   total: number,
+  enterFromOffscreen = false,
 ): CombatActor => {
   const angle = -Math.PI * 0.94 + ((index + 0.5) / Math.max(1, total)) * Math.PI * 1.88;
   const distance = rank === "boss" ? 235 : 228 + (index % 3) * 28;
@@ -214,17 +223,35 @@ const createEnemy = (
   const spawnY = rank === "boss"
     ? ARENA_HEIGHT * 0.22
     : ARENA_HEIGHT * 0.46 + Math.sin(angle) * distance * 0.72;
+  const entrySide = index % 4;
+  const entryOffset = 84 + (index % 3) * 20;
+  const entryTargetX = ARENA_WIDTH * (0.28 + ((index * 37) % 45) / 100);
+  const entryTargetY = ARENA_HEIGHT * (0.26 + ((index * 29) % 42) / 100);
+  const entryX =
+    entrySide === 0
+      ? -entryOffset
+      : entrySide === 1
+        ? ARENA_WIDTH + entryOffset
+        : clamp(entryTargetX, 84, ARENA_WIDTH - 84);
+  const entryY =
+    entrySide === 2
+      ? -entryOffset
+      : entrySide === 3
+        ? ARENA_HEIGHT + entryOffset
+        : clamp(entryTargetY, 84, ARENA_HEIGHT - 84);
+  const entryDirection = normalize(entryTargetX - entryX, entryTargetY - entryY);
+  const initialSpeed = rank === "boss" ? 70 : rank === "elite" ? 116 : 138;
 
   return {
     id: uid("enemy"),
     name: rank === "boss" ? "Signal Tyrant" : rank === "elite" ? "Gatebreaker" : "Drone Frame",
     team: "enemy",
-    x: clamp(spawnX, 52, ARENA_WIDTH - 52),
-    y: clamp(spawnY, 52, ARENA_HEIGHT - 52),
+    x: enterFromOffscreen ? entryX : clamp(spawnX, 52, ARENA_WIDTH - 52),
+    y: enterFromOffscreen ? entryY : clamp(spawnY, 52, ARENA_HEIGHT - 52),
     ax: 0,
     ay: 0,
-    vx: 0,
-    vy: 0,
+    vx: enterFromOffscreen ? entryDirection.x * initialSpeed : 0,
+    vy: enterFromOffscreen ? entryDirection.y * initialSpeed : 0,
     radius: rank === "boss" ? 27 : rank === "elite" ? 22 : 16,
     hp: baseHp * hpScale,
     maxHp: baseHp * hpScale,
@@ -245,6 +272,8 @@ const createEnemy = (
     guard: false,
     color: rank === "boss" ? "#ff6a42" : rank === "elite" ? "#d889ff" : "#f1b15b",
     rank,
+    entryBoostTime: enterFromOffscreen ? 1.15 : undefined,
+    entryBoostPulse: enterFromOffscreen ? 0 : undefined,
   };
 };
 
@@ -286,8 +315,11 @@ const spawnEnemies = (
   ranks: CombatActor["rank"][],
   startIndex: number,
   total: number,
+  enterFromOffscreen = false,
 ): CombatActor[] =>
-  ranks.map((rank, index) => createEnemy(stage, startIndex + index, rank, total));
+  ranks.map((rank, index) =>
+    createEnemy(stage, startIndex + index, rank, total, enterFromOffscreen),
+  );
 
 const createInitialEnemies = (
   stage: number,
@@ -311,7 +343,7 @@ const refillEnemyWave = (state: CombatState): void => {
 
   const incoming = state.enemyQueue.splice(0, capacity);
   state.enemies.push(
-    ...spawnEnemies(state.stage, incoming, state.spawnedEnemyCount, state.enemyTotal),
+    ...spawnEnemies(state.stage, incoming, state.spawnedEnemyCount, state.enemyTotal, true),
   );
   state.spawnedEnemyCount += incoming.length;
 };
@@ -728,6 +760,38 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
   enemy.boostCooldown = Math.max(0, enemy.boostCooldown - dt);
 
+  if (isEntryBoosting(enemy)) {
+    enemy.entryBoostTime = Math.max(0, (enemy.entryBoostTime ?? 0) - dt);
+    enemy.entryBoostPulse = Math.max(0, (enemy.entryBoostPulse ?? 0) - dt);
+
+    const entryAnchor = {
+      x: clamp(enemy.x, 112, state.width - 112),
+      y: clamp(enemy.y, 92, state.height - 92),
+    };
+    const toArena = normalize(entryAnchor.x - enemy.x, entryAnchor.y - enemy.y);
+    const thrust = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 1.65 : 1.9;
+    applyThrust(enemy, toArena.x, toArena.y, thrust);
+
+    if ((enemy.entryBoostPulse ?? 0) <= 0) {
+      pushBoostBurst(state, enemy, toArena, enemy.rank === "elite" ? "#d889ff" : "#ff9d42");
+      state.soundEvents.push("boost");
+      enemy.entryBoostPulse = 0.18;
+    }
+
+    const inside =
+      enemy.x > 44 &&
+      enemy.x < state.width - 44 &&
+      enemy.y > 44 &&
+      enemy.y < state.height - 44;
+    if (!inside) {
+      enemy.entryBoostTime = Math.max(enemy.entryBoostTime ?? 0, 0.05);
+      return;
+    }
+
+    enemy.entryBoostTime = 0;
+    enemy.entryBoostPulse = undefined;
+  }
+
   const threat = nearestPlayerProjectileThreat(state, enemy);
   if (threat && enemy.boostCooldown <= 0) {
     const dodgeSide = Math.sin(state.time * 3.1 + enemy.x * 0.013) > 0 ? 1 : -1;
@@ -787,13 +851,14 @@ const updatePositions = (state: CombatState, dt: number): void => {
     const maxY = state.height - 36;
     const nextX = actor.x + actor.vx * dt;
     const nextY = actor.y + actor.vy * dt;
-    actor.x = clamp(nextX, minX, maxX);
-    actor.y = clamp(nextY, minY, maxY);
+    const entryPadding = isEntryBoosting(actor) ? 132 : 0;
+    actor.x = clamp(nextX, minX - entryPadding, maxX + entryPadding);
+    actor.y = clamp(nextY, minY - entryPadding, maxY + entryPadding);
 
-    if (actor.x === minX || actor.x === maxX) {
+    if (!isEntryBoosting(actor) && (actor.x === minX || actor.x === maxX)) {
       actor.vx *= -0.38;
     }
-    if (actor.y === minY || actor.y === maxY) {
+    if (!isEntryBoosting(actor) && (actor.y === minY || actor.y === maxY)) {
       actor.vy *= -0.38;
     }
 
