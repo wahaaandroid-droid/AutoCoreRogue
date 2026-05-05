@@ -6,6 +6,8 @@ export type LegType = "biped" | "quad" | "reverse" | "tank" | "hover";
 
 export type Rarity = "common" | "rare" | "elite";
 
+export type WeaponResource = "energy" | "ballistic";
+
 export interface PartStats {
   hp: number;
   enCapacity: number;
@@ -27,6 +29,9 @@ export interface Part {
   manufacturer: string;
   description: string;
   legType?: LegType;
+  weaponResource?: WeaponResource;
+  energyCost?: number;
+  ammoCapacity?: number;
   rarity: Rarity;
   initial: boolean;
   stats: PartStats;
@@ -62,8 +67,15 @@ export interface DerivedStats {
   leftAttack: number;
   rightCooldown: number;
   leftCooldown: number;
+  rightResource: WeaponResource;
+  leftResource: WeaponResource;
+  rightEnergyCost: number;
+  leftEnergyCost: number;
+  rightAmmoMax: number;
+  leftAmmoMax: number;
   missileAttack: number;
   missileCooldown: number;
+  missileEnergyCost: number;
 }
 
 export type AiConditionId =

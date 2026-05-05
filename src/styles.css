@@ -544,6 +544,12 @@ select {
   background: var(--orange);
 }
 
+.shortage-line {
+  color: var(--orange);
+  font-size: 12px;
+  margin-top: 5px;
+}
+
 .active-action {
   color: var(--green);
 }

@@ -95,15 +95,6 @@ const playEvent = (context: AudioContext, event: CombatSoundEvent): void => {
     case "hit":
       playNoise(context, 0.11, 0.04);
       break;
-    case "victory":
-      playTone(context, "triangle", 430, 860, 0.28, 0.045);
-      window.setTimeout(() => {
-        const nextContext = getAudioContext();
-        if (nextContext) {
-          playTone(nextContext, "triangle", 620, 1040, 0.28, 0.04);
-        }
-      }, 110);
-      break;
     case "defeat":
       playTone(context, "sawtooth", 220, 55, 0.55, 0.05);
       playNoise(context, 0.24, 0.045);

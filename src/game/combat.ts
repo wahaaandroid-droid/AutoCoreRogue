@@ -6,7 +6,7 @@ import {
   Effect,
   Projectile,
 } from "./projectiles";
-import { AiActionId, AiRule, DerivedStats, LegType } from "../types";
+import { AiActionId, AiRule, DerivedStats, LegType, WeaponResource } from "../types";
 
 export interface CombatActor {
   id: string;
@@ -23,6 +23,10 @@ export interface CombatActor {
   maxHp: number;
   en: number;
   maxEn: number;
+  rightAmmo: number;
+  rightAmmoMax: number;
+  leftAmmo: number;
+  leftAmmoMax: number;
   enRegen: number;
   defense: number;
   moveSpeed: number;
@@ -36,7 +40,7 @@ export interface CombatActor {
   rank: "normal" | "elite" | "boss";
 }
 
-export type CombatSoundEvent = "shoot" | "missile" | "boost" | "hit" | "victory" | "defeat";
+export type CombatSoundEvent = "shoot" | "missile" | "boost" | "hit" | "defeat";
 
 export interface CombatState {
   width: number;
@@ -52,6 +56,15 @@ export interface CombatState {
   rightCooldown: number;
   leftCooldown: number;
   missileCooldown: number;
+  rightResource: WeaponResource;
+  leftResource: WeaponResource;
+  rightAmmo: number;
+  rightAmmoMax: number;
+  leftAmmo: number;
+  leftAmmoMax: number;
+  rightEnergyCost: number;
+  leftEnergyCost: number;
+  missileEnergyCost: number;
   soundEvents: CombatSoundEvent[];
   status: "running" | "victory" | "defeat";
 }
@@ -125,6 +138,10 @@ const createPlayer = (stats: DerivedStats): CombatActor => ({
   maxHp: stats.hpMax,
   en: stats.enMax,
   maxEn: stats.enMax,
+  rightAmmo: stats.rightAmmoMax,
+  rightAmmoMax: stats.rightAmmoMax,
+  leftAmmo: stats.leftAmmoMax,
+  leftAmmoMax: stats.leftAmmoMax,
   enRegen: stats.enRegen,
   defense: stats.defense,
   moveSpeed: stats.moveSpeed,
@@ -161,6 +178,10 @@ const createEnemy = (stage: number, index: number, rank: CombatActor["rank"]): C
     maxHp: baseHp * hpScale,
     en: 0,
     maxEn: 0,
+    rightAmmo: 0,
+    rightAmmoMax: 0,
+    leftAmmo: 0,
+    leftAmmoMax: 0,
     enRegen: 0,
     defense: rank === "boss" ? 78 + stage * 6 : rank === "elite" ? 56 + stage * 5 : 30 + stage * 4,
     moveSpeed: rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5,
@@ -199,6 +220,15 @@ export const createCombatState = (stage: number, stats: DerivedStats): CombatSta
   rightCooldown: 0.2,
   leftCooldown: 0.35,
   missileCooldown: 1.5,
+  rightResource: stats.rightResource,
+  leftResource: stats.leftResource,
+  rightAmmo: stats.rightAmmoMax,
+  rightAmmoMax: stats.rightAmmoMax,
+  leftAmmo: stats.leftAmmoMax,
+  leftAmmoMax: stats.leftAmmoMax,
+  rightEnergyCost: stats.rightEnergyCost,
+  leftEnergyCost: stats.leftEnergyCost,
+  missileEnergyCost: stats.missileEnergyCost,
   soundEvents: [],
   status: "running",
 });
@@ -296,6 +326,46 @@ const spendEnergy = (actor: CombatActor, amount: number): boolean => {
   return true;
 };
 
+const canPayWeapon = (
+  state: CombatState,
+  side: "right" | "left",
+): boolean => {
+  if (side === "right") {
+    return state.rightResource === "ballistic"
+      ? state.rightAmmo > 0
+      : state.player.en >= state.rightEnergyCost;
+  }
+
+  return state.leftResource === "ballistic"
+    ? state.leftAmmo > 0
+    : state.player.en >= state.leftEnergyCost;
+};
+
+const consumeWeapon = (
+  state: CombatState,
+  side: "right" | "left",
+): boolean => {
+  if (side === "right") {
+    if (state.rightResource === "ballistic") {
+      if (state.rightAmmo <= 0) {
+        return false;
+      }
+      state.rightAmmo -= 1;
+      return true;
+    }
+    return spendEnergy(state.player, state.rightEnergyCost);
+  }
+
+  if (state.leftResource === "ballistic") {
+    if (state.leftAmmo <= 0) {
+      return false;
+    }
+    state.leftAmmo -= 1;
+    return true;
+  }
+  return spendEnergy(state.player, state.leftEnergyCost);
+};
+
 const applyPlayerAction = (
   state: CombatState,
   stats: DerivedStats,
@@ -330,7 +400,7 @@ const applyPlayerAction = (
       applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 1.0);
       break;
     case "boostDodge": {
-      const cost = player.legType === "reverse" ? 24 : player.legType === "tank" ? 44 : 32;
+      const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
       if (spendEnergy(player, cost)) {
         player.vx += perpendicular.x * player.moveSpeed * 1.85;
         player.vy += perpendicular.y * player.moveSpeed * 1.85;
@@ -342,24 +412,35 @@ const applyPlayerAction = (
     }
     case "shootRight":
       combatDrift();
-      if (state.rightCooldown <= 0 && spendEnergy(player, 16)) {
-        fireProjectile(state, player, target, stats.rightAttack, 585, "bullet", "#63cfff", 4.2);
+      if (state.rightCooldown <= 0 && consumeWeapon(state, "right")) {
+        const ballistic = state.rightResource === "ballistic";
+        fireProjectile(
+          state,
+          player,
+          target,
+          stats.rightAttack,
+          ballistic ? 640 : 585,
+          ballistic ? "bullet" : "pulse",
+          ballistic ? "#ff9d42" : "#63cfff",
+          ballistic ? 4.6 : 4.2,
+        );
         state.rightCooldown = stats.rightCooldown;
       }
       break;
     case "shootLeft":
       combatDrift();
-      if (state.leftCooldown <= 0 && spendEnergy(player, 18)) {
-        const kind = stats.leftCooldown > 1.2 ? "missile" : "pulse";
+      if (state.leftCooldown <= 0 && consumeWeapon(state, "left")) {
+        const ballistic = state.leftResource === "ballistic";
+        const kind = ballistic && stats.leftCooldown > 1.0 ? "missile" : ballistic ? "bullet" : "pulse";
         fireProjectile(
           state,
           player,
           target,
           stats.leftAttack,
-          kind === "missile" ? 245 : 465,
+          kind === "missile" ? 245 : ballistic ? 610 : 465,
           kind,
-          kind === "missile" ? "#ff9c35" : "#54f4a7",
-          kind === "missile" ? 6 : 4.8,
+          kind === "missile" ? "#ff9c35" : ballistic ? "#ffb15a" : "#54f4a7",
+          kind === "missile" ? 6 : ballistic ? 4.5 : 4.8,
           kind === "missile" ? target.id : undefined,
         );
         state.leftCooldown = stats.leftCooldown;
@@ -367,7 +448,7 @@ const applyPlayerAction = (
       break;
     case "fireMissile":
       combatDrift();
-      if (state.missileCooldown <= 0 && spendEnergy(player, 26)) {
+      if (state.missileCooldown <= 0 && spendEnergy(player, state.missileEnergyCost)) {
         fireProjectile(state, player, target, stats.missileAttack, 220, "missile", "#ffb13b", 5.8, target.id);
         state.missileCooldown = stats.missileCooldown;
       }
@@ -530,12 +611,15 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
     ? Math.hypot(target.x - state.player.x, target.y - state.player.y)
     : Number.POSITIVE_INFINITY;
   const decision = evaluateAiRules(rules, {
+    en: state.player.en,
     hpPercent: state.player.hp / state.player.maxHp,
     enPercent: state.player.en / state.player.maxEn,
     nearestEnemyDistance: targetDistance,
     rightCooldown: state.rightCooldown,
     leftCooldown: state.leftCooldown,
     missileCooldown: state.missileCooldown,
+    rightCanPay: canPayWeapon(state, "right"),
+    leftCanPay: canPayWeapon(state, "left"),
     enemyProjectileDistance: nearestEnemyProjectileDistance(state),
   });
 
@@ -559,7 +643,6 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
     state.soundEvents.push("defeat");
   } else if (state.enemies.length === 0) {
     state.status = "victory";
-    state.soundEvents.push("victory");
   }
 
   return state;

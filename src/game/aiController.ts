@@ -1,12 +1,15 @@
 import { AiActionId, AiConditionId, AiRule } from "../types";
 
 export interface AiRuntimeContext {
+  en: number;
   hpPercent: number;
   enPercent: number;
   nearestEnemyDistance: number;
   rightCooldown: number;
   leftCooldown: number;
   missileCooldown: number;
+  rightCanPay: boolean;
+  leftCanPay: boolean;
   enemyProjectileDistance: number;
 }
 
@@ -29,9 +32,9 @@ const isConditionMet = (condition: AiConditionId, context: AiRuntimeContext): bo
     case "enHigh":
       return context.enPercent >= 0.5;
     case "rightReady":
-      return context.rightCooldown <= 0 && context.enPercent >= 0.08;
+      return context.rightCooldown <= 0 && context.rightCanPay;
     case "leftReady":
-      return context.leftCooldown <= 0 && context.enPercent >= 0.12;
+      return context.leftCooldown <= 0 && context.leftCanPay;
     case "enemyProjectileNear":
       return context.enemyProjectileDistance < 82;
     case "always":

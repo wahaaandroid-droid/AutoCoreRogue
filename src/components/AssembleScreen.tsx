@@ -124,6 +124,13 @@ export default function AssembleScreen({
                 <span className="part-stat-line">
                   ATK {part.stats.attack} / RNG {part.stats.range} / WT {part.stats.weight}
                 </span>
+                {part.weaponResource && (
+                  <span className="part-stat-line">
+                    {part.weaponResource === "ballistic"
+                      ? `AMMO ${part.ammoCapacity ?? 0}`
+                      : `EN COST ${part.energyCost ?? 0}`}
+                  </span>
+                )}
               </button>
             ))}
         </div>

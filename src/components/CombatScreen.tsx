@@ -5,6 +5,7 @@ import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType } from "../types";
 import arenaFloorUrl from "../assets/arena-floor.png";
+import combatSpritesUrl from "../assets/combat-sprites.png";
 
 interface CombatScreenProps {
   stage: number;
@@ -27,6 +28,39 @@ const cooldownPercent = (value: number, max: number): number => {
 
 const arenaFloorImage = new Image();
 arenaFloorImage.src = arenaFloorUrl;
+const combatSpritesImage = new Image();
+combatSpritesImage.src = combatSpritesUrl;
+
+const spriteCell = (index: number) => ({
+  column: index % 4,
+  row: Math.floor(index / 4),
+});
+
+const drawAtlasSprite = (
+  ctx: CanvasRenderingContext2D,
+  index: number,
+  size: number,
+) => {
+  if (!combatSpritesImage.complete || combatSpritesImage.naturalWidth === 0) {
+    return false;
+  }
+
+  const cell = spriteCell(index);
+  const cellWidth = combatSpritesImage.naturalWidth / 4;
+  const cellHeight = combatSpritesImage.naturalHeight / 2;
+  ctx.drawImage(
+    combatSpritesImage,
+    cell.column * cellWidth,
+    cell.row * cellHeight,
+    cellWidth,
+    cellHeight,
+    -size / 2,
+    -size / 2,
+    size,
+    size,
+  );
+  return true;
+};
 
 const drawGrid = (ctx: CanvasRenderingContext2D, state: CombatState) => {
   if (arenaFloorImage.complete && arenaFloorImage.naturalWidth > 0) {
@@ -87,6 +121,12 @@ const drawMech = (
 ) => {
   ctx.save();
   ctx.translate(actor.x, actor.y);
+  const spriteIndex = isPlayer ? 0 : actor.rank === "boss" ? 3 : actor.rank === "elite" ? 2 : 1;
+  if (drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 3.6 : actor.rank === "elite" ? 3.4 : 3.1))) {
+    ctx.restore();
+    drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
+    return;
+  }
   const angle = Math.atan2(actor.vy, actor.vx || (isPlayer ? -0.2 : 0.2));
   ctx.rotate(Number.isFinite(angle) ? angle : 0);
   ctx.shadowColor = actor.color;
@@ -145,6 +185,15 @@ const drawMech = (
 
 const drawProjectile = (ctx: CanvasRenderingContext2D, projectile: Projectile) => {
   ctx.save();
+  ctx.translate(projectile.x, projectile.y);
+  const angle = Math.atan2(projectile.vy, projectile.vx) + Math.PI / 2;
+  ctx.rotate(Number.isFinite(angle) ? angle : 0);
+  const spriteIndex = projectile.kind === "missile" ? 6 : projectile.color.toLowerCase().startsWith("#ff") ? 5 : 4;
+  if (drawAtlasSprite(ctx, spriteIndex, projectile.kind === "missile" ? 36 : 22)) {
+    ctx.restore();
+    return;
+  }
+  ctx.translate(-projectile.x, -projectile.y);
   ctx.strokeStyle = projectile.color;
   ctx.fillStyle = projectile.color;
   ctx.shadowColor = projectile.color;
@@ -163,7 +212,13 @@ const drawProjectile = (ctx: CanvasRenderingContext2D, projectile: Projectile) =
 const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   const progress = 1 - effect.life / effect.maxLife;
   ctx.save();
+  ctx.translate(effect.x, effect.y);
   ctx.globalAlpha = Math.max(0, 1 - progress);
+  if (effect.kind === "explosion" && drawAtlasSprite(ctx, 7, effect.size * (1.4 + progress * 1.3))) {
+    ctx.restore();
+    return;
+  }
+  ctx.translate(-effect.x, -effect.y);
   ctx.strokeStyle = effect.color;
   ctx.fillStyle = effect.color;
   ctx.shadowColor = effect.color;
@@ -181,6 +236,9 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   }
   ctx.restore();
 };
+
+const resourceLabel = (resource: string, ammo: number, ammoMax: number, energyCost: number) =>
+  resource === "ballistic" ? `${ammo} / ${ammoMax}` : `EN ${energyCost}`;
 
 const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, stats: DerivedStats) => {
   drawGrid(ctx, state);
@@ -307,17 +365,29 @@ export default function CombatScreen({
           <div className="section-title">WEAPON COOL</div>
           <div className="cool-row">
             <span>右腕</span>
-            <b>{snapshot.rightCooldown.toFixed(1)}</b>
+            <b>{snapshot.rightCooldown.toFixed(1)} / {resourceLabel(snapshot.rightResource, snapshot.rightAmmo, snapshot.rightAmmoMax, snapshot.rightEnergyCost)}</b>
           </div>
           <div className="coolbar"><span style={{ width: `${cooldownPercent(snapshot.rightCooldown, stats.rightCooldown) * 100}%` }} /></div>
+          {snapshot.rightCooldown <= 0 && snapshot.rightResource === "energy" && snapshot.player.en < snapshot.rightEnergyCost && (
+            <div className="shortage-line">右腕 EN不足</div>
+          )}
+          {snapshot.rightCooldown <= 0 && snapshot.rightResource === "ballistic" && snapshot.rightAmmo <= 0 && (
+            <div className="shortage-line">右腕 弾切れ</div>
+          )}
           <div className="cool-row">
             <span>左腕</span>
-            <b>{snapshot.leftCooldown.toFixed(1)}</b>
+            <b>{snapshot.leftCooldown.toFixed(1)} / {resourceLabel(snapshot.leftResource, snapshot.leftAmmo, snapshot.leftAmmoMax, snapshot.leftEnergyCost)}</b>
           </div>
           <div className="coolbar green"><span style={{ width: `${cooldownPercent(snapshot.leftCooldown, stats.leftCooldown) * 100}%` }} /></div>
+          {snapshot.leftCooldown <= 0 && snapshot.leftResource === "energy" && snapshot.player.en < snapshot.leftEnergyCost && (
+            <div className="shortage-line">左腕 EN不足</div>
+          )}
+          {snapshot.leftCooldown <= 0 && snapshot.leftResource === "ballistic" && snapshot.leftAmmo <= 0 && (
+            <div className="shortage-line">左腕 弾切れ</div>
+          )}
           <div className="cool-row">
             <span>ミサイル</span>
-            <b>{snapshot.missileCooldown.toFixed(1)}</b>
+            <b>{snapshot.missileCooldown.toFixed(1)} / EN {snapshot.missileEnergyCost}</b>
           </div>
           <div className="coolbar orange"><span style={{ width: `${cooldownPercent(snapshot.missileCooldown, stats.missileCooldown) * 100}%` }} /></div>
         </div>
