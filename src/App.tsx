@@ -14,44 +14,68 @@ import {
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
 import { unlockCombatAudio } from "./game/sound";
-import { AiRule, Loadout, PartSlot, PilotUpgrades, ScreenId } from "./types";
+import { AiRule, Loadout, PartSlot, PilotUpgrades, ScreenId, SQUAD_SIZE } from "./types";
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
+const createInitialLoadouts = (): Loadout[] =>
+  Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
+const createInitialAiSlotCounts = (): number[] =>
+  Array.from({ length: SQUAD_SIZE }, () => 5);
+const createInitialAiRulesByUnit = (): AiRule[][] =>
+  Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules());
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenId>("assemble");
   const [stage, setStage] = useState(1);
-  const [loadout, setLoadout] = useState<Loadout>(() => cloneLoadout());
+  const [loadouts, setLoadouts] = useState<Loadout[]>(() => createInitialLoadouts());
+  const [activeUnitIndex, setActiveUnitIndex] = useState(0);
   const [unlockedPartIds, setUnlockedPartIds] = useState<string[]>(() => [...initialUnlockedPartIds]);
   const [upgrades, setUpgrades] = useState<PilotUpgrades>(() => cloneUpgrades());
-  const [aiSlotCount, setAiSlotCount] = useState(5);
-  const [aiRules, setAiRules] = useState<AiRule[]>(() => createInitialAiRules());
+  const [aiSlotCounts, setAiSlotCounts] = useState<number[]>(() => createInitialAiSlotCounts());
+  const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() => createInitialAiRulesByUnit());
   const [rewardOptions, setRewardOptions] = useState<RewardOption[]>([]);
   const [lastOutcome, setLastOutcome] = useState<string | undefined>();
 
-  const stats = useMemo(() => calculateDerivedStats(loadout, upgrades), [loadout, upgrades]);
-  const normalizedRules = useMemo(
-    () => ensureAiRuleSlots(aiRules, aiSlotCount),
-    [aiRules, aiSlotCount],
+  const statsByUnit = useMemo(
+    () => loadouts.map((unitLoadout) => calculateDerivedStats(unitLoadout, upgrades)),
+    [loadouts, upgrades],
+  );
+  const normalizedRulesByUnit = useMemo(
+    () =>
+      aiRulesByUnit.map((rules, index) =>
+        ensureAiRuleSlots(rules, aiSlotCounts[index] ?? 5),
+      ),
+    [aiRulesByUnit, aiSlotCounts],
   );
 
   const changeLoadout = (slot: PartSlot, partId: string) => {
-    setLoadout((current) => ({ ...current, [slot]: partId }));
+    setLoadouts((current) =>
+      current.map((unitLoadout, index) =>
+        index === activeUnitIndex ? { ...unitLoadout, [slot]: partId } : unitLoadout,
+      ),
+    );
+  };
+
+  const changeActiveAiRules = (rules: AiRule[]) => {
+    setAiRulesByUnit((current) =>
+      current.map((unitRules, index) => (index === activeUnitIndex ? rules : unitRules)),
+    );
   };
 
   const resetRun = () => {
     setStage(1);
-    setLoadout(cloneLoadout());
+    setLoadouts(createInitialLoadouts());
+    setActiveUnitIndex(0);
     setUnlockedPartIds([...initialUnlockedPartIds]);
     setUpgrades(cloneUpgrades());
-    setAiSlotCount(5);
-    setAiRules(createInitialAiRules());
+    setAiSlotCounts(createInitialAiSlotCounts());
+    setAiRulesByUnit(createInitialAiRulesByUnit());
     setRewardOptions([]);
   };
 
   const handleVictory = () => {
-    setRewardOptions(generateRewardOptions(stage, unlockedPartIds, aiSlotCount));
+    setRewardOptions(generateRewardOptions(stage, unlockedPartIds, aiSlotCounts[activeUnitIndex] ?? 5));
     setLastOutcome(`STAGE ${stage} CLEAR`);
     setScreen("reward");
   };
@@ -70,7 +94,11 @@ export default function App() {
       setUnlockedPartIds((current) =>
         current.includes(part.id) ? current : [...current, part.id],
       );
-      setLoadout((current) => ({ ...current, [part.slot]: part.id }));
+      setLoadouts((current) =>
+        current.map((unitLoadout, index) =>
+          index === activeUnitIndex ? { ...unitLoadout, [part.slot]: part.id } : unitLoadout,
+        ),
+      );
     }
 
     if (payload.kind === "stat") {
@@ -88,7 +116,11 @@ export default function App() {
     }
 
     if (payload.kind === "aiSlot") {
-      setAiSlotCount((current) => Math.min(8, current + payload.amount));
+      setAiSlotCounts((current) =>
+        current.map((slotCount, index) =>
+          index === activeUnitIndex ? Math.min(8, slotCount + payload.amount) : slotCount,
+        ),
+      );
     }
 
     if (stage >= 7) {
@@ -137,9 +169,11 @@ export default function App() {
       {topNav}
       {screen === "assemble" && (
         <AssembleScreen
-          loadout={loadout}
+          loadouts={loadouts}
           unlockedPartIds={unlockedPartIds}
-          stats={stats}
+          statsByUnit={statsByUnit}
+          activeUnitIndex={activeUnitIndex}
+          onSelectUnit={setActiveUnitIndex}
           onChangeLoadout={changeLoadout}
           onOpenAi={() => setScreen("ai")}
           onOpenMap={() => setScreen("map")}
@@ -148,9 +182,12 @@ export default function App() {
       )}
       {screen === "ai" && (
         <AiEditorScreen
-          rules={normalizedRules}
-          slotCount={aiSlotCount}
-          onChangeRules={setAiRules}
+          rules={normalizedRulesByUnit[activeUnitIndex]}
+          slotCount={aiSlotCounts[activeUnitIndex] ?? 5}
+          activeUnitIndex={activeUnitIndex}
+          statsByUnit={statsByUnit}
+          onSelectUnit={setActiveUnitIndex}
+          onChangeRules={changeActiveAiRules}
           onOpenAssemble={() => setScreen("assemble")}
           onOpenMap={() => setScreen("map")}
           onStartCombat={startCombat}
@@ -159,8 +196,10 @@ export default function App() {
       {screen === "combat" && (
         <CombatScreen
           stage={stage}
-          stats={stats}
-          rules={normalizedRules}
+          statsByUnit={statsByUnit}
+          rulesByUnit={normalizedRulesByUnit}
+          activeUnitIndex={activeUnitIndex}
+          onSelectUnit={setActiveUnitIndex}
           onVictory={handleVictory}
           onDefeat={handleDefeat}
           onOpenAssemble={() => setScreen("assemble")}

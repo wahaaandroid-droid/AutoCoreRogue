@@ -171,6 +171,41 @@ select {
   gap: 8px;
 }
 
+.unit-switcher {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.unit-switcher.compact-switcher {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.unit-switcher button {
+  min-height: 54px;
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.unit-switcher button.active,
+.squad-status-row.active {
+  border-color: var(--green);
+  color: var(--green);
+  box-shadow: inset 0 0 18px rgba(84, 244, 167, 0.1);
+}
+
+.unit-switcher strong,
+.unit-switcher small {
+  display: block;
+}
+
+.unit-switcher small {
+  color: var(--muted);
+  margin-top: 3px;
+  font-size: 11px;
+}
+
 .slot-row {
   display: grid;
   grid-template-columns: 64px 1fr;
@@ -561,6 +596,21 @@ select {
   color: var(--green);
 }
 
+.squad-status-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.squad-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .radar {
   position: relative;
   height: 138px;
@@ -581,9 +631,11 @@ select {
 }
 
 .radar-player {
-  left: 50%;
-  top: 55%;
   background: var(--green);
+}
+
+.radar-player.down {
+  opacity: 0.35;
 }
 
 .radar-enemy {
@@ -603,6 +655,8 @@ select {
 .enemy-list {
   display: grid;
   gap: 9px;
+  max-height: 280px;
+  overflow: auto;
 }
 
 .enemy-row {

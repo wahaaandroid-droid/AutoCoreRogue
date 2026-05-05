@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
-import { CombatActor, CombatState, createCombatState, stepCombat } from "../game/combat";
+import { CombatActor, CombatState, PlayerCombatUnit, createCombatState, stepCombat } from "../game/combat";
 import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType } from "../types";
@@ -10,8 +10,10 @@ import combatSpritesUrl from "../assets/combat-sprites.png";
 
 interface CombatScreenProps {
   stage: number;
-  stats: DerivedStats;
-  rules: AiRule[];
+  statsByUnit: DerivedStats[];
+  rulesByUnit: AiRule[][];
+  activeUnitIndex: number;
+  onSelectUnit: (index: number) => void;
   onVictory: () => void;
   onDefeat: () => void;
   onOpenAssemble: () => void;
@@ -116,11 +118,27 @@ const drawBar = (
   ctx.fillRect(x, y, width * Math.max(0, Math.min(1, percent)), 5);
 };
 
+const drawUnitTag = (
+  ctx: CanvasRenderingContext2D,
+  actor: CombatActor,
+  label: string,
+) => {
+  ctx.save();
+  ctx.font = "700 11px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillStyle = actor.color;
+  ctx.shadowColor = "rgba(0, 0, 0, .8)";
+  ctx.shadowBlur = 6;
+  ctx.fillText(label, actor.x, actor.y - actor.radius - 20);
+  ctx.restore();
+};
+
 const drawMech = (
   ctx: CanvasRenderingContext2D,
   actor: CombatActor,
   isPlayer: boolean,
   legType: LegType = "biped",
+  label?: string,
 ) => {
   ctx.save();
   ctx.translate(actor.x, actor.y);
@@ -128,6 +146,9 @@ const drawMech = (
   if (drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 3.6 : actor.rank === "elite" ? 3.4 : 3.1))) {
     ctx.restore();
     drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
+    if (label) {
+      drawUnitTag(ctx, actor, label);
+    }
     return;
   }
   const angle = Math.atan2(actor.vy, actor.vx || (isPlayer ? -0.2 : 0.2));
@@ -184,6 +205,9 @@ const drawMech = (
   ctx.restore();
 
   drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
+  if (label) {
+    drawUnitTag(ctx, actor, label);
+  }
 };
 
 const drawProjectile = (ctx: CanvasRenderingContext2D, projectile: Projectile) => {
@@ -281,7 +305,7 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
 const resourceLabel = (resource: string, ammo: number, ammoMax: number, energyCost: number) =>
   resource === "ballistic" ? `${ammo} / ${ammoMax}` : `EN ${energyCost}`;
 
-const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, stats: DerivedStats) => {
+const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState) => {
   drawGrid(ctx, state);
   for (const projectile of state.projectiles) {
     drawProjectile(ctx, projectile);
@@ -292,7 +316,9 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, stats: De
   for (const enemy of state.enemies) {
     drawMech(ctx, enemy, false, enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped");
   }
-  drawMech(ctx, state.player, true, stats.legType);
+  state.players.forEach((unit, index) => {
+    drawMech(ctx, unit.actor, true, unit.stats.legType, `U${index + 1}`);
+  });
 
   if (state.status !== "running") {
     ctx.save();
@@ -308,25 +334,31 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, stats: De
 
 export default function CombatScreen({
   stage,
-  stats,
-  rules,
+  statsByUnit,
+  rulesByUnit,
+  activeUnitIndex,
+  onSelectUnit,
   onVictory,
   onDefeat,
   onOpenAssemble,
   onOpenAi,
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef<CombatState>(createCombatState(stage, stats));
+  const stateRef = useRef<CombatState>(createCombatState(stage, statsByUnit));
   const resolvedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
-  const rulesById = useMemo(() => new Map(rules.map((rule) => [rule.id, rule])), [rules]);
-  const activeRule = snapshot.activeRuleId ? rulesById.get(snapshot.activeRuleId) : undefined;
+  const clampedUnitIndex = Math.min(activeUnitIndex, Math.max(0, snapshot.players.length - 1));
+  const activeUnit = snapshot.players[clampedUnitIndex] ?? snapshot.players[0];
+  const activeStats = statsByUnit[clampedUnitIndex] ?? statsByUnit[0];
+  const activeRules = rulesByUnit[clampedUnitIndex] ?? rulesByUnit[0] ?? [];
+  const rulesById = useMemo(() => new Map(activeRules.map((rule) => [rule.id, rule])), [activeRules]);
+  const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
   useEffect(() => {
-    stateRef.current = createCombatState(stage, stats);
+    stateRef.current = createCombatState(stage, statsByUnit);
     resolvedRef.current = false;
     setSnapshot(stateRef.current);
-  }, [stage, stats]);
+  }, [stage, statsByUnit]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -345,12 +377,20 @@ export default function CombatScreen({
     const frame = (now: number) => {
       const dt = Math.min(0.033, Math.max(0.001, (now - last) / 1000));
       last = now;
-      const current = stepCombat(stateRef.current, dt, stats, rules);
+      const current = stepCombat(stateRef.current, dt, rulesByUnit);
       playCombatSoundEvents(current.soundEvents);
-      drawCombat(ctx, current, stats);
+      drawCombat(ctx, current);
 
       if (now - lastSnapshot > 110) {
-        setSnapshot({ ...current, player: { ...current.player }, enemies: [...current.enemies] });
+        setSnapshot({
+          ...current,
+          players: current.players.map((unit): PlayerCombatUnit => ({
+            ...unit,
+            actor: { ...unit.actor },
+          })),
+          enemies: [...current.enemies],
+          enemyQueue: [...current.enemyQueue],
+        });
         lastSnapshot = now;
       }
 
@@ -370,7 +410,13 @@ export default function CombatScreen({
 
     animation = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(animation);
-  }, [onDefeat, onVictory, rules, stage, stats]);
+  }, [onDefeat, onVictory, rulesByUnit, stage]);
+
+  if (!activeUnit || !activeStats) {
+    return null;
+  }
+
+  const activeActor = activeUnit.actor;
 
   return (
     <main className="combat-layout">
@@ -378,59 +424,73 @@ export default function CombatScreen({
         <div className="panel compact">
           <div className="section-title">STAGE {stage}</div>
           <strong>{stage === 7 ? "BOSS" : stage === 5 ? "ELITE" : "WAVE"}</strong>
-          <small>敵を全て撃破</small>
+          <small>
+            敵 {snapshot.enemyTotal - snapshot.enemyQueue.length - snapshot.enemies.length}/{snapshot.enemyTotal} 撃破
+          </small>
         </div>
         <div className="panel compact">
           <div className="section-title">STATUS</div>
+          <div className="squad-status-list">
+            {snapshot.players.map((unit, index) => (
+              <button
+                key={unit.actor.id}
+                className={`squad-status-row ${clampedUnitIndex === index ? "active" : ""}`}
+                onClick={() => onSelectUnit(index)}
+              >
+                <span>UNIT {index + 1}</span>
+                <b>{unit.actor.hp > 0 ? Math.ceil(unit.actor.hp) : "DOWN"}</b>
+              </button>
+            ))}
+          </div>
           <div className="meter-label">
             <span>HP</span>
             <b>
-              {Math.ceil(snapshot.player.hp)} / {snapshot.player.maxHp}
+              {Math.ceil(activeActor.hp)} / {activeActor.maxHp}
             </b>
           </div>
-          <div className="meter hp"><span style={{ width: `${hpPercent(snapshot.player) * 100}%` }} /></div>
+          <div className="meter hp"><span style={{ width: `${hpPercent(activeActor) * 100}%` }} /></div>
           <div className="meter-label">
             <span>EN</span>
             <b>
-              {Math.ceil(snapshot.player.en)} / {snapshot.player.maxEn}
+              {Math.ceil(activeActor.en)} / {activeActor.maxEn}
             </b>
           </div>
-          <div className="meter en"><span style={{ width: `${(snapshot.player.en / snapshot.player.maxEn) * 100}%` }} /></div>
+          <div className="meter en"><span style={{ width: `${(activeActor.en / activeActor.maxEn) * 100}%` }} /></div>
         </div>
         <div className="panel compact">
           <div className="section-title">CURRENT ACTION</div>
-          <strong className="active-action">{getActionLabel(snapshot.activeAction)}</strong>
+          <strong className="active-action">{getActionLabel(activeUnit.activeAction)}</strong>
           <small>{activeRule ? getConditionLabel(activeRule.condition) : "NO RULE"}</small>
         </div>
         <div className="panel compact">
           <div className="section-title">WEAPON COOL</div>
           <div className="cool-row">
             <span>右腕</span>
-            <b>{snapshot.rightCooldown.toFixed(1)} / {resourceLabel(snapshot.rightResource, snapshot.rightAmmo, snapshot.rightAmmoMax, snapshot.rightEnergyCost)}</b>
+            <b>{activeUnit.rightCooldown.toFixed(1)} / {resourceLabel(activeUnit.rightResource, activeUnit.rightAmmo, activeUnit.rightAmmoMax, activeUnit.rightEnergyCost)}</b>
           </div>
-          <div className="coolbar"><span style={{ width: `${cooldownPercent(snapshot.rightCooldown, stats.rightCooldown) * 100}%` }} /></div>
-          {snapshot.rightCooldown <= 0 && snapshot.rightResource === "energy" && snapshot.player.en < snapshot.rightEnergyCost && (
+          <div className="coolbar"><span style={{ width: `${cooldownPercent(activeUnit.rightCooldown, activeStats.rightCooldown) * 100}%` }} /></div>
+          {activeUnit.rightCooldown <= 0 && activeUnit.rightResource === "energy" && activeActor.en < activeUnit.rightEnergyCost && (
             <div className="shortage-line">右腕 EN不足</div>
           )}
-          {snapshot.rightCooldown <= 0 && snapshot.rightResource === "ballistic" && snapshot.rightAmmo <= 0 && (
+          {activeUnit.rightCooldown <= 0 && activeUnit.rightResource === "ballistic" && activeUnit.rightAmmo <= 0 && (
             <div className="shortage-line">右腕 弾切れ</div>
           )}
           <div className="cool-row">
             <span>左腕</span>
-            <b>{snapshot.leftCooldown.toFixed(1)} / {resourceLabel(snapshot.leftResource, snapshot.leftAmmo, snapshot.leftAmmoMax, snapshot.leftEnergyCost)}</b>
+            <b>{activeUnit.leftCooldown.toFixed(1)} / {resourceLabel(activeUnit.leftResource, activeUnit.leftAmmo, activeUnit.leftAmmoMax, activeUnit.leftEnergyCost)}</b>
           </div>
-          <div className="coolbar green"><span style={{ width: `${cooldownPercent(snapshot.leftCooldown, stats.leftCooldown) * 100}%` }} /></div>
-          {snapshot.leftCooldown <= 0 && snapshot.leftResource === "energy" && snapshot.player.en < snapshot.leftEnergyCost && (
+          <div className="coolbar green"><span style={{ width: `${cooldownPercent(activeUnit.leftCooldown, activeStats.leftCooldown) * 100}%` }} /></div>
+          {activeUnit.leftCooldown <= 0 && activeUnit.leftResource === "energy" && activeActor.en < activeUnit.leftEnergyCost && (
             <div className="shortage-line">左腕 EN不足</div>
           )}
-          {snapshot.leftCooldown <= 0 && snapshot.leftResource === "ballistic" && snapshot.leftAmmo <= 0 && (
+          {activeUnit.leftCooldown <= 0 && activeUnit.leftResource === "ballistic" && activeUnit.leftAmmo <= 0 && (
             <div className="shortage-line">左腕 弾切れ</div>
           )}
           <div className="cool-row">
             <span>ミサイル</span>
-            <b>{snapshot.missileCooldown.toFixed(1)} / EN {snapshot.missileEnergyCost}</b>
+            <b>{activeUnit.missileCooldown.toFixed(1)} / EN {activeUnit.missileEnergyCost}</b>
           </div>
-          <div className="coolbar orange"><span style={{ width: `${cooldownPercent(snapshot.missileCooldown, stats.missileCooldown) * 100}%` }} /></div>
+          <div className="coolbar orange"><span style={{ width: `${cooldownPercent(activeUnit.missileCooldown, activeStats.missileCooldown) * 100}%` }} /></div>
         </div>
       </section>
 
@@ -442,7 +502,19 @@ export default function CombatScreen({
         <div className="panel compact radar-panel">
           <div className="section-title">RADAR</div>
           <div className="radar">
-            <span className="radar-player" />
+            {snapshot.players.map((unit, index) => (
+              <span
+                key={unit.actor.id}
+                className={`radar-player ${unit.actor.hp <= 0 ? "down" : ""}`}
+                style={{
+                  left: `${(unit.actor.x / snapshot.width) * 100}%`,
+                  top: `${(unit.actor.y / snapshot.height) * 100}%`,
+                  background: unit.actor.color,
+                  width: clampedUnitIndex === index ? 10 : 8,
+                  height: clampedUnitIndex === index ? 10 : 8,
+                }}
+              />
+            ))}
             {snapshot.enemies.map((enemy) => (
               <span
                 key={enemy.id}

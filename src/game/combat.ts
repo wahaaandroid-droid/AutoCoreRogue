@@ -41,17 +41,9 @@ export interface CombatActor {
   rank: "normal" | "elite" | "boss";
 }
 
-export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
-
-export interface CombatState {
-  width: number;
-  height: number;
-  time: number;
-  stage: number;
-  player: CombatActor;
-  enemies: CombatActor[];
-  projectiles: Projectile[];
-  effects: Effect[];
+export interface PlayerCombatUnit {
+  actor: CombatActor;
+  stats: DerivedStats;
   activeAction: AiActionId;
   activeRuleId?: string;
   rightCooldown: number;
@@ -67,13 +59,28 @@ export interface CombatState {
   rightEnergyCost: number;
   leftEnergyCost: number;
   missileEnergyCost: number;
+}
+
+export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
+
+export interface CombatState {
+  width: number;
+  height: number;
+  time: number;
+  stage: number;
+  players: PlayerCombatUnit[];
+  enemies: CombatActor[];
+  enemyQueue: CombatActor["rank"][];
+  enemyTotal: number;
+  spawnedEnemyCount: number;
+  projectiles: Projectile[];
+  effects: Effect[];
   soundEvents: CombatSoundEvent[];
   status: "running" | "victory" | "defeat";
 }
 
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
-const ENEMY_HP_MULTIPLIER = 4.5;
 const PLAYER_DAMAGE_MULTIPLIER = 0.48;
 let nextId = 1;
 
@@ -128,12 +135,21 @@ const dragFor = (actor: CombatActor): number => {
   }
 };
 
-const createPlayer = (stats: DerivedStats): CombatActor => ({
-  id: "player",
-  name: "AutoCore",
+const PLAYER_FORMATION = [
+  { x: 0.38, y: 0.64 },
+  { x: 0.46, y: 0.52 },
+  { x: 0.54, y: 0.64 },
+  { x: 0.62, y: 0.52 },
+] as const;
+
+const PLAYER_COLORS = ["#8ad8ff", "#54f4a7", "#ffcf66", "#c878ff"] as const;
+
+const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => ({
+  id: `player-${index + 1}`,
+  name: `AutoCore ${index + 1}`,
   team: "player",
-  x: ARENA_WIDTH * 0.5,
-  y: ARENA_HEIGHT * 0.55,
+  x: ARENA_WIDTH * (PLAYER_FORMATION[index]?.x ?? 0.5),
+  y: ARENA_HEIGHT * (PLAYER_FORMATION[index]?.y ?? 0.58),
   ax: 0,
   ay: 0,
   vx: 0,
@@ -157,24 +173,54 @@ const createPlayer = (stats: DerivedStats): CombatActor => ({
   boostCooldown: 0,
   guard: false,
   legType: stats.legType,
-  color: "#8ad8ff",
+  color: PLAYER_COLORS[index] ?? PLAYER_COLORS[0],
   rank: "normal",
 });
 
-const createEnemy = (stage: number, index: number, rank: CombatActor["rank"]): CombatActor => {
-  const angle = -Math.PI * 0.85 + index * 0.55;
-  const distance = rank === "boss" ? 235 : 215 + index * 16;
-  const hpScale = (rank === "boss" ? 3.1 : rank === "elite" ? 1.85 : 1) * ENEMY_HP_MULTIPLIER;
+const createPlayerUnit = (stats: DerivedStats, index: number): PlayerCombatUnit => ({
+  actor: createPlayerActor(stats, index),
+  stats,
+  activeAction: "idle",
+  rightCooldown: 0.2 + index * 0.08,
+  leftCooldown: 0.35 + index * 0.08,
+  missileCooldown: 1.5 + index * 0.16,
+  boostCooldown: 0,
+  rightResource: stats.rightResource,
+  leftResource: stats.leftResource,
+  rightAmmo: stats.rightAmmoMax,
+  rightAmmoMax: stats.rightAmmoMax,
+  leftAmmo: stats.leftAmmoMax,
+  leftAmmoMax: stats.leftAmmoMax,
+  rightEnergyCost: stats.rightEnergyCost,
+  leftEnergyCost: stats.leftEnergyCost,
+  missileEnergyCost: stats.missileEnergyCost,
+});
+
+const createEnemy = (
+  stage: number,
+  index: number,
+  rank: CombatActor["rank"],
+  total: number,
+): CombatActor => {
+  const angle = -Math.PI * 0.94 + ((index + 0.5) / Math.max(1, total)) * Math.PI * 1.88;
+  const distance = rank === "boss" ? 235 : 228 + (index % 3) * 28;
+  const hpScale = rank === "boss" ? 3.1 : rank === "elite" ? 1.85 : 1;
   const attackScale = rank === "boss" ? 1.65 : rank === "elite" ? 1.28 : 1;
   const baseHp = 128 + stage * 34;
   const baseAttack = 10 + stage * 2.2;
+  const spawnX = rank === "boss"
+    ? ARENA_WIDTH * 0.5
+    : ARENA_WIDTH * 0.5 + Math.cos(angle) * distance;
+  const spawnY = rank === "boss"
+    ? ARENA_HEIGHT * 0.22
+    : ARENA_HEIGHT * 0.46 + Math.sin(angle) * distance * 0.72;
 
   return {
     id: uid("enemy"),
     name: rank === "boss" ? "Signal Tyrant" : rank === "elite" ? "Gatebreaker" : "Drone Frame",
     team: "enemy",
-    x: ARENA_WIDTH * 0.5 + Math.cos(angle) * distance,
-    y: ARENA_HEIGHT * 0.45 + Math.sin(angle) * distance * 0.7,
+    x: clamp(spawnX, 52, ARENA_WIDTH - 52),
+    y: clamp(spawnY, 52, ARENA_HEIGHT - 52),
     ax: 0,
     ay: 0,
     vx: 0,
@@ -202,53 +248,108 @@ const createEnemy = (stage: number, index: number, rank: CombatActor["rank"]): C
   };
 };
 
-const createEnemies = (stage: number): CombatActor[] => {
+const createEnemyRanks = (stage: number): CombatActor["rank"][] => {
   if (stage === 7) {
-    return [createEnemy(stage, 0, "boss"), createEnemy(stage, 1, "normal"), createEnemy(stage, 2, "normal")];
+    return [
+      "boss",
+      "elite",
+      "elite",
+      "elite",
+      "elite",
+      ...Array.from({ length: 26 }, () => "normal" as const),
+    ];
   }
   if (stage === 5) {
-    return [createEnemy(stage, 0, "elite"), createEnemy(stage, 1, "normal")];
+    return [
+      "elite",
+      "elite",
+      "elite",
+      "elite",
+      ...Array.from({ length: 22 }, () => "normal" as const),
+    ];
   }
 
-  const count = Math.min(4, 1 + Math.ceil(stage / 2));
-  return Array.from({ length: count }, (_, index) => createEnemy(stage, index, "normal"));
+  const normalCountByStage = [0, 18, 22, 26, 30, 30, 34, 34];
+  const normalCount = normalCountByStage[stage] ?? 34;
+  const eliteCount = stage >= 6 ? 4 : 0;
+  return [
+    ...Array.from({ length: eliteCount }, () => "elite" as const),
+    ...Array.from({ length: normalCount }, () => "normal" as const),
+  ];
 };
 
-export const createCombatState = (stage: number, stats: DerivedStats): CombatState => ({
-  width: ARENA_WIDTH,
-  height: ARENA_HEIGHT,
-  time: 0,
-  stage,
-  player: createPlayer(stats),
-  enemies: createEnemies(stage),
-  projectiles: [],
-  effects: [],
-  activeAction: "idle",
-  rightCooldown: 0.2,
-  leftCooldown: 0.35,
-  missileCooldown: 1.5,
-  boostCooldown: 0,
-  rightResource: stats.rightResource,
-  leftResource: stats.leftResource,
-  rightAmmo: stats.rightAmmoMax,
-  rightAmmoMax: stats.rightAmmoMax,
-  leftAmmo: stats.leftAmmoMax,
-  leftAmmoMax: stats.leftAmmoMax,
-  rightEnergyCost: stats.rightEnergyCost,
-  leftEnergyCost: stats.leftEnergyCost,
-  missileEnergyCost: stats.missileEnergyCost,
-  soundEvents: [],
-  status: "running",
-});
+const activeEnemyCap = (stage: number): number =>
+  stage >= 7 ? 13 : stage >= 5 ? 12 : stage >= 3 ? 10 : 8;
 
-const nearestEnemy = (state: CombatState): CombatActor | undefined => {
+const spawnEnemies = (
+  stage: number,
+  ranks: CombatActor["rank"][],
+  startIndex: number,
+  total: number,
+): CombatActor[] =>
+  ranks.map((rank, index) => createEnemy(stage, startIndex + index, rank, total));
+
+const createInitialEnemies = (
+  stage: number,
+): { enemies: CombatActor[]; enemyQueue: CombatActor["rank"][]; enemyTotal: number; spawnedEnemyCount: number } => {
+  const ranks = createEnemyRanks(stage);
+  const initialCount = Math.min(activeEnemyCap(stage), ranks.length);
+
+  return {
+    enemies: spawnEnemies(stage, ranks.slice(0, initialCount), 0, ranks.length),
+    enemyQueue: ranks.slice(initialCount),
+    enemyTotal: ranks.length,
+    spawnedEnemyCount: initialCount,
+  };
+};
+
+const refillEnemyWave = (state: CombatState): void => {
+  const capacity = activeEnemyCap(state.stage) - state.enemies.length;
+  if (capacity <= 0 || state.enemyQueue.length === 0) {
+    return;
+  }
+
+  const incoming = state.enemyQueue.splice(0, capacity);
+  state.enemies.push(
+    ...spawnEnemies(state.stage, incoming, state.spawnedEnemyCount, state.enemyTotal),
+  );
+  state.spawnedEnemyCount += incoming.length;
+};
+
+export const createCombatState = (stage: number, statsByUnit: DerivedStats[]): CombatState => {
+  const wave = createInitialEnemies(stage);
+
+  return {
+    width: ARENA_WIDTH,
+    height: ARENA_HEIGHT,
+    time: 0,
+    stage,
+    players: statsByUnit.map((stats, index) => createPlayerUnit(stats, index)),
+    enemies: wave.enemies,
+    enemyQueue: wave.enemyQueue,
+    enemyTotal: wave.enemyTotal,
+    spawnedEnemyCount: wave.spawnedEnemyCount,
+    projectiles: [],
+    effects: [],
+    soundEvents: [],
+    status: "running",
+  };
+};
+
+const livingPlayerUnits = (state: CombatState): PlayerCombatUnit[] =>
+  state.players.filter((unit) => unit.actor.hp > 0);
+
+const livingPlayerActors = (state: CombatState): CombatActor[] =>
+  livingPlayerUnits(state).map((unit) => unit.actor);
+
+const nearestEnemy = (state: CombatState, player: CombatActor): CombatActor | undefined => {
   let best: CombatActor | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const enemy of state.enemies) {
     if (enemy.hp <= 0) {
       continue;
     }
-    const distance = Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y);
+    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
     if (distance < bestDistance) {
       best = enemy;
       bestDistance = distance;
@@ -257,13 +358,27 @@ const nearestEnemy = (state: CombatState): CombatActor | undefined => {
   return best;
 };
 
-const nearestEnemyProjectileDistance = (state: CombatState): number => {
+const nearestPlayerUnit = (state: CombatState, enemy: CombatActor): PlayerCombatUnit | undefined => {
+  let best: PlayerCombatUnit | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const unit of livingPlayerUnits(state)) {
+    const player = unit.actor;
+    const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+    if (distance < bestDistance) {
+      best = unit;
+      bestDistance = distance;
+    }
+  }
+  return best;
+};
+
+const nearestEnemyProjectileDistance = (state: CombatState, player: CombatActor): number => {
   let best = Number.POSITIVE_INFINITY;
   for (const projectile of state.projectiles) {
     if (projectile.owner !== "enemy") {
       continue;
     }
-    best = Math.min(best, Math.hypot(projectile.x - state.player.x, projectile.y - state.player.y));
+    best = Math.min(best, Math.hypot(projectile.x - player.x, projectile.y - player.y));
   }
   return best;
 };
@@ -448,52 +563,53 @@ const spendEnergy = (actor: CombatActor, amount: number): boolean => {
 };
 
 const canPayWeapon = (
-  state: CombatState,
+  unit: PlayerCombatUnit,
   side: "right" | "left",
 ): boolean => {
   if (side === "right") {
-    return state.rightResource === "ballistic"
-      ? state.rightAmmo > 0
-      : state.player.en >= state.rightEnergyCost;
+    return unit.rightResource === "ballistic"
+      ? unit.rightAmmo > 0
+      : unit.actor.en >= unit.rightEnergyCost;
   }
 
-  return state.leftResource === "ballistic"
-    ? state.leftAmmo > 0
-    : state.player.en >= state.leftEnergyCost;
+  return unit.leftResource === "ballistic"
+    ? unit.leftAmmo > 0
+    : unit.actor.en >= unit.leftEnergyCost;
 };
 
 const consumeWeapon = (
-  state: CombatState,
+  unit: PlayerCombatUnit,
   side: "right" | "left",
 ): boolean => {
   if (side === "right") {
-    if (state.rightResource === "ballistic") {
-      if (state.rightAmmo <= 0) {
+    if (unit.rightResource === "ballistic") {
+      if (unit.rightAmmo <= 0) {
         return false;
       }
-      state.rightAmmo -= 1;
+      unit.rightAmmo -= 1;
       return true;
     }
-    return spendEnergy(state.player, state.rightEnergyCost);
+    return spendEnergy(unit.actor, unit.rightEnergyCost);
   }
 
-  if (state.leftResource === "ballistic") {
-    if (state.leftAmmo <= 0) {
+  if (unit.leftResource === "ballistic") {
+    if (unit.leftAmmo <= 0) {
       return false;
     }
-    state.leftAmmo -= 1;
+    unit.leftAmmo -= 1;
     return true;
   }
-  return spendEnergy(state.player, state.leftEnergyCost);
+  return spendEnergy(unit.actor, unit.leftEnergyCost);
 };
 
 const applyPlayerAction = (
   state: CombatState,
-  stats: DerivedStats,
+  unit: PlayerCombatUnit,
   action: AiActionId,
   target: CombatActor | undefined,
 ): void => {
-  const player = state.player;
+  const player = unit.actor;
+  const stats = unit.stats;
   if (!target) {
     return;
   }
@@ -518,12 +634,12 @@ const applyPlayerAction = (
       break;
     case "boostDodge": {
       const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
-      if (state.boostCooldown <= 0 && spendEnergy(player, cost)) {
+      if (unit.boostCooldown <= 0 && spendEnergy(player, cost)) {
         player.vx += perpendicular.x * player.moveSpeed * 2.08;
         player.vy += perpendicular.y * player.moveSpeed * 2.08;
         applyThrust(player, perpendicular.x, perpendicular.y, 1.28);
         pushBoostBurst(state, player, perpendicular);
-        state.boostCooldown = 0.5;
+        unit.boostCooldown = 0.5;
         state.soundEvents.push("boost");
       } else {
         applyThrust(player, perpendicular.x * 0.35 + toTarget.x * rangeBias, perpendicular.y * 0.35 + toTarget.y * rangeBias, 0.32);
@@ -532,8 +648,8 @@ const applyPlayerAction = (
     }
     case "shootRight":
       combatDrift();
-      if (state.rightCooldown <= 0 && consumeWeapon(state, "right")) {
-        const ballistic = state.rightResource === "ballistic";
+      if (unit.rightCooldown <= 0 && consumeWeapon(unit, "right")) {
+        const ballistic = unit.rightResource === "ballistic";
         fireProjectile(
           state,
           player,
@@ -544,7 +660,7 @@ const applyPlayerAction = (
           ballistic ? "#ff9d42" : "#63cfff",
           ballistic ? 4.6 : 4.2,
         );
-        state.rightCooldown = stats.rightCooldown;
+        unit.rightCooldown = stats.rightCooldown;
       }
       break;
     case "shootLeft":
@@ -556,18 +672,18 @@ const applyPlayerAction = (
         }
 
         applyThrust(player, toTarget.x, toTarget.y, 0.58);
-        if (state.leftCooldown <= 0 && consumeWeapon(state, "left")) {
+        if (unit.leftCooldown <= 0 && consumeWeapon(unit, "left")) {
           player.vx += toTarget.x * player.moveSpeed * 0.88;
           player.vy += toTarget.y * player.moveSpeed * 0.88;
           performBladeAttack(state, player, target, stats.leftAttack * 1.55, bladeReach);
-          state.leftCooldown = stats.leftCooldown;
+          unit.leftCooldown = stats.leftCooldown;
         }
         break;
       }
 
       combatDrift();
-      if (state.leftCooldown <= 0 && consumeWeapon(state, "left")) {
-        const ballistic = state.leftResource === "ballistic";
+      if (unit.leftCooldown <= 0 && consumeWeapon(unit, "left")) {
+        const ballistic = unit.leftResource === "ballistic";
         const kind = stats.leftWeaponKind === "missile" ? "missile" : ballistic ? "bullet" : "pulse";
         fireProjectile(
           state,
@@ -580,14 +696,14 @@ const applyPlayerAction = (
           kind === "missile" ? 6 : ballistic ? 4.5 : 4.8,
           kind === "missile" ? target.id : undefined,
         );
-        state.leftCooldown = stats.leftCooldown;
+        unit.leftCooldown = stats.leftCooldown;
       }
       break;
     case "fireMissile":
       combatDrift();
-      if (state.missileCooldown <= 0 && spendEnergy(player, state.missileEnergyCost)) {
+      if (unit.missileCooldown <= 0 && spendEnergy(player, unit.missileEnergyCost)) {
         fireProjectile(state, player, target, stats.missileAttack, 220, "missile", "#ffb13b", 5.8, target.id);
-        state.missileCooldown = stats.missileCooldown;
+        unit.missileCooldown = stats.missileCooldown;
       }
       break;
     case "guard":
@@ -601,7 +717,11 @@ const applyPlayerAction = (
 };
 
 const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void => {
-  const player = state.player;
+  const targetUnit = nearestPlayerUnit(state, enemy);
+  if (!targetUnit) {
+    return;
+  }
+  const player = targetUnit.actor;
   const toPlayer = normalize(player.x - enemy.x, player.y - enemy.y);
   enemy.ax = 0;
   enemy.ay = 0;
@@ -646,7 +766,7 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
 };
 
 const updatePositions = (state: CombatState, dt: number): void => {
-  const actors = [state.player, ...state.enemies];
+  const actors = [...state.players.map((unit) => unit.actor), ...state.enemies];
   for (const actor of actors) {
     if (actor.hp <= 0) {
       continue;
@@ -686,7 +806,7 @@ const updatePositions = (state: CombatState, dt: number): void => {
 };
 
 const resolveActorCollisions = (state: CombatState): void => {
-  const actors = [state.player, ...state.enemies].filter((actor) => actor.hp > 0);
+  const actors = [...state.players.map((unit) => unit.actor), ...state.enemies].filter((actor) => actor.hp > 0);
   const minX = 36;
   const maxX = state.width - 36;
   const minY = 36;
@@ -737,8 +857,9 @@ const updateHits = (state: CombatState, dt: number): void => {
     if (!targetId) {
       return undefined;
     }
-    if (targetId === state.player.id) {
-      return state.player;
+    const player = state.players.find((unit) => unit.actor.id === targetId)?.actor;
+    if (player) {
+      return player;
     }
     return state.enemies.find((enemy) => enemy.id === targetId);
   };
@@ -747,7 +868,7 @@ const updateHits = (state: CombatState, dt: number): void => {
   const survivors: Projectile[] = [];
 
   for (const projectile of moved) {
-    const targets = projectile.owner === "player" ? state.enemies : [state.player];
+    const targets = projectile.owner === "player" ? state.enemies : livingPlayerActors(state);
     const hitTarget = targets.find(
       (target) =>
         target.hp > 0 &&
@@ -791,61 +912,76 @@ const updateEffects = (state: CombatState, dt: number): void => {
     .filter((effect) => effect.life > 0);
 };
 
-export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, rules: AiRule[]): CombatState => {
+export const stepCombat = (state: CombatState, dt: number, rulesByUnit: AiRule[][]): CombatState => {
   if (state.status !== "running") {
     return state;
   }
 
   state.soundEvents = [];
   state.time += dt;
-  state.player.en = Math.min(state.player.maxEn, state.player.en + state.player.enRegen * dt);
-  state.rightCooldown = Math.max(0, state.rightCooldown - dt);
-  state.leftCooldown = Math.max(0, state.leftCooldown - dt);
-  state.missileCooldown = Math.max(0, state.missileCooldown - dt);
-  state.boostCooldown = Math.max(0, state.boostCooldown - dt);
 
-  const target = nearestEnemy(state);
-  const targetDistance = target
-    ? Math.hypot(target.x - state.player.x, target.y - state.player.y)
-    : Number.POSITIVE_INFINITY;
-  const decision = evaluateAiRules(rules, {
-    en: state.player.en,
-    hpPercent: state.player.hp / state.player.maxHp,
-    enPercent: state.player.en / state.player.maxEn,
-    nearestEnemyDistance: targetDistance,
-    rightCooldown: state.rightCooldown,
-    leftCooldown: state.leftCooldown,
-    missileCooldown: state.missileCooldown,
-    rightCanPay: canPayWeapon(state, "right"),
-    leftCanPay: canPayWeapon(state, "left"),
-    enemyProjectileDistance: nearestEnemyProjectileDistance(state),
-  });
+  for (let unitIndex = 0; unitIndex < state.players.length; unitIndex += 1) {
+    const unit = state.players[unitIndex];
+    const player = unit.actor;
+    if (player.hp <= 0) {
+      unit.activeAction = "idle";
+      unit.activeRuleId = undefined;
+      player.ax = 0;
+      player.ay = 0;
+      player.guard = false;
+      continue;
+    }
 
-  const bladeEngageDistance = target ? state.player.radius + target.radius + 284 : 0;
-  const hasDefensiveDecision = decision.some(
-    (item) => item.action === "retreat" || item.action === "guard" || item.action === "boostDodge",
-  );
-  if (
-    target &&
-    stats.leftWeaponKind === "blade" &&
-    state.leftCooldown <= 0 &&
-    targetDistance <= bladeEngageDistance &&
-    !hasDefensiveDecision
-  ) {
-    decision.push({
-      action: "shootLeft",
-      ruleId: "blade-priority",
-      condition: "leftReady",
+    player.en = Math.min(player.maxEn, player.en + player.enRegen * dt);
+    unit.rightCooldown = Math.max(0, unit.rightCooldown - dt);
+    unit.leftCooldown = Math.max(0, unit.leftCooldown - dt);
+    unit.missileCooldown = Math.max(0, unit.missileCooldown - dt);
+    unit.boostCooldown = Math.max(0, unit.boostCooldown - dt);
+
+    const target = nearestEnemy(state, player);
+    const targetDistance = target
+      ? Math.hypot(target.x - player.x, target.y - player.y)
+      : Number.POSITIVE_INFINITY;
+    const rules = rulesByUnit[unitIndex] ?? rulesByUnit[0] ?? [];
+    const decision = evaluateAiRules(rules, {
+      en: player.en,
+      hpPercent: player.hp / player.maxHp,
+      enPercent: player.en / player.maxEn,
+      nearestEnemyDistance: targetDistance,
+      rightCooldown: unit.rightCooldown,
+      leftCooldown: unit.leftCooldown,
+      missileCooldown: unit.missileCooldown,
+      rightCanPay: canPayWeapon(unit, "right"),
+      leftCanPay: canPayWeapon(unit, "left"),
+      enemyProjectileDistance: nearestEnemyProjectileDistance(state, player),
     });
-  }
 
-  state.player.ax = 0;
-  state.player.ay = 0;
-  state.player.guard = false;
-  state.activeAction = decision[0].action;
-  state.activeRuleId = decision[0].ruleId;
-  for (const item of decision) {
-    applyPlayerAction(state, stats, item.action, target);
+    const bladeEngageDistance = target ? player.radius + target.radius + 284 : 0;
+    const hasDefensiveDecision = decision.some(
+      (item) => item.action === "retreat" || item.action === "guard" || item.action === "boostDodge",
+    );
+    if (
+      target &&
+      unit.stats.leftWeaponKind === "blade" &&
+      unit.leftCooldown <= 0 &&
+      targetDistance <= bladeEngageDistance &&
+      !hasDefensiveDecision
+    ) {
+      decision.push({
+        action: "shootLeft",
+        ruleId: "blade-priority",
+        condition: "leftReady",
+      });
+    }
+
+    player.ax = 0;
+    player.ay = 0;
+    player.guard = false;
+    unit.activeAction = decision[0].action;
+    unit.activeRuleId = decision[0].ruleId;
+    for (const item of decision) {
+      applyPlayerAction(state, unit, item.action, target);
+    }
   }
 
   for (const enemy of state.enemies) {
@@ -859,11 +995,12 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
   updateHits(state, dt);
   updateEffects(state, dt);
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0);
+  refillEnemyWave(state);
 
-  if (state.player.hp <= 0) {
+  if (livingPlayerUnits(state).length === 0) {
     state.status = "defeat";
     state.soundEvents.push("defeat");
-  } else if (state.enemies.length === 0) {
+  } else if (state.enemies.length === 0 && state.enemyQueue.length === 0) {
     state.status = "victory";
   }
 

@@ -5,11 +5,14 @@ import {
   getActionLabel,
   getConditionLabel,
 } from "../data/aiRules";
-import { AiActionId, AiConditionId, AiRule } from "../types";
+import { AiActionId, AiConditionId, AiRule, DerivedStats } from "../types";
 
 interface AiEditorScreenProps {
   rules: AiRule[];
   slotCount: number;
+  activeUnitIndex: number;
+  statsByUnit: DerivedStats[];
+  onSelectUnit: (index: number) => void;
   onChangeRules: (rules: AiRule[]) => void;
   onOpenAssemble: () => void;
   onOpenMap: () => void;
@@ -19,6 +22,9 @@ interface AiEditorScreenProps {
 export default function AiEditorScreen({
   rules,
   slotCount,
+  activeUnitIndex,
+  statsByUnit,
+  onSelectUnit,
   onChangeRules,
   onOpenAssemble,
   onOpenMap,
@@ -43,6 +49,18 @@ export default function AiEditorScreen({
     <main className="ai-screen">
       <section className="panel ai-table-panel">
         <div className="section-title">AI LOGIC</div>
+        <div className="unit-switcher compact-switcher">
+          {statsByUnit.map((unitStats, index) => (
+            <button
+              key={index}
+              className={activeUnitIndex === index ? "active" : ""}
+              onClick={() => onSelectUnit(index)}
+            >
+              <strong>UNIT {index + 1}</strong>
+              <small>SPD {unitStats.moveSpeed}</small>
+            </button>
+          ))}
+        </div>
         <div className="ai-table">
           <div className="ai-row ai-head">
             <span>優先度</span>

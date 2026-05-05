@@ -4,9 +4,11 @@ import { DerivedStats, Loadout, PartSlot, SLOTS } from "../types";
 import MechSilhouette from "./MechSilhouette";
 
 interface AssembleScreenProps {
-  loadout: Loadout;
+  loadouts: Loadout[];
   unlockedPartIds: string[];
-  stats: DerivedStats;
+  statsByUnit: DerivedStats[];
+  activeUnitIndex: number;
+  onSelectUnit: (index: number) => void;
   onChangeLoadout: (slot: PartSlot, partId: string) => void;
   onOpenAi: () => void;
   onOpenMap: () => void;
@@ -25,15 +27,19 @@ const statRows = [
 ] as const;
 
 export default function AssembleScreen({
-  loadout,
+  loadouts,
   unlockedPartIds,
-  stats,
+  statsByUnit,
+  activeUnitIndex,
+  onSelectUnit,
   onChangeLoadout,
   onOpenAi,
   onOpenMap,
   onStartCombat,
 }: AssembleScreenProps) {
   const [activeSlot, setActiveSlot] = useState<PartSlot>("LEGS");
+  const loadout = loadouts[activeUnitIndex] ?? loadouts[0];
+  const stats = statsByUnit[activeUnitIndex] ?? statsByUnit[0];
   const build = buildFromLoadout(loadout);
   const unlocked = new Set(unlockedPartIds);
 
@@ -41,6 +47,18 @@ export default function AssembleScreen({
     <main className="screen-grid assemble-screen">
       <section className="panel slot-panel">
         <div className="section-title">ASSEMBLE</div>
+        <div className="unit-switcher">
+          {statsByUnit.map((unitStats, index) => (
+            <button
+              key={index}
+              className={activeUnitIndex === index ? "active" : ""}
+              onClick={() => onSelectUnit(index)}
+            >
+              <strong>UNIT {index + 1}</strong>
+              <small>HP {unitStats.hpMax}</small>
+            </button>
+          ))}
+        </div>
         <div className="slot-list">
           {SLOTS.map((slot) => {
             const part = build[slot];
