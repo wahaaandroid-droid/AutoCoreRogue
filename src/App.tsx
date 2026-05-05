@@ -13,6 +13,7 @@ import {
   initialUnlockedPartIds,
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
+import { unlockCombatAudio } from "./game/sound";
 import { AiRule, Loadout, PartSlot, PilotUpgrades, ScreenId } from "./types";
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
@@ -102,6 +103,11 @@ export default function App() {
     setScreen("map");
   };
 
+  const startCombat = () => {
+    unlockCombatAudio();
+    setScreen("combat");
+  };
+
   const topNav = (
     <header className="app-header">
       <div>
@@ -119,7 +125,7 @@ export default function App() {
         <button className={screen === "map" ? "active" : ""} onClick={() => setScreen("map")}>
           MAP
         </button>
-        <button className="primary" onClick={() => setScreen("combat")}>
+        <button className="primary" onClick={startCombat}>
           STAGE {stage}
         </button>
       </nav>
@@ -137,7 +143,7 @@ export default function App() {
           onChangeLoadout={changeLoadout}
           onOpenAi={() => setScreen("ai")}
           onOpenMap={() => setScreen("map")}
-          onStartCombat={() => setScreen("combat")}
+          onStartCombat={startCombat}
         />
       )}
       {screen === "ai" && (
@@ -147,7 +153,7 @@ export default function App() {
           onChangeRules={setAiRules}
           onOpenAssemble={() => setScreen("assemble")}
           onOpenMap={() => setScreen("map")}
-          onStartCombat={() => setScreen("combat")}
+          onStartCombat={startCombat}
         />
       )}
       {screen === "combat" && (
@@ -170,7 +176,7 @@ export default function App() {
           lastOutcome={lastOutcome}
           onOpenAssemble={() => setScreen("assemble")}
           onOpenAi={() => setScreen("ai")}
-          onStartCombat={() => setScreen("combat")}
+          onStartCombat={startCombat}
         />
       )}
     </div>

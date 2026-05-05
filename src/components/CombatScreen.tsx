@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
 import { CombatActor, CombatState, createCombatState, stepCombat } from "../game/combat";
 import { Effect, Projectile } from "../game/projectiles";
+import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType } from "../types";
+import arenaFloorUrl from "../assets/arena-floor.png";
 
 interface CombatScreenProps {
   stage: number;
@@ -23,15 +25,24 @@ const cooldownPercent = (value: number, max: number): number => {
   return Math.max(0, Math.min(1, value / max));
 };
 
-const drawGrid = (ctx: CanvasRenderingContext2D, state: CombatState) => {
-  const gradient = ctx.createLinearGradient(0, 0, state.width, state.height);
-  gradient.addColorStop(0, "#071015");
-  gradient.addColorStop(0.58, "#10191d");
-  gradient.addColorStop(1, "#170d0a");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, state.width, state.height);
+const arenaFloorImage = new Image();
+arenaFloorImage.src = arenaFloorUrl;
 
-  ctx.strokeStyle = "rgba(107, 190, 215, .08)";
+const drawGrid = (ctx: CanvasRenderingContext2D, state: CombatState) => {
+  if (arenaFloorImage.complete && arenaFloorImage.naturalWidth > 0) {
+    ctx.drawImage(arenaFloorImage, 0, 0, state.width, state.height);
+    ctx.fillStyle = "rgba(2, 8, 10, .26)";
+    ctx.fillRect(0, 0, state.width, state.height);
+  } else {
+    const gradient = ctx.createLinearGradient(0, 0, state.width, state.height);
+    gradient.addColorStop(0, "#071015");
+    gradient.addColorStop(0.58, "#10191d");
+    gradient.addColorStop(1, "#170d0a");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, state.width, state.height);
+  }
+
+  ctx.strokeStyle = "rgba(107, 190, 215, .06)";
   ctx.lineWidth = 1;
   for (let x = 0; x < state.width; x += 48) {
     ctx.beginPath();
@@ -46,7 +57,7 @@ const drawGrid = (ctx: CanvasRenderingContext2D, state: CombatState) => {
     ctx.stroke();
   }
 
-  ctx.fillStyle = "rgba(255, 255, 255, .035)";
+  ctx.fillStyle = "rgba(255, 255, 255, .026)";
   for (let index = 0; index < 12; index += 1) {
     const x = (index * 137 + 90) % state.width;
     const y = (index * 83 + 70) % state.height;
@@ -236,6 +247,7 @@ export default function CombatScreen({
       const dt = Math.min(0.033, Math.max(0.001, (now - last) / 1000));
       last = now;
       const current = stepCombat(stateRef.current, dt, stats, rules);
+      playCombatSoundEvents(current.soundEvents);
       drawCombat(ctx, current, stats);
 
       if (now - lastSnapshot > 110) {

@@ -54,7 +54,7 @@ export const createInitialAiRules = (): AiRule[] => [
   { id: "rule-2", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
   { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
   { id: "rule-4", condition: "leftReady", action: "shootLeft", enabled: true },
-  { id: "rule-5", condition: "enemyFar", action: "approach", enabled: true },
+  { id: "rule-5", condition: "always", action: "strafe", enabled: true },
 ];
 
 export const ensureAiRuleSlots = (rules: AiRule[], slotCount: number): AiRule[] => {

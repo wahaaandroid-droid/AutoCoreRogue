@@ -14,6 +14,8 @@ export interface CombatActor {
   team: "player" | "enemy";
   x: number;
   y: number;
+  ax: number;
+  ay: number;
   vx: number;
   vy: number;
   radius: number;
@@ -34,6 +36,8 @@ export interface CombatActor {
   rank: "normal" | "elite" | "boss";
 }
 
+export type CombatSoundEvent = "shoot" | "missile" | "boost" | "hit" | "victory" | "defeat";
+
 export interface CombatState {
   width: number;
   height: number;
@@ -48,6 +52,7 @@ export interface CombatState {
   rightCooldown: number;
   leftCooldown: number;
   missileCooldown: number;
+  soundEvents: CombatSoundEvent[];
   status: "running" | "victory" | "defeat";
 }
 
@@ -71,12 +76,48 @@ const damageAfterDefense = (raw: number, target: CombatActor): number => {
   return Math.max(2, raw * (1 - mitigation) * guard);
 };
 
+const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): void => {
+  actor.ax += x * actor.moveSpeed * 4.85 * strength;
+  actor.ay += y * actor.moveSpeed * 4.85 * strength;
+};
+
+const maxSpeedFor = (actor: CombatActor): number => {
+  if (actor.team === "enemy") {
+    return actor.moveSpeed * (actor.rank === "boss" ? 0.82 : 0.96);
+  }
+
+  const legBonus =
+    actor.legType === "reverse" ? 1.18 : actor.legType === "hover" ? 1.1 : actor.legType === "tank" ? 0.88 : 1;
+  return actor.moveSpeed * legBonus;
+};
+
+const dragFor = (actor: CombatActor): number => {
+  if (actor.team === "enemy") {
+    return actor.rank === "boss" ? 2.2 : 2.6;
+  }
+
+  switch (actor.legType) {
+    case "hover":
+      return 1.15;
+    case "tank":
+      return 1.8;
+    case "reverse":
+      return 2.65;
+    case "quad":
+      return 2.25;
+    default:
+      return 2.4;
+  }
+};
+
 const createPlayer = (stats: DerivedStats): CombatActor => ({
   id: "player",
   name: "AutoCore",
   team: "player",
   x: ARENA_WIDTH * 0.5,
   y: ARENA_HEIGHT * 0.55,
+  ax: 0,
+  ay: 0,
   vx: 0,
   vy: 0,
   radius: stats.legType === "tank" ? 20 : 17,
@@ -111,6 +152,8 @@ const createEnemy = (stage: number, index: number, rank: CombatActor["rank"]): C
     team: "enemy",
     x: ARENA_WIDTH * 0.5 + Math.cos(angle) * distance,
     y: ARENA_HEIGHT * 0.45 + Math.sin(angle) * distance * 0.7,
+    ax: 0,
+    ay: 0,
     vx: 0,
     vy: 0,
     radius: rank === "boss" ? 27 : rank === "elite" ? 22 : 16,
@@ -156,6 +199,7 @@ export const createCombatState = (stage: number, stats: DerivedStats): CombatSta
   rightCooldown: 0.2,
   leftCooldown: 0.35,
   missileCooldown: 1.5,
+  soundEvents: [],
   status: "running",
 });
 
@@ -241,6 +285,7 @@ const fireProjectile = (
       size: 16,
     }),
   );
+  state.soundEvents.push(kind === "missile" ? "missile" : "shoot");
 };
 
 const spendEnergy = (actor: CombatActor, amount: number): boolean => {
@@ -258,8 +303,8 @@ const applyPlayerAction = (
   target: CombatActor | undefined,
 ): void => {
   const player = state.player;
-  player.vx = 0;
-  player.vy = 0;
+  player.ax = 0;
+  player.ay = 0;
   player.guard = false;
 
   if (!target) {
@@ -269,36 +314,41 @@ const applyPlayerAction = (
   const toTarget = normalize(target.x - player.x, target.y - player.y);
   const strafeDirection = Math.sin(state.time * 2.7) > 0 ? 1 : -1;
   const perpendicular = { x: -toTarget.y * strafeDirection, y: toTarget.x * strafeDirection };
+  const rangeBias = toTarget.distance > 285 ? 0.44 : toTarget.distance < 118 ? -0.62 : 0.05;
+  const combatDrift = () => {
+    applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 0.78);
+  };
 
   switch (action) {
     case "approach":
-      player.vx = toTarget.x * player.moveSpeed;
-      player.vy = toTarget.y * player.moveSpeed;
+      applyThrust(player, toTarget.x, toTarget.y, 1.1);
       break;
     case "retreat":
-      player.vx = -toTarget.x * player.moveSpeed * 0.88;
-      player.vy = -toTarget.y * player.moveSpeed * 0.88;
+      applyThrust(player, -toTarget.x, -toTarget.y, 1.0);
       break;
     case "strafe":
-      player.vx = perpendicular.x * player.moveSpeed * 0.86;
-      player.vy = perpendicular.y * player.moveSpeed * 0.86;
+      applyThrust(player, perpendicular.x + toTarget.x * rangeBias, perpendicular.y + toTarget.y * rangeBias, 1.0);
       break;
     case "boostDodge": {
       const cost = player.legType === "reverse" ? 24 : player.legType === "tank" ? 44 : 32;
       if (spendEnergy(player, cost)) {
-        player.vx = perpendicular.x * player.moveSpeed * 2.35;
-        player.vy = perpendicular.y * player.moveSpeed * 2.35;
+        player.vx += perpendicular.x * player.moveSpeed * 1.85;
+        player.vy += perpendicular.y * player.moveSpeed * 1.85;
+        applyThrust(player, perpendicular.x, perpendicular.y, 1.15);
         pushMoveEffect(state, player.x - perpendicular.x * 18, player.y - perpendicular.y * 18, "#21e0ff", 22);
+        state.soundEvents.push("boost");
       }
       break;
     }
     case "shootRight":
+      combatDrift();
       if (state.rightCooldown <= 0 && spendEnergy(player, 16)) {
         fireProjectile(state, player, target, stats.rightAttack, 585, "bullet", "#63cfff", 4.2);
         state.rightCooldown = stats.rightCooldown;
       }
       break;
     case "shootLeft":
+      combatDrift();
       if (state.leftCooldown <= 0 && spendEnergy(player, 18)) {
         const kind = stats.leftCooldown > 1.2 ? "missile" : "pulse";
         fireProjectile(
@@ -316,6 +366,7 @@ const applyPlayerAction = (
       }
       break;
     case "fireMissile":
+      combatDrift();
       if (state.missileCooldown <= 0 && spendEnergy(player, 26)) {
         fireProjectile(state, player, target, stats.missileAttack, 220, "missile", "#ffb13b", 5.8, target.id);
         state.missileCooldown = stats.missileCooldown;
@@ -323,10 +374,10 @@ const applyPlayerAction = (
       break;
     case "guard":
       player.guard = true;
-      player.vx = -toTarget.x * player.moveSpeed * 0.18;
-      player.vy = -toTarget.y * player.moveSpeed * 0.18;
+      applyThrust(player, -toTarget.x, -toTarget.y, 0.3);
       break;
     case "idle":
+      combatDrift();
       break;
   }
 };
@@ -334,17 +385,16 @@ const applyPlayerAction = (
 const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void => {
   const player = state.player;
   const toPlayer = normalize(player.x - enemy.x, player.y - enemy.y);
-  enemy.vx = 0;
-  enemy.vy = 0;
+  enemy.ax = 0;
+  enemy.ay = 0;
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
 
   if (toPlayer.distance > enemy.range * 0.82) {
-    enemy.vx = toPlayer.x * enemy.moveSpeed;
-    enemy.vy = toPlayer.y * enemy.moveSpeed;
+    applyThrust(enemy, toPlayer.x, toPlayer.y, 0.8);
   } else {
     const drift = Math.sin(state.time * 1.5 + enemy.x * 0.01) > 0 ? 1 : -1;
-    enemy.vx = -toPlayer.y * enemy.moveSpeed * 0.34 * drift;
-    enemy.vy = toPlayer.x * enemy.moveSpeed * 0.34 * drift;
+    const pressure = toPlayer.distance < enemy.range * 0.46 ? -0.45 : 0.08;
+    applyThrust(enemy, -toPlayer.y * drift + toPlayer.x * pressure, toPlayer.x * drift + toPlayer.y * pressure, 0.46);
   }
 
   if (toPlayer.distance <= enemy.range && enemy.cooldown <= 0) {
@@ -370,8 +420,37 @@ const updatePositions = (state: CombatState, dt: number): void => {
     if (actor.hp <= 0) {
       continue;
     }
-    actor.x = clamp(actor.x + actor.vx * dt, 36, state.width - 36);
-    actor.y = clamp(actor.y + actor.vy * dt, 36, state.height - 36);
+    actor.vx += actor.ax * dt;
+    actor.vy += actor.ay * dt;
+
+    const speed = Math.hypot(actor.vx, actor.vy);
+    const maxSpeed = maxSpeedFor(actor);
+    if (speed > maxSpeed) {
+      actor.vx = (actor.vx / speed) * maxSpeed;
+      actor.vy = (actor.vy / speed) * maxSpeed;
+    }
+
+    const minX = 36;
+    const maxX = state.width - 36;
+    const minY = 36;
+    const maxY = state.height - 36;
+    const nextX = actor.x + actor.vx * dt;
+    const nextY = actor.y + actor.vy * dt;
+    actor.x = clamp(nextX, minX, maxX);
+    actor.y = clamp(nextY, minY, maxY);
+
+    if (actor.x === minX || actor.x === maxX) {
+      actor.vx *= -0.38;
+    }
+    if (actor.y === minY || actor.y === maxY) {
+      actor.vy *= -0.38;
+    }
+
+    const drag = Math.exp(-dragFor(actor) * dt);
+    actor.vx *= drag;
+    actor.vy *= drag;
+    actor.ax = 0;
+    actor.ay = 0;
   }
 };
 
@@ -399,6 +478,7 @@ const updateHits = (state: CombatState, dt: number): void => {
 
     if (hitTarget) {
       hitTarget.hp = Math.max(0, hitTarget.hp - damageAfterDefense(projectile.damage, hitTarget));
+      state.soundEvents.push("hit");
       state.effects.push(
         createEffect({
           id: uid("effect"),
@@ -438,6 +518,7 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
     return state;
   }
 
+  state.soundEvents = [];
   state.time += dt;
   state.player.en = Math.min(state.player.maxEn, state.player.en + state.player.enRegen * dt);
   state.rightCooldown = Math.max(0, state.rightCooldown - dt);
@@ -475,8 +556,10 @@ export const stepCombat = (state: CombatState, dt: number, stats: DerivedStats, 
 
   if (state.player.hp <= 0) {
     state.status = "defeat";
+    state.soundEvents.push("defeat");
   } else if (state.enemies.length === 0) {
     state.status = "victory";
+    state.soundEvents.push("victory");
   }
 
   return state;
