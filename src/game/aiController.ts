@@ -5,6 +5,7 @@ export interface AiRuntimeContext {
   hpPercent: number;
   enPercent: number;
   nearestEnemyDistance: number;
+  clusteredEnemyCount: number;
   rightCooldown: number;
   leftCooldown: number;
   leftShoulderCooldown: number;
@@ -34,6 +35,8 @@ const isConditionMet = (condition: AiConditionId, context: AiRuntimeContext): bo
       return context.nearestEnemyDistance > 125 && context.nearestEnemyDistance <= 285;
     case "enemyFar":
       return context.nearestEnemyDistance > 285;
+    case "enemyClustered":
+      return context.clusteredEnemyCount >= 2;
     case "enHigh":
       return context.enPercent >= 0.5;
     case "rightReady":

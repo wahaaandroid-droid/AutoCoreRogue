@@ -535,7 +535,9 @@ select {
 
 .weapon-status-list div {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  align-items: center;
   padding: 8px;
   border: 1px solid rgba(120, 210, 235, 0.14);
   background: rgba(0, 0, 0, 0.16);
@@ -548,7 +550,24 @@ select {
   font-size: 12px;
 }
 
+.weapon-status-list span,
+.weapon-status-list small {
+  grid-column: 1 / -1;
+}
+
 .weapon-status-list strong {
+  color: var(--green);
+}
+
+.auto-toggle {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.auto-toggle.active {
+  border-color: rgba(84, 244, 167, 0.58);
   color: var(--green);
 }
 

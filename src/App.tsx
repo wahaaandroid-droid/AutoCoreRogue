@@ -31,6 +31,9 @@ import {
   ScreenId,
   SQUAD_SIZE,
   TargetPriorityId,
+  WEAPON_HARDPOINTS,
+  WeaponAutoUse,
+  WeaponHardpoint,
 } from "./types";
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
@@ -45,6 +48,13 @@ const createInitialAiRulesByUnit = (): AiRule[][] =>
   Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId));
 const createInitialTargetPriorities = (): TargetPriorityId[] =>
   Array.from({ length: SQUAD_SIZE }, () => "nearest");
+const createWeaponAutoUse = (): WeaponAutoUse =>
+  WEAPON_HARDPOINTS.reduce((config, hardpoint) => {
+    config[hardpoint] = true;
+    return config;
+  }, {} as WeaponAutoUse);
+const createInitialWeaponAutoUseByUnit = (): WeaponAutoUse[] =>
+  Array.from({ length: SQUAD_SIZE }, () => createWeaponAutoUse());
 const createInitialUnitHp = (): number[] =>
   createInitialLoadouts().map((unitLoadout) =>
     calculateDerivedStats(unitLoadout, baseUpgrades, initialFrameId).hpMax,
@@ -72,6 +82,9 @@ export default function App() {
   const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() => createInitialAiRulesByUnit());
   const [targetPrioritiesByUnit, setTargetPrioritiesByUnit] = useState<TargetPriorityId[]>(() =>
     createInitialTargetPriorities(),
+  );
+  const [weaponAutoUseByUnit, setWeaponAutoUseByUnit] = useState<WeaponAutoUse[]>(() =>
+    createInitialWeaponAutoUseByUnit(),
   );
   const [unitHpByUnit, setUnitHpByUnit] = useState<number[]>(() => createInitialUnitHp());
   const [sortieEnabled, setSortieEnabled] = useState<boolean[]>(() => createInitialSortieEnabled());
@@ -179,6 +192,19 @@ export default function App() {
     );
   };
 
+  const toggleWeaponAutoUse = (hardpoint: WeaponHardpoint) => {
+    setWeaponAutoUseByUnit((current) =>
+      current.map((config, index) =>
+        index === activeUnitIndex
+          ? {
+              ...config,
+              [hardpoint]: !config[hardpoint],
+            }
+          : config,
+      ),
+    );
+  };
+
   const toggleSortie = (unitIndex: number) => {
     if (unitIndex >= unlockedUnitCount) {
       setLastOutcome(`UNIT ${unitIndex + 1} は未配備です`);
@@ -242,6 +268,7 @@ export default function App() {
     setAiSlotCounts(createInitialAiSlotCounts());
     setAiRulesByUnit(createInitialAiRulesByUnit());
     setTargetPrioritiesByUnit(createInitialTargetPriorities());
+    setWeaponAutoUseByUnit(createInitialWeaponAutoUseByUnit());
     setUnitHpByUnit(createInitialUnitHp());
     setSortieEnabled(createInitialSortieEnabled());
     setRepairKitStock(0);
@@ -268,6 +295,9 @@ export default function App() {
     );
     setAiSlotCounts((current) =>
       current.map((slotCount, index) => (index === unitIndex ? frameRules.length : slotCount)),
+    );
+    setWeaponAutoUseByUnit((current) =>
+      current.map((config, index) => (index === unitIndex ? createWeaponAutoUse() : config)),
     );
     setUnlockedUnitCount((current) => Math.max(current, unitIndex + 1));
     setSortieEnabled((current) =>
@@ -434,8 +464,10 @@ export default function App() {
           repairKitStock={repairKitStock}
           activeUnitIndex={activeUnitIndex}
           lastOutcome={lastOutcome}
+          weaponAutoUse={weaponAutoUseByUnit[activeUnitIndex] ?? createWeaponAutoUse()}
           onSelectUnit={setActiveUnitIndex}
           onChangeLoadout={changeLoadout}
+          onToggleWeaponAutoUse={toggleWeaponAutoUse}
           onToggleSortie={toggleSortie}
           onUseRepairKit={useRepairKit}
           onOpenAi={() => setScreen("ai")}
@@ -469,6 +501,7 @@ export default function App() {
           unlockedUnitCount={unlockedUnitCount}
           rulesByUnit={normalizedRulesByUnit}
           targetPrioritiesByUnit={targetPrioritiesByUnit}
+          weaponAutoUseByUnit={weaponAutoUseByUnit}
           activeUnitIndex={activeUnitIndex}
           onSelectUnit={setActiveUnitIndex}
           onVictory={handleVictory}

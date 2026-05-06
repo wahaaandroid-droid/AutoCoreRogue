@@ -33,12 +33,15 @@ export type WeaponKind =
   | "pulse"
   | "blade";
 
-export type WeaponHardpoint =
-  | "leftArm"
-  | "rightArm"
-  | "leftShoulder"
-  | "rightShoulder"
-  | "bothShoulders";
+export const WEAPON_HARDPOINTS = [
+  "leftArm",
+  "rightArm",
+  "leftShoulder",
+  "rightShoulder",
+  "bothShoulders",
+] as const;
+
+export type WeaponHardpoint = (typeof WEAPON_HARDPOINTS)[number];
 
 export interface PartStats {
   hp: number;
@@ -88,6 +91,8 @@ export type Loadout = Record<EquipSlot, string>;
 export type MechBuild = Record<EquipSlot, Part>;
 
 export type PartInventory = Record<string, number>;
+
+export type WeaponAutoUse = Record<WeaponHardpoint, boolean>;
 
 export interface WeaponStats {
   hardpoint: WeaponHardpoint;
@@ -148,6 +153,7 @@ export type AiConditionId =
   | "enemyClose"
   | "enemyMid"
   | "enemyFar"
+  | "enemyClustered"
   | "enHigh"
   | "rightReady"
   | "leftReady"
@@ -163,6 +169,10 @@ export type AiActionId =
   | "retreat"
   | "strafe"
   | "boostDodge"
+  | "suppressiveFire"
+  | "alphaStrike"
+  | "fireExplosive"
+  | "fireLongRange"
   | "shootRight"
   | "shootLeft"
   | "fireLeftShoulder"

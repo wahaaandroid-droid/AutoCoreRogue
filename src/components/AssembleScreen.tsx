@@ -8,7 +8,16 @@ import {
   partsBySlot,
   unitsEquippingPart,
 } from "../data/parts";
-import { BaseFrameId, DerivedStats, EQUIP_SLOTS, EquipSlot, Loadout, PartInventory } from "../types";
+import {
+  BaseFrameId,
+  DerivedStats,
+  EQUIP_SLOTS,
+  EquipSlot,
+  Loadout,
+  PartInventory,
+  WeaponAutoUse,
+  WeaponHardpoint,
+} from "../types";
 import MechSilhouette from "./MechSilhouette";
 
 interface AssembleScreenProps {
@@ -23,8 +32,10 @@ interface AssembleScreenProps {
   repairKitStock: number;
   activeUnitIndex: number;
   lastOutcome?: string;
+  weaponAutoUse: WeaponAutoUse;
   onSelectUnit: (index: number) => void;
   onChangeLoadout: (slot: EquipSlot, partId: string) => void;
+  onToggleWeaponAutoUse: (hardpoint: WeaponHardpoint) => void;
   onToggleSortie: (index: number) => void;
   onUseRepairKit: (index: number) => void;
   onOpenAi: () => void;
@@ -56,8 +67,10 @@ export default function AssembleScreen({
   repairKitStock,
   activeUnitIndex,
   lastOutcome,
+  weaponAutoUse,
   onSelectUnit,
   onChangeLoadout,
+  onToggleWeaponAutoUse,
   onToggleSortie,
   onUseRepairKit,
   onOpenAi,
@@ -193,6 +206,12 @@ export default function AssembleScreen({
               <span>{weapon.label}</span>
               <strong>{getWeaponKindLabel(weapon.weaponKind)}</strong>
               <small>ATK {weapon.attack} / RNG {weapon.range} / CD {weapon.cooldown.toFixed(1)}</small>
+              <button
+                className={`auto-toggle ${weaponAutoUse[weapon.hardpoint] ? "active" : ""}`}
+                onClick={() => onToggleWeaponAutoUse(weapon.hardpoint)}
+              >
+                {weaponAutoUse[weapon.hardpoint] ? "AUTO" : "MANUAL"}
+              </button>
             </div>
           ))}
         </div>

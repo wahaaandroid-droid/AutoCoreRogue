@@ -23,6 +23,7 @@ export const conditionDefinitions: ConditionDefinition[] = [
   { id: "enemyClose", label: "敵が近距離にいる", tint: "orange" },
   { id: "enemyMid", label: "敵が中距離にいる", tint: "green" },
   { id: "enemyFar", label: "敵が遠距離にいる", tint: "blue" },
+  { id: "enemyClustered", label: "敵が密集している", tint: "purple" },
   { id: "enHigh", label: "ENが50%以上", tint: "cyan" },
   { id: "rightReady", label: "右腕武器が使用可能", tint: "blue" },
   { id: "leftReady", label: "左腕武器が使用可能", tint: "green" },
@@ -39,6 +40,10 @@ export const actionDefinitions: ActionDefinition[] = [
   { id: "retreat", label: "後退する", tint: "orange" },
   { id: "strafe", label: "横移動する", tint: "green" },
   { id: "boostDodge", label: "ブースト回避", tint: "cyan" },
+  { id: "suppressiveFire", label: "牽制射撃", tint: "green" },
+  { id: "alphaStrike", label: "一斉射撃", tint: "purple" },
+  { id: "fireExplosive", label: "爆発武器攻撃", tint: "orange" },
+  { id: "fireLongRange", label: "長射程武器攻撃", tint: "blue" },
   { id: "shootRight", label: "右腕武器を撃つ", tint: "blue" },
   { id: "shootLeft", label: "左腕武器を撃つ", tint: "green" },
   { id: "fireLeftShoulder", label: "左肩武器を撃つ", tint: "orange" },
@@ -79,32 +84,32 @@ export const createInitialAiRules = (frameId: BaseFrameId = "medium"): AiRule[] 
       return [
         { id: "rule-1", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
         { id: "rule-2", condition: "enemyClose", action: "shootLeft", enabled: true },
-        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
-        { id: "rule-4", condition: "rightShoulderReady", action: "fireRightShoulder", enabled: true },
+        { id: "rule-3", condition: "enemyFar", action: "fireLongRange", enabled: true },
+        { id: "rule-4", condition: "shoulderReady", action: "suppressiveFire", enabled: true },
         { id: "rule-5", condition: "always", action: "strafe", enabled: true },
       ];
     case "heavy":
       return [
         { id: "rule-1", condition: "enemyClose", action: "guard", enabled: true },
-        { id: "rule-2", condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
-        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
-        { id: "rule-4", condition: "leftShoulderReady", action: "fireLeftShoulder", enabled: true },
-        { id: "rule-5", condition: "always", action: "retreat", enabled: true },
+        { id: "rule-2", condition: "enemyClustered", action: "fireExplosive", enabled: true },
+        { id: "rule-3", condition: "enemyFar", action: "fireLongRange", enabled: true },
+        { id: "rule-4", condition: "enemyMid", action: "alphaStrike", enabled: true },
+        { id: "rule-5", condition: "always", action: "suppressiveFire", enabled: true },
       ];
     case "quad":
       return [
-        { id: "rule-1", condition: "enemyFar", action: "shootRight", enabled: true },
-        { id: "rule-2", condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
-        { id: "rule-3", condition: "leftReady", action: "shootLeft", enabled: true },
-        { id: "rule-4", condition: "leftShoulderReady", action: "fireLeftShoulder", enabled: true },
+        { id: "rule-1", condition: "enemyFar", action: "fireLongRange", enabled: true },
+        { id: "rule-2", condition: "enemyClustered", action: "fireExplosive", enabled: true },
+        { id: "rule-3", condition: "enemyMid", action: "alphaStrike", enabled: true },
+        { id: "rule-4", condition: "always", action: "suppressiveFire", enabled: true },
         { id: "rule-5", condition: "always", action: "strafe", enabled: true },
       ];
     case "tank":
       return [
         { id: "rule-1", condition: "hpLow", action: "guard", enabled: true },
-        { id: "rule-2", condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
-        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
-        { id: "rule-4", condition: "rightShoulderReady", action: "fireRightShoulder", enabled: true },
+        { id: "rule-2", condition: "enemyClustered", action: "fireExplosive", enabled: true },
+        { id: "rule-3", condition: "enemyFar", action: "fireLongRange", enabled: true },
+        { id: "rule-4", condition: "enemyMid", action: "alphaStrike", enabled: true },
         { id: "rule-5", condition: "always", action: "approach", enabled: true },
       ];
     case "medium":
@@ -112,10 +117,9 @@ export const createInitialAiRules = (frameId: BaseFrameId = "medium"): AiRule[] 
       return [
         { id: "rule-1", condition: "hpLow", action: "retreat", enabled: true },
         { id: "rule-2", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
-        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
-        { id: "rule-4", condition: "leftReady", action: "shootLeft", enabled: true },
-        { id: "rule-5", condition: "shoulderReady", action: "fireShoulder", enabled: true },
-        { id: "rule-6", condition: "always", action: "strafe", enabled: true },
+        { id: "rule-3", condition: "enemyClustered", action: "fireExplosive", enabled: true },
+        { id: "rule-4", condition: "enemyFar", action: "fireLongRange", enabled: true },
+        { id: "rule-5", condition: "always", action: "suppressiveFire", enabled: true },
       ];
   }
 };

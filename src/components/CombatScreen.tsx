@@ -13,7 +13,7 @@ import {
 } from "../game/combat";
 import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
-import { AiRule, DerivedStats, LegType, TargetPriorityId } from "../types";
+import { AiRule, DerivedStats, LegType, TargetPriorityId, WeaponAutoUse } from "../types";
 import arenaFloorUrl from "../assets/arena-floor.png";
 import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
@@ -28,6 +28,7 @@ interface CombatScreenProps {
   unlockedUnitCount: number;
   rulesByUnit: AiRule[][];
   targetPrioritiesByUnit: TargetPriorityId[];
+  weaponAutoUseByUnit: WeaponAutoUse[];
   activeUnitIndex: number;
   onSelectUnit: (index: number) => void;
   onVictory: (unitHpByUnit: number[], report: CombatReport) => void;
@@ -483,6 +484,7 @@ export default function CombatScreen({
   unlockedUnitCount,
   rulesByUnit,
   targetPrioritiesByUnit,
+  weaponAutoUseByUnit,
   activeUnitIndex,
   onSelectUnit,
   onVictory,
@@ -491,7 +493,9 @@ export default function CombatScreen({
   onOpenAi,
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef<CombatState>(createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount));
+  const stateRef = useRef<CombatState>(
+    createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit),
+  );
   const resolvedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
   const activeUnit = snapshot.players.find((unit) => unit.unitIndex === activeUnitIndex) ?? snapshot.players[0];
@@ -503,10 +507,10 @@ export default function CombatScreen({
   const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
   useEffect(() => {
-    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount);
+    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit);
     resolvedRef.current = false;
     setSnapshot(stateRef.current);
-  }, [stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount]);
+  }, [stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -629,7 +633,7 @@ export default function CombatScreen({
                 <span>{weapon.label}</span>
                 <b>{weapon.cooldownRemaining.toFixed(1)} / {resourceLabel(weapon)}</b>
               </div>
-              <small>{getWeaponKindLabel(weapon.weaponKind)}</small>
+              <small>{getWeaponKindLabel(weapon.weaponKind)} / {weapon.autoUse ? "AUTO" : "MANUAL"}</small>
               <div className={coolbarClass(weapon)}>
                 <span style={{ width: `${cooldownPercent(weapon.cooldownRemaining, weapon.cooldownMax) * 100}%` }} />
               </div>

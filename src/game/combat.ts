@@ -15,6 +15,7 @@ import {
   TargetPriorityId,
   WeaponHardpoint,
   WeaponKind,
+  WeaponAutoUse,
   WeaponResource,
   WeaponStats,
 } from "../types";
@@ -72,6 +73,7 @@ export interface PlayerWeaponState extends WeaponStats {
   cooldownRemaining: number;
   cooldownMax: number;
   ammo: number;
+  autoUse: boolean;
 }
 
 export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
@@ -213,6 +215,7 @@ const createPlayerUnit = (
   unitIndex: number,
   formationIndex: number,
   currentHp: number,
+  weaponAutoUse?: WeaponAutoUse,
 ): PlayerCombatUnit => {
   const actor = createPlayerActor(stats, unitIndex);
   actor.x = ARENA_WIDTH * (PLAYER_FORMATION[formationIndex]?.x ?? 0.5);
@@ -223,6 +226,7 @@ const createPlayerUnit = (
     cooldownRemaining: 0.18 + formationIndex * 0.08 + weaponIndex * 0.12,
     cooldownMax: weapon.cooldown,
     ammo: weapon.ammoMax,
+    autoUse: weaponAutoUse?.[weapon.hardpoint] ?? true,
   }));
 
   return {
@@ -420,6 +424,7 @@ export const createCombatState = (
   unitHpByUnit: number[],
   sortieEnabled: boolean[],
   unlockedUnitCount: number,
+  weaponAutoUseByUnit: WeaponAutoUse[] = [],
 ): CombatState => {
   const players = statsByUnit
     .map((stats, unitIndex) => ({ stats, unitIndex }))
@@ -429,7 +434,13 @@ export const createCombatState = (
       (unitHpByUnit[unitIndex] ?? stats.hpMax) > 0,
     )
     .map(({ stats, unitIndex }, formationIndex) =>
-      createPlayerUnit(stats, unitIndex, formationIndex, unitHpByUnit[unitIndex] ?? stats.hpMax),
+      createPlayerUnit(
+        stats,
+        unitIndex,
+        formationIndex,
+        unitHpByUnit[unitIndex] ?? stats.hpMax,
+        weaponAutoUseByUnit[unitIndex],
+      ),
     );
   const wave = createInitialEnemies(stage, Math.max(1, players.length));
 
@@ -474,6 +485,17 @@ const nearestEnemyDistance = (state: CombatState, player: CombatActor): number =
     (nearest, enemy) => Math.min(nearest, enemyDistance(player, enemy)),
     Number.POSITIVE_INFINITY,
   );
+
+const clusteredEnemyCount = (state: CombatState, target: CombatActor | undefined): number => {
+  if (!target) {
+    return 0;
+  }
+
+  return livingEnemies(state).filter((enemy) =>
+    enemy.id !== target.id &&
+    Math.hypot(enemy.x - target.x, enemy.y - target.y) <= 96,
+  ).length + 1;
+};
 
 const selectEnemyTarget = (
   state: CombatState,
@@ -825,11 +847,15 @@ const weaponByHardpoint = (
 ): PlayerWeaponState | undefined =>
   unit.weapons.find((weapon) => weapon.hardpoint === hardpoint);
 
-const firstReadyShoulderWeapon = (unit: PlayerCombatUnit): PlayerWeaponState | undefined =>
+const firstReadyShoulderWeapon = (
+  unit: PlayerCombatUnit,
+  target: CombatActor,
+): PlayerWeaponState | undefined =>
   unit.weapons.find((weapon) =>
     weapon.hardpoint.includes("Shoulder") &&
     weapon.cooldownRemaining <= 0 &&
-    canPayWeapon(unit, weapon),
+    canPayWeapon(unit, weapon) &&
+    isWeaponInRange(unit.actor, target, weapon),
   );
 
 const canPayWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefined): boolean => {
@@ -839,6 +865,17 @@ const canPayWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefi
   return weapon.resource === "ballistic"
     ? weapon.ammo > 0
     : unit.actor.en >= weapon.energyCost;
+};
+
+const isWeaponInRange = (
+  actor: CombatActor,
+  target: CombatActor,
+  weapon: PlayerWeaponState,
+): boolean => {
+  if (weapon.weaponKind === "blade") {
+    return Math.hypot(target.x - actor.x, target.y - actor.y) <= actor.radius + target.radius + 118;
+  }
+  return Math.hypot(target.x - actor.x, target.y - actor.y) <= weapon.range + target.radius;
 };
 
 const consumeWeapon = (
@@ -860,6 +897,7 @@ const firePlayerWeapon = (
   unit: PlayerCombatUnit,
   weapon: PlayerWeaponState | undefined,
   target: CombatActor,
+  requireRange = false,
 ): boolean => {
   if (!weapon || weapon.cooldownRemaining > 0) {
     return false;
@@ -883,6 +921,10 @@ const firePlayerWeapon = (
     return true;
   }
 
+  if (requireRange && !isWeaponInRange(player, target, weapon)) {
+    return false;
+  }
+
   if (!consumeWeapon(unit, weapon)) {
     return false;
   }
@@ -902,6 +944,94 @@ const firePlayerWeapon = (
   );
   weapon.cooldownRemaining = weapon.cooldownMax;
   return true;
+};
+
+type WeaponPlanMode = "suppressive" | "alpha" | "explosive" | "longRange";
+
+const isExplosiveWeapon = (weapon: PlayerWeaponState): boolean =>
+  weapon.weaponKind === "rocket" || weapon.weaponKind === "grenade" || weapon.blastRadius > 0;
+
+const isLongRangeWeapon = (weapon: PlayerWeaponState): boolean =>
+  weapon.weaponKind === "sniperRifle" ||
+  weapon.weaponKind === "rocket" ||
+  weapon.weaponKind === "missile" ||
+  weapon.range >= 390;
+
+const suppressiveWeaponScore = (weapon: PlayerWeaponState): number => {
+  const armBonus = weapon.hardpoint === "leftArm" || weapon.hardpoint === "rightArm" ? 80 : 0;
+  const kindBonus =
+    weapon.weaponKind === "machineGun"
+      ? 42
+      : weapon.weaponKind === "rifle" || weapon.weaponKind === "pulse"
+        ? 30
+        : weapon.weaponKind === "blade"
+          ? 10
+          : 0;
+  return armBonus + kindBonus + Math.max(0, 3 - weapon.cooldownMax) * 10;
+};
+
+const plannedWeaponCandidates = (
+  unit: PlayerCombatUnit,
+  target: CombatActor,
+  mode: WeaponPlanMode,
+): PlayerWeaponState[] =>
+  unit.weapons
+    .filter((weapon) => {
+      if (!weapon.autoUse || weapon.cooldownRemaining > 0 || !canPayWeapon(unit, weapon)) {
+        return false;
+      }
+      if (!isWeaponInRange(unit.actor, target, weapon)) {
+        return false;
+      }
+
+      switch (mode) {
+        case "suppressive":
+          return (
+            !isExplosiveWeapon(weapon) &&
+            (weapon.hardpoint === "leftArm" ||
+              weapon.hardpoint === "rightArm" ||
+              weapon.weaponKind === "machineGun" ||
+              weapon.weaponKind === "rifle" ||
+              weapon.weaponKind === "pulse")
+          );
+        case "explosive":
+          return isExplosiveWeapon(weapon);
+        case "longRange":
+          return isLongRangeWeapon(weapon);
+        case "alpha":
+        default:
+          return true;
+      }
+    })
+    .sort((a, b) => {
+      switch (mode) {
+        case "suppressive":
+          return suppressiveWeaponScore(b) - suppressiveWeaponScore(a);
+        case "explosive":
+          return (b.blastRadius || b.attack) - (a.blastRadius || a.attack);
+        case "longRange":
+          return b.range - a.range || b.attack - a.attack;
+        case "alpha":
+        default:
+          return b.attack - a.attack || b.range - a.range;
+      }
+    });
+
+const firePlannedWeapons = (
+  state: CombatState,
+  unit: PlayerCombatUnit,
+  target: CombatActor,
+  mode: WeaponPlanMode,
+): boolean => {
+  const candidates = plannedWeaponCandidates(unit, target, mode);
+  const limit = mode === "alpha" ? candidates.length : mode === "suppressive" ? 2 : 1;
+  let fired = false;
+
+  for (const weapon of candidates.slice(0, limit)) {
+    fired = firePlayerWeapon(state, unit, weapon, target, true) || fired;
+  }
+
+  return fired;
 };
 
 const applyPlayerAction = (
@@ -950,6 +1080,22 @@ const applyPlayerAction = (
       }
       break;
     }
+    case "suppressiveFire":
+      combatDrift();
+      firePlannedWeapons(state, unit, target, "suppressive");
+      break;
+    case "alphaStrike":
+      combatDrift();
+      firePlannedWeapons(state, unit, target, "alpha");
+      break;
+    case "fireExplosive":
+      combatDrift();
+      firePlannedWeapons(state, unit, target, "explosive");
+      break;
+    case "fireLongRange":
+      combatDrift();
+      firePlannedWeapons(state, unit, target, "longRange");
+      break;
     case "shootRight":
       combatDrift();
       firePlayerWeapon(state, unit, weaponByHardpoint(unit, "rightArm"), target);
@@ -987,7 +1133,7 @@ const applyPlayerAction = (
     case "fireShoulder":
     case "fireMissile":
       combatDrift();
-      firePlayerWeapon(state, unit, firstReadyShoulderWeapon(unit), target);
+      firePlayerWeapon(state, unit, firstReadyShoulderWeapon(unit, target), target, true);
       break;
     case "guard":
       player.guard = true;
@@ -1311,6 +1457,7 @@ export const stepCombat = (
       hpPercent: player.hp / player.maxHp,
       enPercent: player.en / player.maxEn,
       nearestEnemyDistance: threatDistance,
+      clusteredEnemyCount: clusteredEnemyCount(state, target),
       rightCooldown: rightWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
       leftCooldown: leftWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
       leftShoulderCooldown: leftShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
