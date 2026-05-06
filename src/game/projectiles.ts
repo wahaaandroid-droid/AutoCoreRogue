@@ -41,6 +41,15 @@ export const createProjectile = (projectile: Projectile): Projectile => projecti
 
 export const createEffect = (effect: Effect): Effect => effect;
 
+const MISSILE_MIN_SPEED = 160;
+const MISSILE_MAX_TURN_RATE = 2.6;
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
+const shortestAngleDelta = (from: number, to: number): number =>
+  Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
 export const advanceProjectiles = (
   projectiles: Projectile[],
   dt: number,
@@ -56,9 +65,13 @@ export const advanceProjectiles = (
           const dx = target.x - projectile.x;
           const dy = target.y - projectile.y;
           const distance = Math.max(1, Math.hypot(dx, dy));
-          const desiredSpeed = Math.max(160, Math.hypot(projectile.vx, projectile.vy));
-          vx = vx * 0.9 + (dx / distance) * desiredSpeed * 0.1;
-          vy = vy * 0.9 + (dy / distance) * desiredSpeed * 0.1;
+          const speed = Math.max(MISSILE_MIN_SPEED, Math.hypot(projectile.vx, projectile.vy));
+          const currentAngle = Math.atan2(projectile.vy, projectile.vx);
+          const desiredAngle = Math.atan2(dy / distance, dx / distance);
+          const maxTurn = MISSILE_MAX_TURN_RATE * dt;
+          const nextAngle = currentAngle + clamp(shortestAngleDelta(currentAngle, desiredAngle), -maxTurn, maxTurn);
+          vx = Math.cos(nextAngle) * speed;
+          vy = Math.sin(nextAngle) * speed;
         }
       }
 

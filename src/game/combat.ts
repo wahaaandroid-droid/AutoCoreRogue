@@ -95,6 +95,7 @@ export interface CombatState {
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
 const PLAYER_DAMAGE_MULTIPLIER = 0.48;
+const BOOST_LOCK_BREAK_RADIUS = 210;
 let nextId = 1;
 
 const uid = (prefix: string): string => `${prefix}-${nextId++}`;
@@ -526,6 +527,19 @@ const nearestEnemyProjectileDistance = (state: CombatState, player: CombatActor)
   return best;
 };
 
+const breakIncomingMissileLocks = (state: CombatState, player: CombatActor): void => {
+  for (const projectile of state.projectiles) {
+    if (
+      projectile.owner === "enemy" &&
+      projectile.kind === "missile" &&
+      projectile.targetId === player.id &&
+      Math.hypot(projectile.x - player.x, projectile.y - player.y) <= BOOST_LOCK_BREAK_RADIUS
+    ) {
+      projectile.targetId = undefined;
+    }
+  }
+};
+
 const nearestPlayerProjectileThreat = (
   state: CombatState,
   enemy: CombatActor,
@@ -792,6 +806,7 @@ const applyPlayerAction = (
         player.vy += perpendicular.y * player.moveSpeed * 2.08;
         applyThrust(player, perpendicular.x, perpendicular.y, 1.28);
         pushBoostBurst(state, player, perpendicular);
+        breakIncomingMissileLocks(state, player);
         unit.boostCooldown = 0.5;
         state.soundEvents.push("boost");
       } else {
