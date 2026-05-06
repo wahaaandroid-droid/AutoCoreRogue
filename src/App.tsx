@@ -44,6 +44,8 @@ import {
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
+const SAVE_VERSION = 1;
+const SAVE_KEY = `autocore-rogue-run-v${SAVE_VERSION}`;
 const createInitialLoadouts = (): Loadout[] =>
   Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
 const createInitialFrameIds = (): BaseFrameId[] =>
@@ -67,6 +69,78 @@ const createInitialUnitHp = (): number[] =>
   );
 const createInitialSortieEnabled = (): boolean[] =>
   Array.from({ length: SQUAD_SIZE }, () => false);
+
+interface SavedRunState {
+  screen: ScreenId;
+  stage: number;
+  loadouts: Loadout[];
+  unitFrameIds: BaseFrameId[];
+  unlockedUnitCount: number;
+  pendingUnitIndex: number;
+  activeUnitIndex: number;
+  partInventory: PartInventory;
+  upgrades: PilotUpgrades;
+  aiSlotCounts: number[];
+  aiRulesByUnit: AiRule[][];
+  targetPrioritiesByUnit: TargetPriorityId[];
+  weaponAutoUseByUnit: WeaponAutoUse[];
+  unitHpByUnit: number[];
+  sortieEnabled: boolean[];
+  repairKitStock: number;
+  rewardOptions: RewardOption[];
+  lastCombatReport?: CombatReport;
+  lastOutcome?: string;
+}
+
+interface SavedRunPayload {
+  version: number;
+  savedAt: string;
+  state: SavedRunState;
+}
+
+const readSavedRunState = (): Partial<SavedRunState> | undefined => {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SAVE_KEY);
+    if (!raw) {
+      return undefined;
+    }
+    const payload = JSON.parse(raw) as Partial<SavedRunPayload>;
+    return payload.version === SAVE_VERSION ? payload.state : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const saveRunState = (state: SavedRunState): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const payload: SavedRunPayload = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state,
+    };
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+  } catch {
+    // Saving is best-effort; gameplay should continue even if storage is unavailable.
+  }
+};
+
+const normalizeSavedArray = <T,>(value: T[] | undefined, fallback: T[]): T[] =>
+  Array.isArray(value) ? fallback.map((item, index) => value[index] ?? item) : fallback;
+
+const restoreScreen = (screen: ScreenId | undefined, hasSavedUnit: boolean): ScreenId => {
+  if (!hasSavedUnit) {
+    return "frameSelect";
+  }
+  return screen === "combat" ? "map" : screen ?? "map";
+};
 
 const countEquippedPart = (loadouts: Loadout[], unlockedUnitCount: number, partId: string): number =>
   loadouts.slice(0, unlockedUnitCount).reduce((count, loadout) => {
@@ -101,29 +175,52 @@ const applyShoulderCompatibility = (
 };
 
 export default function App() {
-  const [screen, setScreen] = useState<ScreenId>("frameSelect");
-  const [stage, setStage] = useState(1);
-  const [loadouts, setLoadouts] = useState<Loadout[]>(() => createInitialLoadouts());
-  const [unitFrameIds, setUnitFrameIds] = useState<BaseFrameId[]>(() => createInitialFrameIds());
-  const [unlockedUnitCount, setUnlockedUnitCount] = useState(0);
-  const [pendingUnitIndex, setPendingUnitIndex] = useState(0);
-  const [activeUnitIndex, setActiveUnitIndex] = useState(0);
-  const [partInventory, setPartInventory] = useState<PartInventory>(() => createEmptyPartInventory());
-  const [upgrades, setUpgrades] = useState<PilotUpgrades>(() => cloneUpgrades());
-  const [aiSlotCounts, setAiSlotCounts] = useState<number[]>(() => createInitialAiSlotCounts());
-  const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() => createInitialAiRulesByUnit());
+  const savedRun = useMemo(() => readSavedRunState(), []);
+  const savedUnlockedUnitCount = savedRun?.unlockedUnitCount ?? 0;
+  const [screen, setScreen] = useState<ScreenId>(() =>
+    restoreScreen(savedRun?.screen, savedUnlockedUnitCount > 0),
+  );
+  const [stage, setStage] = useState(() => savedRun?.stage ?? 1);
+  const [loadouts, setLoadouts] = useState<Loadout[]>(() =>
+    normalizeSavedArray(savedRun?.loadouts, createInitialLoadouts()),
+  );
+  const [unitFrameIds, setUnitFrameIds] = useState<BaseFrameId[]>(() =>
+    normalizeSavedArray(savedRun?.unitFrameIds, createInitialFrameIds()),
+  );
+  const [unlockedUnitCount, setUnlockedUnitCount] = useState(savedUnlockedUnitCount);
+  const [pendingUnitIndex, setPendingUnitIndex] = useState(() => savedRun?.pendingUnitIndex ?? 0);
+  const [activeUnitIndex, setActiveUnitIndex] = useState(() => savedRun?.activeUnitIndex ?? 0);
+  const [partInventory, setPartInventory] = useState<PartInventory>(() =>
+    savedRun?.partInventory ?? createEmptyPartInventory(),
+  );
+  const [upgrades, setUpgrades] = useState<PilotUpgrades>(() => ({
+    ...cloneUpgrades(),
+    ...savedRun?.upgrades,
+  }));
+  const [aiSlotCounts, setAiSlotCounts] = useState<number[]>(() =>
+    normalizeSavedArray(savedRun?.aiSlotCounts, createInitialAiSlotCounts()),
+  );
+  const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() =>
+    normalizeSavedArray(savedRun?.aiRulesByUnit, createInitialAiRulesByUnit()),
+  );
   const [targetPrioritiesByUnit, setTargetPrioritiesByUnit] = useState<TargetPriorityId[]>(() =>
-    createInitialTargetPriorities(),
+    normalizeSavedArray(savedRun?.targetPrioritiesByUnit, createInitialTargetPriorities()),
   );
   const [weaponAutoUseByUnit, setWeaponAutoUseByUnit] = useState<WeaponAutoUse[]>(() =>
-    createInitialWeaponAutoUseByUnit(),
+    normalizeSavedArray(savedRun?.weaponAutoUseByUnit, createInitialWeaponAutoUseByUnit()),
   );
-  const [unitHpByUnit, setUnitHpByUnit] = useState<number[]>(() => createInitialUnitHp());
-  const [sortieEnabled, setSortieEnabled] = useState<boolean[]>(() => createInitialSortieEnabled());
-  const [repairKitStock, setRepairKitStock] = useState(0);
-  const [rewardOptions, setRewardOptions] = useState<RewardOption[]>([]);
-  const [lastCombatReport, setLastCombatReport] = useState<CombatReport | undefined>();
-  const [lastOutcome, setLastOutcome] = useState<string | undefined>();
+  const [unitHpByUnit, setUnitHpByUnit] = useState<number[]>(() =>
+    normalizeSavedArray(savedRun?.unitHpByUnit, createInitialUnitHp()),
+  );
+  const [sortieEnabled, setSortieEnabled] = useState<boolean[]>(() =>
+    normalizeSavedArray(savedRun?.sortieEnabled, createInitialSortieEnabled()),
+  );
+  const [repairKitStock, setRepairKitStock] = useState(() => savedRun?.repairKitStock ?? 0);
+  const [rewardOptions, setRewardOptions] = useState<RewardOption[]>(() => savedRun?.rewardOptions ?? []);
+  const [lastCombatReport, setLastCombatReport] = useState<CombatReport | undefined>(
+    () => savedRun?.lastCombatReport,
+  );
+  const [lastOutcome, setLastOutcome] = useState<string | undefined>(() => savedRun?.lastOutcome);
 
   const statsByUnit = useMemo(
     () =>
@@ -162,6 +259,50 @@ export default function App() {
       setActiveUnitIndex(unlockedUnitCount - 1);
     }
   }, [activeUnitIndex, unlockedUnitCount]);
+
+  useEffect(() => {
+    saveRunState({
+      screen,
+      stage,
+      loadouts,
+      unitFrameIds,
+      unlockedUnitCount,
+      pendingUnitIndex,
+      activeUnitIndex,
+      partInventory,
+      upgrades,
+      aiSlotCounts,
+      aiRulesByUnit,
+      targetPrioritiesByUnit,
+      weaponAutoUseByUnit,
+      unitHpByUnit,
+      sortieEnabled,
+      repairKitStock,
+      rewardOptions,
+      lastCombatReport,
+      lastOutcome,
+    });
+  }, [
+    activeUnitIndex,
+    aiRulesByUnit,
+    aiSlotCounts,
+    lastCombatReport,
+    lastOutcome,
+    loadouts,
+    partInventory,
+    pendingUnitIndex,
+    repairKitStock,
+    rewardOptions,
+    screen,
+    sortieEnabled,
+    stage,
+    targetPrioritiesByUnit,
+    unitFrameIds,
+    unitHpByUnit,
+    unlockedUnitCount,
+    upgrades,
+    weaponAutoUseByUnit,
+  ]);
 
   const changeLoadout = (slot: EquipSlot, partId: string) => {
     if (activeUnitIndex >= unlockedUnitCount) {
@@ -455,6 +596,12 @@ export default function App() {
     setScreen("combat");
   };
 
+  const startNewRun = () => {
+    resetRun();
+    setLastOutcome("新しいランを開始");
+    setScreen("frameSelect");
+  };
+
   const hasUnit = unlockedUnitCount > 0;
   const topNav = (
     <header className="app-header">
@@ -462,6 +609,7 @@ export default function App() {
         <span className="brand-mark">ACR</span>
         <strong>AutoCore Rogue</strong>
         <small>browser prototype</small>
+        <small className="save-chip">AUTO SAVE</small>
       </div>
       <nav>
         <button
@@ -479,6 +627,9 @@ export default function App() {
         </button>
         <button className="primary" onClick={startCombat} disabled={!sortieReady}>
           STAGE {stage}
+        </button>
+        <button onClick={startNewRun} disabled={!hasUnit && stage === 1}>
+          NEW RUN
         </button>
       </nav>
     </header>

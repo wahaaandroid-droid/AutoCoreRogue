@@ -36,6 +36,18 @@ export default function StageMapScreen({
             );
           })}
         </div>
+        <div className="stage-brief-grid">
+          <div>
+            <span>THREAT</span>
+            <strong>{currentPlan.threat}</strong>
+            <small>{currentPlan.brief}</small>
+          </div>
+          <div>
+            <span>FOCUS</span>
+            <strong>{currentPlan.focus}</strong>
+            <small>報酬選択前に ASSEMBLE と AI EDIT で役割を整えると安定します。</small>
+          </div>
+        </div>
         {lastOutcome && <div className="outcome-line">{lastOutcome}</div>}
       </section>
 

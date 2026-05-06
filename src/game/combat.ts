@@ -853,6 +853,7 @@ const firstReadyShoulderWeapon = (
 ): PlayerWeaponState | undefined =>
   unit.weapons.find((weapon) =>
     weapon.hardpoint.includes("Shoulder") &&
+    weapon.autoUse &&
     weapon.cooldownRemaining <= 0 &&
     canPayWeapon(unit, weapon) &&
     isWeaponInRange(unit.actor, target, weapon),
@@ -866,6 +867,9 @@ const canPayWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefi
     ? weapon.ammo > 0
     : unit.actor.en >= weapon.energyCost;
 };
+
+const canAutoUseWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefined): boolean =>
+  Boolean(weapon?.autoUse) && canPayWeapon(unit, weapon);
 
 const isWeaponInRange = (
   actor: CombatActor,
@@ -899,7 +903,7 @@ const firePlayerWeapon = (
   target: CombatActor,
   requireRange = false,
 ): boolean => {
-  if (!weapon || weapon.cooldownRemaining > 0) {
+  if (!weapon || !weapon.autoUse || weapon.cooldownRemaining > 0) {
     return false;
   }
 
@@ -1463,11 +1467,11 @@ export const stepCombat = (
       leftShoulderCooldown: leftShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
       rightShoulderCooldown: rightShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
       bothShoulderCooldown: bothShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
-      rightCanPay: canPayWeapon(unit, rightWeapon),
-      leftCanPay: canPayWeapon(unit, leftWeapon),
-      leftShoulderCanPay: canPayWeapon(unit, leftShoulderWeapon),
-      rightShoulderCanPay: canPayWeapon(unit, rightShoulderWeapon),
-      bothShoulderCanPay: canPayWeapon(unit, bothShoulderWeapon),
+      rightCanPay: canAutoUseWeapon(unit, rightWeapon),
+      leftCanPay: canAutoUseWeapon(unit, leftWeapon),
+      leftShoulderCanPay: canAutoUseWeapon(unit, leftShoulderWeapon),
+      rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
+      bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
       enemyProjectileDistance: nearestEnemyProjectileDistance(state, player),
     });
 
@@ -1478,6 +1482,7 @@ export const stepCombat = (
     if (
       target &&
       leftWeapon?.weaponKind === "blade" &&
+      leftWeapon.autoUse &&
       leftWeapon.cooldownRemaining <= 0 &&
       targetDistance <= bladeEngageDistance &&
       !hasDefensiveDecision

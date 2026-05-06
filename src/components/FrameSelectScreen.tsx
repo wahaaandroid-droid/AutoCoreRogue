@@ -29,6 +29,23 @@ export default function FrameSelectScreen({
         </div>
       </section>
 
+      {isFirstUnit && (
+        <section className="frame-brief-strip">
+          <div>
+            <span>CORE LOOP</span>
+            <strong>{"組む -> AIを決める -> 自動戦闘"}</strong>
+          </div>
+          <div>
+            <span>BUILD</span>
+            <strong>重量は速度とクールダウンに影響</strong>
+          </div>
+          <div>
+            <span>RUN</span>
+            <strong>STAGE 2 / 5 で小隊が拡張</strong>
+          </div>
+        </section>
+      )}
+
       <section className="frame-card-grid">
         {choices.map((frame) => (
           <button

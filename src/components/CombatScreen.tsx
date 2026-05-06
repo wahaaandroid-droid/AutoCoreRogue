@@ -449,7 +449,7 @@ const coolbarClass = (weapon: PlayerWeaponState): string =>
       ? "coolbar orange"
       : "coolbar";
 
-const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState) => {
+const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = false) => {
   drawGrid(ctx, state);
   for (const projectile of state.projectiles) {
     drawProjectile(ctx, projectile);
@@ -463,6 +463,17 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState) => {
   state.players.forEach((unit) => {
     drawMech(ctx, unit.actor, true, unit.stats.legType, `U${unit.unitIndex + 1}`);
   });
+
+  if (paused && state.status === "running") {
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, .46)";
+    ctx.fillRect(0, 0, state.width, state.height);
+    ctx.fillStyle = "#8ce5ff";
+    ctx.font = "700 42px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("PAUSED", state.width / 2, state.height / 2);
+    ctx.restore();
+  }
 
   if (state.status !== "running") {
     ctx.save();
@@ -498,6 +509,8 @@ export default function CombatScreen({
   );
   const resolvedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
+  const [paused, setPaused] = useState(false);
+  const [speedMultiplier, setSpeedMultiplier] = useState(1);
   const activeUnit = snapshot.players.find((unit) => unit.unitIndex === activeUnitIndex) ?? snapshot.players[0];
   const selectedUnitIndex = activeUnit?.unitIndex ?? 0;
   const activeStats = statsByUnit[selectedUnitIndex] ?? statsByUnit[0];
@@ -509,6 +522,7 @@ export default function CombatScreen({
   useEffect(() => {
     stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit);
     resolvedRef.current = false;
+    setPaused(false);
     setSnapshot(stateRef.current);
   }, [stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit]);
 
@@ -527,11 +541,15 @@ export default function CombatScreen({
     let lastSnapshot = 0;
 
     const frame = (now: number) => {
-      const dt = Math.min(0.033, Math.max(0.001, (now - last) / 1000));
+      const dt = paused ? 0 : Math.min(0.033, Math.max(0.001, (now - last) / 1000)) * speedMultiplier;
       last = now;
-      const current = stepCombat(stateRef.current, dt, rulesByUnit, targetPrioritiesByUnit);
-      playCombatSoundEvents(current.soundEvents);
-      drawCombat(ctx, current);
+      const current = paused
+        ? stateRef.current
+        : stepCombat(stateRef.current, dt, rulesByUnit, targetPrioritiesByUnit);
+      if (!paused) {
+        playCombatSoundEvents(current.soundEvents);
+      }
+      drawCombat(ctx, current, paused);
 
       if (now - lastSnapshot > 110) {
         setSnapshot({
@@ -573,7 +591,7 @@ export default function CombatScreen({
 
     animation = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(animation);
-  }, [onDefeat, onVictory, rulesByUnit, stage, targetPrioritiesByUnit]);
+  }, [onDefeat, onVictory, paused, rulesByUnit, speedMultiplier, stage, targetPrioritiesByUnit]);
 
   if (!activeUnit || !activeStats) {
     return null;
@@ -587,6 +605,7 @@ export default function CombatScreen({
         <div className="panel compact">
           <div className="section-title">STAGE {stage}</div>
           <strong>{stagePlan.label}</strong>
+          <small>{stagePlan.threat}</small>
           <small>
             敵 {snapshot.enemyTotal - snapshot.enemyQueue.length - snapshot.enemies.length}/{snapshot.enemyTotal} 撃破
           </small>
@@ -633,7 +652,7 @@ export default function CombatScreen({
                 <span>{weapon.label}</span>
                 <b>{weapon.cooldownRemaining.toFixed(1)} / {resourceLabel(weapon)}</b>
               </div>
-              <small>{getWeaponKindLabel(weapon.weaponKind)} / {weapon.autoUse ? "AUTO" : "MANUAL"}</small>
+              <small>{getWeaponKindLabel(weapon.weaponKind)} / {weapon.autoUse ? "使用許可" : "使用停止"}</small>
               <div className={coolbarClass(weapon)}>
                 <span style={{ width: `${cooldownPercent(weapon.cooldownRemaining, weapon.cooldownMax) * 100}%` }} />
               </div>
@@ -653,6 +672,23 @@ export default function CombatScreen({
       </section>
 
       <section className="combat-hud right">
+        <div className="panel compact combat-control-panel">
+          <div className="section-title">TACTICS</div>
+          <button className={paused ? "active" : ""} onClick={() => setPaused((current) => !current)}>
+            {paused ? "再開" : "一時停止"}
+          </button>
+          <div className="speed-row">
+            {[1, 1.5, 2].map((speed) => (
+              <button
+                key={speed}
+                className={speedMultiplier === speed ? "active" : ""}
+                onClick={() => setSpeedMultiplier(speed)}
+              >
+                {speed}x
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="panel compact radar-panel">
           <div className="section-title">RADAR</div>
           <div className="radar">
