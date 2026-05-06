@@ -249,6 +249,10 @@ select {
   margin-top: 3px;
 }
 
+.slot-row.unavailable {
+  opacity: 0.55;
+}
+
 .slot-token {
   color: var(--green);
   font-weight: 800;
@@ -490,6 +494,18 @@ select {
 
 .part-card.unavailable {
   opacity: 0.5;
+}
+
+.slot-lock-message {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(255, 157, 66, 0.32);
+  background: rgba(255, 157, 66, 0.08);
+  color: var(--orange);
+  padding: 14px;
+  min-height: 68px;
+  display: grid;
+  align-items: center;
+  font-weight: 800;
 }
 
 .mini-part-icon {

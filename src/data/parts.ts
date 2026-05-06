@@ -67,6 +67,42 @@ const weaponHardpoints: Record<EquipSlot, WeaponHardpoint | undefined> = {
   "B-SHOULDER": "bothShoulders",
 };
 
+export const EMPTY_LEFT_SHOULDER_PART_ID = "empty-lshoulder";
+export const EMPTY_RIGHT_SHOULDER_PART_ID = "empty-rshoulder";
+export const EMPTY_BOTH_SHOULDER_PART_ID = "empty-bshoulder";
+
+const freePartIds = new Set<string>([
+  EMPTY_LEFT_SHOULDER_PART_ID,
+  EMPTY_RIGHT_SHOULDER_PART_ID,
+  EMPTY_BOTH_SHOULDER_PART_ID,
+]);
+
+export const isFreePart = (partId: string): boolean => freePartIds.has(partId);
+
+const isBothShoulderWeaponEquipped = (loadout: Loadout): boolean =>
+  !isFreePart(loadout["B-SHOULDER"]);
+
+const isSideShoulderSlot = (slot: EquipSlot): boolean =>
+  slot === "L-SHOULDER" || slot === "R-SHOULDER";
+
+export const isShoulderSlotBlocked = (loadout: Loadout, slot: EquipSlot): boolean =>
+  isSideShoulderSlot(slot) && isBothShoulderWeaponEquipped(loadout);
+
+export const normalizeShoulderLoadout = (loadout: Loadout): Loadout => {
+  if (isBothShoulderWeaponEquipped(loadout)) {
+    return {
+      ...loadout,
+      "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
+      "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
+    };
+  }
+
+  return {
+    ...loadout,
+    "B-SHOULDER": EMPTY_BOTH_SHOULDER_PART_ID,
+  };
+};
+
 export const getSlotLabel = (slot: PartSlot): string =>
   slot === "LEGS" ? "脚部" : weaponSlotLabels[slot];
 
@@ -377,6 +413,16 @@ export const parts: Part[] = [
     }),
   },
   {
+    id: EMPTY_LEFT_SHOULDER_PART_ID,
+    slot: "L-SHOULDER",
+    name: "左肩 未装備",
+    manufacturer: "Standard",
+    description: "左肩武装を外し、重量と火器管制負荷を空ける。",
+    rarity: "common",
+    initial: true,
+    stats: stats({}),
+  },
+  {
     id: "lshoulder-harrier-rocket",
     slot: "L-SHOULDER",
     name: "HARRIER 左肩ロケット",
@@ -421,6 +467,16 @@ export const parts: Part[] = [
     }),
   },
   {
+    id: EMPTY_RIGHT_SHOULDER_PART_ID,
+    slot: "R-SHOULDER",
+    name: "右肩 未装備",
+    manufacturer: "Standard",
+    description: "右肩武装を外し、片肩または両肩構成に切り替える。",
+    rarity: "common",
+    initial: true,
+    stats: stats({}),
+  },
+  {
     id: "rshoulder-lynx-mg",
     slot: "R-SHOULDER",
     name: "LYNX 右肩マシンガン",
@@ -460,6 +516,16 @@ export const parts: Part[] = [
       attack: 76,
       cooldown: 1.08,
     }),
+  },
+  {
+    id: EMPTY_BOTH_SHOULDER_PART_ID,
+    slot: "B-SHOULDER",
+    name: "両肩 未装備",
+    manufacturer: "Standard",
+    description: "両肩武装を外し、左右肩武装を使用できるようにする。",
+    rarity: "common",
+    initial: true,
+    stats: stats({}),
   },
   {
     id: "bshoulder-crater-grenade",
@@ -645,8 +711,8 @@ export const initialLoadout: Loadout = {
   BODY: "body-aegis",
   "L-ARM": "larm-pulse-needle",
   "R-ARM": "rarm-rail-carbine",
-  "L-SHOULDER": "lshoulder-harrier-rocket",
-  "R-SHOULDER": "rshoulder-lynx-mg",
+  "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
+  "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
   "B-SHOULDER": "bshoulder-crater-grenade",
 };
 
@@ -658,8 +724,8 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BODY: "body-flux",
         "L-ARM": "larm-arc-blade",
         "R-ARM": "rarm-kinetic-rifle",
-        "L-SHOULDER": "lshoulder-harrier-rocket",
-        "R-SHOULDER": "rshoulder-lynx-mg",
+        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
+        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
         "B-SHOULDER": "bshoulder-crater-grenade",
       };
     case "heavy":
@@ -668,8 +734,8 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BODY: "body-aegis",
         "L-ARM": "larm-solid-shredder",
         "R-ARM": "rarm-burst-cannon",
-        "L-SHOULDER": "lshoulder-harrier-rocket",
-        "R-SHOULDER": "rshoulder-lynx-mg",
+        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
+        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
         "B-SHOULDER": "bshoulder-crater-grenade",
       };
     case "quad":
@@ -678,8 +744,8 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BODY: "body-aegis",
         "L-ARM": "larm-micro-missile",
         "R-ARM": "rarm-longshot-sniper",
-        "L-SHOULDER": "lshoulder-harrier-rocket",
-        "R-SHOULDER": "rshoulder-lynx-mg",
+        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
+        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
         "B-SHOULDER": "bshoulder-crater-grenade",
       };
     case "tank":
@@ -688,8 +754,8 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BODY: "body-aegis",
         "L-ARM": "larm-solid-shredder",
         "R-ARM": "rarm-burst-cannon",
-        "L-SHOULDER": "lshoulder-harrier-rocket",
-        "R-SHOULDER": "rshoulder-lynx-mg",
+        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
+        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
         "B-SHOULDER": "bshoulder-crater-grenade",
       };
     case "medium":
@@ -699,11 +765,11 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
 };
 
 export const initialUnlockedPartIds = parts
-  .filter((part) => part.initial)
+  .filter((part) => part.initial && !isFreePart(part.id))
   .map((part) => part.id);
 
 export const starterKitPartIds: string[] = parts
-  .filter((part) => part.initial && part.slot !== "LEGS")
+  .filter((part) => part.initial && part.slot !== "LEGS" && !isFreePart(part.id))
   .map((part) => part.id);
 
 export const createEmptyPartInventory = (): PartInventory => ({});
@@ -730,13 +796,15 @@ export const partsBySlot = (slot: PartSlot): Part[] =>
   parts.filter((part) => part.slot === slot);
 
 export const playableParts = (): Part[] =>
-  parts.filter((part) => part.slot !== "LEGS");
+  parts.filter((part) => part.slot !== "LEGS" && !isFreePart(part.id));
 
-export const buildFromLoadout = (loadout: Loadout): MechBuild =>
-  EQUIP_SLOTS.reduce((build, slot) => {
-    build[slot] = getPartById(loadout[slot]);
+export const buildFromLoadout = (loadout: Loadout): MechBuild => {
+  const normalizedLoadout = normalizeShoulderLoadout(loadout);
+  return EQUIP_SLOTS.reduce((build, slot) => {
+    build[slot] = getPartById(normalizedLoadout[slot]);
     return build;
   }, {} as MechBuild);
+};
 
 const legLabels: Record<LegType, string> = {
   biped: "2脚",
@@ -778,7 +846,7 @@ export const calculateDerivedStats = (
   const weaponEntries = EQUIP_SLOTS
     .map((slot) => ({ slot, part: build[slot], hardpoint: weaponHardpoints[slot] }))
     .filter((entry): entry is { slot: EquipSlot; part: Part; hardpoint: WeaponHardpoint } =>
-      Boolean(entry.hardpoint),
+      Boolean(entry.hardpoint) && !isFreePart(entry.part.id),
     );
   const legType = frame.legType;
   const loadLimit = Math.max(1, total.loadLimit);
@@ -793,23 +861,26 @@ export const calculateDerivedStats = (
   const weaponAttack = weaponEntries.reduce((sum, entry) => sum + entry.part.stats.attack, 0);
   const supportRange = total.range - weaponRange;
   const supportAttack = total.attack - weaponAttack;
-  const weaponFor = (slot: EquipSlot, part: Part, hardpoint: WeaponHardpoint): WeaponStats => ({
-    hardpoint,
-    slot,
-    partId: part.id,
-    label: weaponSlotLabels[slot],
-    range: Math.round(part.stats.range + supportRange),
-    attack: Math.round(part.stats.attack + supportAttack + upgrades.attack),
-    cooldown: Math.max(
-      hardpoint === "bothShoulders" ? 0.85 : hardpoint.includes("Shoulder") ? 0.4 : 0.18,
-      part.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
-    ),
-    resource: part.weaponResource ?? "energy",
-    weaponKind: part.weaponKind ?? "rifle",
-    energyCost: part.energyCost ?? (hardpoint.includes("Shoulder") ? 10 : 6),
-    ammoMax: part.weaponResource === "ballistic" ? part.ammoCapacity ?? 24 : 0,
-    blastRadius: part.blastRadius ?? (part.weaponKind === "grenade" ? 70 : part.weaponKind === "rocket" ? 42 : 0),
-  });
+  const weaponFor = (slot: EquipSlot, part: Part, hardpoint: WeaponHardpoint): WeaponStats => {
+    const attackMultiplier = hardpoint === "bothShoulders" ? 2 : 1;
+    return {
+      hardpoint,
+      slot,
+      partId: part.id,
+      label: weaponSlotLabels[slot],
+      range: Math.round(part.stats.range + supportRange),
+      attack: Math.round(part.stats.attack * attackMultiplier + supportAttack + upgrades.attack),
+      cooldown: Math.max(
+        hardpoint === "bothShoulders" ? 0.85 : hardpoint.includes("Shoulder") ? 0.4 : 0.18,
+        part.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
+      ),
+      resource: part.weaponResource ?? "energy",
+      weaponKind: part.weaponKind ?? "rifle",
+      energyCost: part.energyCost ?? (hardpoint.includes("Shoulder") ? 10 : 6),
+      ammoMax: part.weaponResource === "ballistic" ? part.ammoCapacity ?? 24 : 0,
+      blastRadius: part.blastRadius ?? (part.weaponKind === "grenade" ? 70 : part.weaponKind === "rocket" ? 42 : 0),
+    };
+  };
   const weapons = weaponEntries.map((entry) => weaponFor(entry.slot, entry.part, entry.hardpoint));
 
   return {
@@ -860,7 +931,10 @@ export const equippedPartCounts = (
       continue;
     }
     for (const slot of EQUIP_SLOTS) {
-      const partId = loadout[slot];
+      const partId = normalizeShoulderLoadout(loadout)[slot];
+      if (isFreePart(partId)) {
+        continue;
+      }
       counts[partId] = (counts[partId] ?? 0) + 1;
     }
   }
@@ -873,9 +947,13 @@ export const unitsEquippingPart = (
   partId: string,
 ): number[] => {
   const units: number[] = [];
+  if (isFreePart(partId)) {
+    return units;
+  }
+
   for (let unitIndex = 0; unitIndex < unlockedUnitCount; unitIndex += 1) {
     const loadout = loadouts[unitIndex];
-    if (loadout && EQUIP_SLOTS.some((slot: EquipSlot) => loadout[slot] === partId)) {
+    if (loadout && EQUIP_SLOTS.some((slot: EquipSlot) => normalizeShoulderLoadout(loadout)[slot] === partId)) {
       units.push(unitIndex);
     }
   }

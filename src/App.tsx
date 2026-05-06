@@ -12,10 +12,16 @@ import {
   calculateDerivedStats,
   createEmptyPartInventory,
   createInitialLoadoutForFrame,
+  EMPTY_BOTH_SHOULDER_PART_ID,
+  EMPTY_LEFT_SHOULDER_PART_ID,
+  EMPTY_RIGHT_SHOULDER_PART_ID,
   equippedPartCounts,
   getPartById,
   grantStarterKit,
   initialLoadout,
+  isFreePart,
+  isShoulderSlotBlocked,
+  normalizeShoulderLoadout,
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
 import { CombatReport } from "./game/combat";
@@ -64,9 +70,35 @@ const createInitialSortieEnabled = (): boolean[] =>
 
 const countEquippedPart = (loadouts: Loadout[], unlockedUnitCount: number, partId: string): number =>
   loadouts.slice(0, unlockedUnitCount).reduce((count, loadout) => {
-    const slotCount = EQUIP_SLOTS.filter((slot) => loadout[slot] === partId).length;
+    if (isFreePart(partId)) {
+      return count;
+    }
+    const normalizedLoadout = normalizeShoulderLoadout(loadout);
+    const slotCount = EQUIP_SLOTS.filter((slot) => normalizedLoadout[slot] === partId).length;
     return count + slotCount;
   }, 0);
+
+const applyShoulderCompatibility = (
+  loadout: Loadout,
+  slot: EquipSlot,
+  partId: string,
+): Loadout => {
+  const next = {
+    ...normalizeShoulderLoadout(loadout),
+    [slot]: partId,
+  };
+
+  if (slot === "B-SHOULDER" && !isFreePart(partId)) {
+    next["L-SHOULDER"] = EMPTY_LEFT_SHOULDER_PART_ID;
+    next["R-SHOULDER"] = EMPTY_RIGHT_SHOULDER_PART_ID;
+  }
+
+  if ((slot === "L-SHOULDER" || slot === "R-SHOULDER") && !isFreePart(partId)) {
+    next["B-SHOULDER"] = EMPTY_BOTH_SHOULDER_PART_ID;
+  }
+
+  return normalizeShoulderLoadout(next);
+};
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenId>("frameSelect");
@@ -142,18 +174,29 @@ export default function App() {
       return;
     }
 
-    const activeLoadout = loadouts[activeUnitIndex];
+    const activeLoadout = loadouts[activeUnitIndex]
+      ? normalizeShoulderLoadout(loadouts[activeUnitIndex])
+      : undefined;
     if (!activeLoadout || activeLoadout[slot] === partId) {
+      return;
+    }
+
+    if (isShoulderSlotBlocked(activeLoadout, slot) && !isFreePart(partId)) {
+      setLastOutcome("両肩武装を装備中のため、左右肩武装は装備できません");
       return;
     }
 
     const owned = partInventory[partId] ?? 0;
     const used = countEquippedPart(loadouts, unlockedUnitCount, partId);
-    const available = owned - used;
-    const donorIndex = loadouts.findIndex(
-      (unitLoadout, index) =>
-        index < unlockedUnitCount && index !== activeUnitIndex && unitLoadout[slot] === partId,
-    );
+    const available = isFreePart(partId) ? 1 : owned - used;
+    const donorIndex = isFreePart(partId)
+      ? -1
+      : loadouts.findIndex(
+          (unitLoadout, index) =>
+            index < unlockedUnitCount &&
+            index !== activeUnitIndex &&
+            normalizeShoulderLoadout(unitLoadout)[slot] === partId,
+        );
 
     if (available <= 0 && donorIndex < 0) {
       setLastOutcome(`${part.name} の空き在庫がありません`);
@@ -164,12 +207,12 @@ export default function App() {
     setLoadouts((current) =>
       current.map((unitLoadout, index) => {
         if (index === activeUnitIndex) {
-          return { ...unitLoadout, [slot]: partId };
+          return applyShoulderCompatibility(unitLoadout, slot, partId);
         }
         if (index === donorIndex) {
-          return { ...unitLoadout, [slot]: previousPartId };
+          return applyShoulderCompatibility(unitLoadout, slot, previousPartId);
         }
-        return unitLoadout;
+        return normalizeShoulderLoadout(unitLoadout);
       }),
     );
 
@@ -337,10 +380,11 @@ export default function App() {
         [part.id]: (current[part.id] ?? 0) + 1,
       }));
       if (activeUnitIndex < unlockedUnitCount && EQUIP_SLOTS.includes(part.slot as EquipSlot)) {
+        const slot = part.slot as EquipSlot;
         setLoadouts((current) =>
           current.map((unitLoadout, index) =>
             index === activeUnitIndex
-              ? { ...unitLoadout, [part.slot as EquipSlot]: part.id }
+              ? applyShoulderCompatibility(unitLoadout, slot, part.id)
               : unitLoadout,
           ),
         );

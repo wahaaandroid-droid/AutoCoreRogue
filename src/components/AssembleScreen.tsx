@@ -5,6 +5,9 @@ import {
   getLegLabel,
   getSlotLabel,
   getWeaponKindLabel,
+  isFreePart,
+  isShoulderSlotBlocked,
+  normalizeShoulderLoadout,
   partsBySlot,
   unitsEquippingPart,
 } from "../data/parts";
@@ -79,14 +82,18 @@ export default function AssembleScreen({
   canStartCombat,
 }: AssembleScreenProps) {
   const [activeSlot, setActiveSlot] = useState<EquipSlot>("R-ARM");
-  const loadout = loadouts[activeUnitIndex] ?? loadouts[0];
+  const loadout = normalizeShoulderLoadout(loadouts[activeUnitIndex] ?? loadouts[0]);
   const stats = statsByUnit[activeUnitIndex] ?? statsByUnit[0];
   const currentHp = Math.min(unitHpByUnit[activeUnitIndex] ?? stats.hpMax, stats.hpMax);
   const canRepair = repairKitStock > 0 && currentHp < stats.hpMax;
   const build = buildFromLoadout(loadout);
   const activeFrame = getBaseFrameById(unitFrameIds[activeUnitIndex] ?? stats.frameId);
+  const activeSlotBlocked = isShoulderSlotBlocked(loadout, activeSlot);
 
   const partStatus = (partId: string) => {
+    if (isFreePart(partId)) {
+      return { owned: 1, equipped: 0, available: 1, units: [] };
+    }
     const owned = partInventory[partId] ?? 0;
     const equipped = equippedCounts[partId] ?? 0;
     const units = unitsEquippingPart(loadouts, unlockedUnitCount, partId);
@@ -148,16 +155,18 @@ export default function AssembleScreen({
         <div className="slot-list">
           {EQUIP_SLOTS.map((slot) => {
             const part = build[slot];
+            const blocked = isShoulderSlotBlocked(loadout, slot);
             return (
               <button
-                className={`slot-row ${activeSlot === slot ? "active" : ""}`}
+                className={`slot-row ${activeSlot === slot ? "active" : ""} ${blocked ? "unavailable" : ""}`}
                 key={slot}
                 onClick={() => setActiveSlot(slot)}
+                disabled={blocked}
               >
                 <span className="slot-token">{getSlotLabel(slot)}</span>
                 <span>
                   <strong>{part.name}</strong>
-                  <small>{part.manufacturer}</small>
+                  <small>{blocked ? "両肩武装が占有中" : part.manufacturer}</small>
                 </span>
               </button>
             );
@@ -234,12 +243,15 @@ export default function AssembleScreen({
           ))}
         </div>
         <div className="part-card-grid">
-          {partsBySlot(activeSlot)
-            .filter((part) => (partInventory[part.id] ?? 0) > 0 || loadout[activeSlot] === part.id)
+          {activeSlotBlocked ? (
+            <div className="slot-lock-message">両肩武装が左右の肩スロットを占有しています</div>
+          ) : partsBySlot(activeSlot)
+            .filter((part) => isFreePart(part.id) || (partInventory[part.id] ?? 0) > 0 || loadout[activeSlot] === part.id)
             .map((part) => {
               const status = partStatus(part.id);
               const equippedHere = loadout[activeSlot] === part.id;
-              const canUse = equippedHere || status.available > 0 || status.units.some((unitIndex) => unitIndex !== activeUnitIndex);
+              const freePart = isFreePart(part.id);
+              const canUse = freePart || equippedHere || status.available > 0 || status.units.some((unitIndex) => unitIndex !== activeUnitIndex);
               return (
               <button
                 key={part.id}
@@ -251,7 +263,7 @@ export default function AssembleScreen({
                 <strong>{part.name}</strong>
                 <small>{part.description}</small>
                 <span className="part-stat-line inventory-line">
-                  所持 {status.owned} / 装備 {status.equipped}
+                  {freePart ? "標準パーツ" : `所持 ${status.owned} / 装備 ${status.equipped}`}
                 </span>
                 {status.units.length > 0 && (
                   <span className="part-stat-line equipped-line">
@@ -259,7 +271,10 @@ export default function AssembleScreen({
                   </span>
                 )}
                 <span className="part-stat-line">
-                  ATK {part.stats.attack} / RNG {part.stats.range} / WT {part.stats.weight}
+                  ATK {part.slot === "B-SHOULDER" ? part.stats.attack * 2 : part.stats.attack}
+                  {part.slot === "B-SHOULDER" && part.stats.attack > 0 ? " (x2)" : ""}
+                  {" / "}
+                  RNG {part.stats.range} / WT {part.stats.weight}
                 </span>
                 {part.weaponKind && (
                   <span className="part-stat-line">
