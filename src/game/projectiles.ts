@@ -21,7 +21,7 @@ export interface Projectile {
 
 export interface Effect {
   id: string;
-  kind: "explosion" | "boost" | "muzzle" | "slash";
+  kind: "explosion" | "boost" | "muzzle" | "slash" | "alert";
   x: number;
   y: number;
   life: number;
@@ -29,6 +29,7 @@ export interface Effect {
   color: string;
   size: number;
   rotation?: number;
+  label?: string;
 }
 
 export interface HomingTarget {

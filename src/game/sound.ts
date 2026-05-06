@@ -117,6 +117,11 @@ const playEvent = (context: AudioContext, event: CombatSoundEvent): void => {
       playTone(context, "sawtooth", 220, 55, 0.55, 0.05);
       playNoise(context, 0.24, 0.045);
       break;
+    case "alert":
+      playTone(context, "sawtooth", 520, 240, 0.24, 0.052);
+      playTone(context, "square", 880, 320, 0.18, 0.032);
+      playNoise(context, 0.18, 0.035, 980, 1.4);
+      break;
   }
 };
 

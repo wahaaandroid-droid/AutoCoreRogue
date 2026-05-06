@@ -62,11 +62,35 @@ run("enemy waves spawn in staggered batches", () => {
   assert.ok(state.enemyQueue.length > 0);
 });
 
-run("boss-stage special enemies are queued last", () => {
+run("elite and boss stage special enemies are single rival bosses queued last", () => {
+  const eliteRanks = createEnemyRanks(5, 3);
+  const firstEliteSpecialIndex = eliteRanks.findIndex((rank) => rank !== "normal");
+  assert.ok(firstEliteSpecialIndex > 0);
+  assert.deepEqual(eliteRanks.slice(firstEliteSpecialIndex), ["boss"]);
+
   const ranks = createEnemyRanks(7, 3);
   const firstSpecialIndex = ranks.findIndex((rank) => rank !== "normal");
   assert.ok(firstSpecialIndex > 0);
-  assert.deepEqual(ranks.slice(firstSpecialIndex), ["boss", "elite", "elite"]);
+  assert.deepEqual(ranks.slice(firstSpecialIndex), ["boss"]);
+});
+
+run("rival boss spawns with player-style weapons and alert effect", () => {
+  const state = createOneUnitState(5);
+  state.enemyQueue = ["boss"];
+  state.enemyTotal = 1;
+  stepCombat(state, 0.016, rules);
+
+  const boss = state.enemies[0];
+  assert.ok(boss);
+  assert.equal(boss.rank, "boss");
+  assert.equal(boss.enemyRole, "rival");
+  assert.ok(boss.rivalAi);
+  assert.deepEqual(
+    boss.rivalAi.weapons.map((weapon) => weapon.hardpoint),
+    ["rightArm", "leftArm", "leftShoulder", "rightShoulder"],
+  );
+  assert.ok(state.effects.some((effect) => effect.kind === "alert" && effect.label === boss.name));
+  assert.ok(state.soundEvents.includes("alert"));
 });
 
 run("enemy defeat plays destruction before removal", () => {

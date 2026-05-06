@@ -8,6 +8,11 @@ export const isEntryBoosting = (actor: CombatActor): boolean =>
 
 const maxSpeedFor = (actor: CombatActor): number => {
   if (actor.team === "enemy") {
+    if (actor.rivalAi) {
+      const legBonus =
+        actor.legType === "reverse" ? 1.18 : actor.legType === "hover" ? 1.1 : actor.legType === "tank" ? 0.88 : 1;
+      return actor.moveSpeed * legBonus * (isEntryBoosting(actor) ? 1.42 : 1);
+    }
     if (isEntryBoosting(actor)) {
       return actor.moveSpeed * (actor.rank === "boss" ? 1.25 : actor.rank === "elite" ? 1.72 : 1.92);
     }
@@ -21,6 +26,20 @@ const maxSpeedFor = (actor: CombatActor): number => {
 
 const dragFor = (actor: CombatActor): number => {
   if (actor.team === "enemy") {
+    if (actor.rivalAi) {
+      switch (actor.legType) {
+        case "hover":
+          return 0.88;
+        case "tank":
+          return 1.18;
+        case "reverse":
+          return 1.75;
+        case "quad":
+          return 1.5;
+        default:
+          return 1.58;
+      }
+    }
     return actor.rank === "boss" ? 1.35 : 1.55;
   }
 

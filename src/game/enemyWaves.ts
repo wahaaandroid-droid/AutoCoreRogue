@@ -5,23 +5,17 @@ export type EnemyRank = CombatActor["rank"];
 const normals = (count: number): EnemyRank[] =>
   Array.from({ length: count }, () => "normal" as const);
 
-const elites = (count: number): EnemyRank[] =>
-  Array.from({ length: count }, () => "elite" as const);
-
 export const createEnemyRanks = (stage: number, playerCount: number): EnemyRank[] => {
   if (stage === 7) {
     return [
       ...normals(playerCount >= 3 ? 14 : 10),
       "boss",
-      "elite",
-      "elite",
     ];
   }
   if (stage === 5) {
     return [
       ...normals(playerCount >= 3 ? 12 : 10),
-      "elite",
-      "elite",
+      "boss",
     ];
   }
 
@@ -30,7 +24,7 @@ export const createEnemyRanks = (stage: number, playerCount: number): EnemyRank[
   const eliteCount = stage >= 6 ? Math.min(3, Math.max(1, playerCount)) : 0;
   return [
     ...normals(normalCount),
-    ...elites(eliteCount),
+    ...Array.from({ length: eliteCount }, () => "elite" as const),
   ];
 };
 

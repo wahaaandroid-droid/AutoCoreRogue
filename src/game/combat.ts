@@ -62,7 +62,8 @@ export interface CombatActor {
   legType?: LegType;
   color: string;
   rank: "normal" | "elite" | "boss";
-  enemyRole?: "drone" | "scout" | "sniper" | "bruiser" | "jammer";
+  enemyRole?: "drone" | "scout" | "sniper" | "bruiser" | "jammer" | "rival";
+  rivalAi?: RivalBossAi;
   entryBoostTime?: number;
   entryBoostPulse?: number;
   deathTimer?: number;
@@ -86,7 +87,17 @@ export interface PlayerWeaponState extends WeaponStats {
   autoUse: boolean;
 }
 
-export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "explosion" | "defeat";
+export interface RivalBossAi {
+  stats: DerivedStats;
+  rules: AiRule[];
+  activeAction: AiActionId;
+  activeRuleId?: string;
+  weapons: PlayerWeaponState[];
+  boostCooldown: number;
+  targetPriority: TargetPriorityId;
+}
+
+export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "explosion" | "defeat" | "alert";
 
 export interface CombatReport {
   damageByUnit: number[];
@@ -208,6 +219,231 @@ const createPlayerUnit = (
   };
 };
 
+interface RivalBossSpec {
+  stats: DerivedStats;
+  color: string;
+  rules: AiRule[];
+  targetPriority: TargetPriorityId;
+}
+
+const createRivalWeapon = (
+  hardpoint: WeaponHardpoint,
+  slot: WeaponStats["slot"],
+  label: string,
+  options: {
+    range: number;
+    attack: number;
+    cooldown: number;
+    resource: WeaponResource;
+    weaponKind: WeaponKind;
+    energyCost?: number;
+    ammoMax?: number;
+    blastRadius?: number;
+  },
+): WeaponStats => ({
+  hardpoint,
+  slot,
+  partId: `rival-${hardpoint}-${options.weaponKind}`,
+  label,
+  range: options.range,
+  attack: options.attack,
+  cooldown: options.cooldown,
+  resource: options.resource,
+  weaponKind: options.weaponKind,
+  energyCost: options.energyCost ?? 0,
+  ammoMax: options.ammoMax ?? 0,
+  blastRadius: options.blastRadius ?? 0,
+});
+
+const createRivalStats = (
+  frameId: BaseFrameId,
+  frameName: string,
+  legType: LegType,
+  stats: {
+    hpMax: number;
+    enMax: number;
+    enRegen: number;
+    defense: number;
+    moveSpeed: number;
+    turnSpeed: number;
+    weight: number;
+    loadLimit: number;
+  },
+  weapons: WeaponStats[],
+): DerivedStats => {
+  const byHardpoint = (hardpoint: WeaponHardpoint): WeaponStats | undefined =>
+    weapons.find((weapon) => weapon.hardpoint === hardpoint);
+  const right = byHardpoint("rightArm") ?? weapons[0];
+  const left = byHardpoint("leftArm") ?? right;
+
+  return {
+    frameId,
+    frameName,
+    hpMax: stats.hpMax,
+    enMax: stats.enMax,
+    enRegen: stats.enRegen,
+    defense: stats.defense,
+    moveSpeed: stats.moveSpeed,
+    turnSpeed: stats.turnSpeed,
+    weight: stats.weight,
+    loadLimit: stats.loadLimit,
+    overloadRatio: 0,
+    legType,
+    rightRange: right.range,
+    leftRange: left.range,
+    rightAttack: right.attack,
+    leftAttack: left.attack,
+    rightCooldown: right.cooldown,
+    leftCooldown: left.cooldown,
+    rightResource: right.resource,
+    leftResource: left.resource,
+    rightWeaponKind: right.weaponKind,
+    leftWeaponKind: left.weaponKind,
+    rightEnergyCost: right.energyCost,
+    leftEnergyCost: left.energyCost,
+    rightAmmoMax: right.ammoMax,
+    leftAmmoMax: left.ammoMax,
+    weapons,
+  };
+};
+
+const createRivalWeaponStates = (
+  weapons: WeaponStats[],
+  spawnIndex: number,
+): PlayerWeaponState[] =>
+  weapons.map((weapon, weaponIndex) => ({
+    ...weapon,
+    cooldownRemaining: 0.5 + spawnIndex * 0.05 + weaponIndex * 0.16,
+    cooldownMax: weapon.cooldown,
+    ammo: weapon.ammoMax,
+    autoUse: true,
+  }));
+
+const createStageFiveRivalBossSpec = (): RivalBossSpec => {
+  const weapons = [
+    createRivalWeapon("rightArm", "R-ARM", "Redline Rifle", {
+      range: 340,
+      attack: 46,
+      cooldown: 0.68,
+      resource: "energy",
+      weaponKind: "rifle",
+      energyCost: 9,
+    }),
+    createRivalWeapon("leftArm", "L-ARM", "Breaker Blade", {
+      range: 132,
+      attack: 72,
+      cooldown: 1.18,
+      resource: "energy",
+      weaponKind: "blade",
+      energyCost: 18,
+    }),
+    createRivalWeapon("leftShoulder", "L-SHOULDER", "Needle Missiles", {
+      range: 430,
+      attack: 62,
+      cooldown: 2.15,
+      resource: "ballistic",
+      weaponKind: "missile",
+      ammoMax: 7,
+      blastRadius: 28,
+    }),
+    createRivalWeapon("rightShoulder", "R-SHOULDER", "Pulse Pod", {
+      range: 286,
+      attack: 34,
+      cooldown: 0.92,
+      resource: "energy",
+      weaponKind: "pulse",
+      energyCost: 7,
+    }),
+  ];
+
+  return {
+    stats: createRivalStats("medium", "Mirror Vesper", "biped", {
+      hpMax: 1120,
+      enMax: 690,
+      enRegen: 36,
+      defense: 88,
+      moveSpeed: 118,
+      turnSpeed: 94,
+      weight: 4100,
+      loadLimit: 5200,
+    }, weapons),
+    color: "#ff4f7d",
+    targetPriority: "lowestHpPercent",
+    rules: [
+      { id: "rival-1", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
+      { id: "rival-2", condition: "enemyClose", action: "shootLeft", enabled: true },
+      { id: "rival-3", condition: "enemyFar", action: "fireLongRange", enabled: true },
+      { id: "rival-4", condition: "shoulderReady", action: "alphaStrike", enabled: true },
+      { id: "rival-5", condition: "always", action: "strafe", enabled: true },
+    ],
+  };
+};
+
+const createStageSevenRivalBossSpec = (): RivalBossSpec => {
+  const weapons = [
+    createRivalWeapon("rightArm", "R-ARM", "Tyrant Pulse Rifle", {
+      range: 372,
+      attack: 56,
+      cooldown: 0.58,
+      resource: "energy",
+      weaponKind: "pulse",
+      energyCost: 10,
+    }),
+    createRivalWeapon("leftArm", "L-ARM", "Heap Blade", {
+      range: 136,
+      attack: 90,
+      cooldown: 1.04,
+      resource: "energy",
+      weaponKind: "blade",
+      energyCost: 24,
+    }),
+    createRivalWeapon("leftShoulder", "L-SHOULDER", "Siege Grenade", {
+      range: 360,
+      attack: 105,
+      cooldown: 2.55,
+      resource: "ballistic",
+      weaponKind: "grenade",
+      ammoMax: 5,
+      blastRadius: 76,
+    }),
+    createRivalWeapon("rightShoulder", "R-SHOULDER", "Hunter Missiles", {
+      range: 470,
+      attack: 72,
+      cooldown: 1.85,
+      resource: "ballistic",
+      weaponKind: "missile",
+      ammoMax: 10,
+      blastRadius: 34,
+    }),
+  ];
+
+  return {
+    stats: createRivalStats("heavy", "Signal Tyrant", "biped", {
+      hpMax: 1820,
+      enMax: 860,
+      enRegen: 42,
+      defense: 132,
+      moveSpeed: 96,
+      turnSpeed: 72,
+      weight: 5600,
+      loadLimit: 6800,
+    }, weapons),
+    color: "#ff6a42",
+    targetPriority: "lowestHp",
+    rules: [
+      { id: "tyrant-1", condition: "hpLow", action: "guard", enabled: true },
+      { id: "tyrant-2", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
+      { id: "tyrant-3", condition: "enemyClustered", action: "fireExplosive", enabled: true },
+      { id: "tyrant-4", condition: "enemyMid", action: "alphaStrike", enabled: true },
+      { id: "tyrant-5", condition: "enemyFar", action: "fireLongRange", enabled: true },
+      { id: "tyrant-6", condition: "always", action: "strafe", enabled: true },
+    ],
+  };
+};
+
+const createRivalBossSpec = (stage: number): RivalBossSpec =>
+  stage >= 7 ? createStageSevenRivalBossSpec() : createStageFiveRivalBossSpec();
+
 const createEnemy = (
   stage: number,
   index: number,
@@ -217,7 +453,7 @@ const createEnemy = (
 ): CombatActor => {
   const role = (() => {
     if (rank === "boss") {
-      return "jammer" as const;
+      return stage === 5 || stage === 7 ? "rival" as const : "jammer" as const;
     }
     if (rank === "elite") {
       return stage >= 6 ? "bruiser" as const : "sniper" as const;
@@ -268,10 +504,21 @@ const createEnemy = (
         : clamp(entryTargetY, 84, ARENA_HEIGHT - 84);
   const entryDirection = normalize(entryTargetX - entryX, entryTargetY - entryY);
   const initialSpeed = rank === "boss" ? 70 : rank === "elite" ? 116 : 138;
+  const rivalSpec = role === "rival" ? createRivalBossSpec(stage) : undefined;
+  const rivalRightWeapon = rivalSpec?.stats.weapons.find((weapon) => weapon.hardpoint === "rightArm");
+  const rivalLeftWeapon = rivalSpec?.stats.weapons.find((weapon) => weapon.hardpoint === "leftArm");
+  const rivalRange = rivalSpec
+    ? Math.max(...rivalSpec.stats.weapons.map((weapon) => weapon.range))
+    : undefined;
+  const rivalAttack = rivalSpec
+    ? Math.max(...rivalSpec.stats.weapons.map((weapon) => weapon.attack))
+    : undefined;
 
   return {
     id: uid("enemy"),
-    name: rank === "boss"
+    name: rivalSpec
+      ? rivalSpec.stats.frameName
+      : rank === "boss"
       ? "Signal Tyrant"
       : rank === "elite"
         ? role === "sniper" ? "Gatebreaker Artillery" : "Gatebreaker Bulwark"
@@ -289,31 +536,43 @@ const createEnemy = (
     ay: 0,
     vx: enterFromOffscreen ? entryDirection.x * initialSpeed : 0,
     vy: enterFromOffscreen ? entryDirection.y * initialSpeed : 0,
-    radius: rank === "boss" ? 27 : rank === "elite" ? 22 : 16,
-    hp: baseHp * hpScale,
-    maxHp: baseHp * hpScale,
-    en: 0,
-    maxEn: 0,
-    rightAmmo: 0,
-    rightAmmoMax: 0,
-    leftAmmo: 0,
-    leftAmmoMax: 0,
-    enRegen: 0,
-    defense: (rank === "boss" ? 78 + stage * 6 : rank === "elite" ? 56 + stage * 5 : 30 + stage * 4) +
+    radius: rivalSpec ? 21 : rank === "boss" ? 27 : rank === "elite" ? 22 : 16,
+    hp: rivalSpec?.stats.hpMax ?? baseHp * hpScale,
+    maxHp: rivalSpec?.stats.hpMax ?? baseHp * hpScale,
+    en: rivalSpec?.stats.enMax ?? 0,
+    maxEn: rivalSpec?.stats.enMax ?? 0,
+    rightAmmo: rivalRightWeapon?.ammoMax ?? 0,
+    rightAmmoMax: rivalRightWeapon?.ammoMax ?? 0,
+    leftAmmo: rivalLeftWeapon?.ammoMax ?? 0,
+    leftAmmoMax: rivalLeftWeapon?.ammoMax ?? 0,
+    enRegen: rivalSpec?.stats.enRegen ?? 0,
+    defense: rivalSpec?.stats.defense ?? (rank === "boss" ? 78 + stage * 6 : rank === "elite" ? 56 + stage * 5 : 30 + stage * 4) +
       (role === "bruiser" ? 22 : role === "scout" ? -8 : 0),
-    moveSpeed: (rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5) *
+    moveSpeed: rivalSpec?.stats.moveSpeed ?? (rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5) *
       (role === "scout" ? 1.34 : role === "sniper" ? 0.72 : role === "bruiser" ? 0.82 : 1),
-    range: role === "sniper" ? 430 : role === "bruiser" ? 230 : rank === "boss" ? 380 : rank === "elite" ? 330 : 275,
-    attack: baseAttack * attackScale,
+    range: rivalRange ?? (role === "sniper" ? 430 : role === "bruiser" ? 230 : rank === "boss" ? 380 : rank === "elite" ? 330 : 275),
+    attack: rivalAttack ?? baseAttack * attackScale,
     cooldown: 0.4 + index * 0.35,
     cooldownMax: role === "scout" ? 0.92 : role === "sniper" ? 1.46 : rank === "boss" ? 0.82 : rank === "elite" ? 1.0 : 1.18,
     boostCooldown: 1.1 + index * 0.18,
     guard: false,
     facingX: rank === "boss" ? 0 : -entryDirection.x,
     facingY: rank === "boss" ? 1 : -entryDirection.y,
-    color: rank === "boss" ? "#ff6a42" : rank === "elite" ? "#d889ff" : "#f1b15b",
+    frameId: rivalSpec?.stats.frameId,
+    legType: rivalSpec?.stats.legType,
+    color: rivalSpec?.color ?? (rank === "boss" ? "#ff6a42" : rank === "elite" ? "#d889ff" : "#f1b15b"),
     rank,
     enemyRole: role,
+    rivalAi: rivalSpec
+      ? {
+          stats: rivalSpec.stats,
+          rules: rivalSpec.rules,
+          activeAction: "idle",
+          weapons: createRivalWeaponStates(rivalSpec.stats.weapons, index),
+          boostCooldown: 1.1 + index * 0.18,
+          targetPriority: rivalSpec.targetPriority,
+        }
+      : undefined,
     entryBoostTime: enterFromOffscreen ? 1.15 : undefined,
     entryBoostPulse: enterFromOffscreen ? 0 : undefined,
   };
@@ -329,6 +588,23 @@ const spawnEnemies = (
   ranks.map((rank, index) =>
     createEnemy(stage, startIndex + index, rank, total, enterFromOffscreen),
   );
+
+const pushBossAlert = (state: CombatState, enemy: CombatActor): void => {
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "alert",
+      x: state.width / 2,
+      y: state.height * 0.22,
+      life: 2.15,
+      maxLife: 2.15,
+      color: enemy.color,
+      size: 1,
+      label: enemy.name,
+    }),
+  );
+  state.soundEvents.push("alert");
+};
 
 const createInitialEnemies = (
   stage: number,
@@ -369,9 +645,13 @@ const refillEnemyWave = (state: CombatState): void => {
   }
 
   const incoming = state.enemyQueue.splice(0, batchSize);
-  state.enemies.push(
-    ...spawnEnemies(state.stage, incoming, state.spawnedEnemyCount, state.enemyTotal, true),
-  );
+  const spawned = spawnEnemies(state.stage, incoming, state.spawnedEnemyCount, state.enemyTotal, true);
+  state.enemies.push(...spawned);
+  for (const enemy of spawned) {
+    if (enemy.rank === "boss") {
+      pushBossAlert(state, enemy);
+    }
+  }
   state.spawnedEnemyCount += incoming.length;
   state.nextEnemySpawnAt = state.time + enemySpawnDelayFor(state, incoming);
 };
@@ -498,29 +778,72 @@ const nearestPlayerUnit = (state: CombatState, enemy: CombatActor): PlayerCombat
   return best;
 };
 
-const nearestEnemyProjectileDistance = (state: CombatState, player: CombatActor): number => {
+const playerDistance = (enemy: CombatActor, player: CombatActor): number =>
+  Math.hypot(player.x - enemy.x, player.y - enemy.y);
+
+const clusteredPlayerCount = (state: CombatState, target: CombatActor | undefined): number => {
+  if (!target) {
+    return 0;
+  }
+
+  return livingPlayerUnits(state).filter((unit) =>
+    unit.actor.id !== target.id &&
+    Math.hypot(unit.actor.x - target.x, unit.actor.y - target.y) <= 104,
+  ).length + 1;
+};
+
+const selectPlayerTarget = (
+  state: CombatState,
+  enemy: CombatActor,
+  priority: TargetPriorityId = "nearest",
+): CombatActor | undefined => {
+  const players = livingPlayerUnits(state).map((unit) => unit.actor);
+  if (players.length === 0) {
+    return undefined;
+  }
+
+  const sorted = [...players].sort((a, b) => {
+    const distanceA = playerDistance(enemy, a);
+    const distanceB = playerDistance(enemy, b);
+
+    switch (priority) {
+      case "lowestHp":
+        return a.hp - b.hp || distanceA - distanceB;
+      case "lowestHpPercent":
+        return a.hp / a.maxHp - b.hp / b.maxHp || distanceA - distanceB;
+      case "nearest":
+      case "eliteFirst":
+      default:
+        return distanceA - distanceB;
+    }
+  });
+
+  return sorted[0];
+};
+
+const nearestHostileProjectileDistance = (state: CombatState, actor: CombatActor): number => {
   let best = Number.POSITIVE_INFINITY;
   for (const projectile of state.projectiles) {
-    if (projectile.owner !== "enemy") {
+    if (projectile.owner === actor.team) {
       continue;
     }
-    best = Math.min(best, Math.hypot(projectile.x - player.x, projectile.y - player.y));
+    best = Math.min(best, Math.hypot(projectile.x - actor.x, projectile.y - actor.y));
   }
   return best;
 };
 
-const breakIncomingMissileLocks = (state: CombatState, player: CombatActor): void => {
+const breakIncomingMissileLocks = (state: CombatState, actor: CombatActor): void => {
   for (const projectile of state.projectiles) {
-    const dx = player.x - projectile.x;
-    const dy = player.y - projectile.y;
+    const dx = actor.x - projectile.x;
+    const dy = actor.y - projectile.y;
     const distance = Math.hypot(dx, dy);
     const speed = Math.max(1, Math.hypot(projectile.vx, projectile.vy));
     const approach = (projectile.vx * dx + projectile.vy * dy) / Math.max(1, speed * distance);
 
     if (
-      projectile.owner === "enemy" &&
+      projectile.owner !== actor.team &&
       projectile.kind === "missile" &&
-      projectile.targetId === player.id &&
+      projectile.targetId === actor.id &&
       distance >= BOOST_LOCK_BREAK_MIN_DISTANCE &&
       distance <= BOOST_LOCK_BREAK_MAX_DISTANCE &&
       approach >= BOOST_LOCK_BREAK_MIN_APPROACH
@@ -1032,7 +1355,7 @@ const applyPlayerAction = (
         player.vx += perpendicular.x * player.moveSpeed * 2.08;
         player.vy += perpendicular.y * player.moveSpeed * 2.08;
         applyThrust(player, perpendicular.x, perpendicular.y, 1.28);
-        pushBoostBurst(state, player, perpendicular);
+        pushBoostBurst(state, player, perpendicular, player.team === "enemy" ? player.color : "#21e0ff");
         breakIncomingMissileLocks(state, player);
         unit.boostCooldown = 0.5;
         state.soundEvents.push("boost");
@@ -1106,6 +1429,93 @@ const applyPlayerAction = (
   }
 };
 
+const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): void => {
+  const rival = enemy.rivalAi;
+  if (!rival) {
+    return;
+  }
+
+  const target = selectPlayerTarget(state, enemy, rival.targetPriority);
+  if (!target) {
+    rival.activeAction = "idle";
+    rival.activeRuleId = undefined;
+    return;
+  }
+
+  enemy.en = Math.min(enemy.maxEn, enemy.en + enemy.enRegen * dt);
+  for (const weapon of rival.weapons) {
+    weapon.cooldownRemaining = Math.max(0, weapon.cooldownRemaining - dt);
+  }
+  rival.boostCooldown = Math.max(0, rival.boostCooldown - dt);
+
+  const targetDistance = playerDistance(enemy, target);
+  const nearestPlayerDistance = livingPlayerUnits(state).reduce(
+    (nearest, unit) => Math.min(nearest, playerDistance(enemy, unit.actor)),
+    Number.POSITIVE_INFINITY,
+  );
+  const unit: PlayerCombatUnit = {
+    unitIndex: -1,
+    actor: enemy,
+    stats: rival.stats,
+    activeAction: rival.activeAction,
+    activeRuleId: rival.activeRuleId,
+    weapons: rival.weapons,
+    boostCooldown: rival.boostCooldown,
+  };
+  const rightWeapon = weaponByHardpoint(unit, "rightArm");
+  const leftWeapon = weaponByHardpoint(unit, "leftArm");
+  const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
+  const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
+  const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
+  const decision = evaluateAiRules(rival.rules, {
+    en: enemy.en,
+    hpPercent: enemy.hp / enemy.maxHp,
+    enPercent: enemy.en / enemy.maxEn,
+    nearestEnemyDistance: nearestPlayerDistance,
+    clusteredEnemyCount: clusteredPlayerCount(state, target),
+    rightCooldown: rightWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+    leftCooldown: leftWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+    leftShoulderCooldown: leftShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+    rightShoulderCooldown: rightShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+    bothShoulderCooldown: bothShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+    rightCanPay: canAutoUseWeapon(unit, rightWeapon),
+    leftCanPay: canAutoUseWeapon(unit, leftWeapon),
+    leftShoulderCanPay: canAutoUseWeapon(unit, leftShoulderWeapon),
+    rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
+    bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
+    enemyProjectileDistance: nearestHostileProjectileDistance(state, enemy),
+  });
+
+  const bladeEngageDistance = target ? enemy.radius + target.radius + 284 : 0;
+  const hasDefensiveDecision = decision.some(
+    (item) => item.action === "retreat" || item.action === "guard" || item.action === "boostDodge",
+  );
+  if (
+    leftWeapon?.weaponKind === "blade" &&
+    leftWeapon.autoUse &&
+    leftWeapon.cooldownRemaining <= 0 &&
+    targetDistance <= bladeEngageDistance &&
+    !hasDefensiveDecision
+  ) {
+    decision.push({
+      action: "shootLeft",
+      ruleId: "rival-blade-priority",
+      condition: "leftReady",
+    });
+  }
+
+  enemy.ax = 0;
+  enemy.ay = 0;
+  enemy.guard = false;
+  rival.activeAction = decision[0].action;
+  rival.activeRuleId = decision[0].ruleId;
+  for (const item of decision) {
+    applyPlayerAction(state, unit, item.action, target);
+  }
+  rival.boostCooldown = unit.boostCooldown;
+  enemy.boostCooldown = unit.boostCooldown;
+};
+
 const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void => {
   const targetUnit = nearestPlayerUnit(state, enemy);
   if (!targetUnit) {
@@ -1150,6 +1560,11 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
 
     enemy.entryBoostTime = 0;
     enemy.entryBoostPulse = undefined;
+  }
+
+  if (enemy.rivalAi) {
+    updateRivalEnemy(state, enemy, dt);
+    return;
   }
 
   const threat = nearestPlayerProjectileThreat(state, enemy);
@@ -1267,7 +1682,7 @@ export const stepCombat = (
       leftShoulderCanPay: canAutoUseWeapon(unit, leftShoulderWeapon),
       rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
       bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
-      enemyProjectileDistance: nearestEnemyProjectileDistance(state, player),
+      enemyProjectileDistance: nearestHostileProjectileDistance(state, player),
     });
 
     const bladeEngageDistance = target ? player.radius + target.radius + 284 : 0;

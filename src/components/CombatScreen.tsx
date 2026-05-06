@@ -253,12 +253,13 @@ const drawMech = (
   ctx.save();
   ctx.translate(actor.x, actor.y);
   const direction = directionIndexFor(actor);
-  const directionalImage = isPlayer ? playerDirectionSpritesImage : enemyDirectionSpritesImage;
-  const directionalRows = isPlayer ? PLAYER_SPRITE_ROWS : ENEMY_SPRITE_ROWS;
-  const directionalRow = isPlayer ? playerSpriteRow(actor) : enemySpriteRow(actor);
+  const usesPlayerFrame = isPlayer || actor.enemyRole === "rival";
+  const directionalImage = usesPlayerFrame ? playerDirectionSpritesImage : enemyDirectionSpritesImage;
+  const directionalRows = usesPlayerFrame ? PLAYER_SPRITE_ROWS : ENEMY_SPRITE_ROWS;
+  const directionalRow = usesPlayerFrame ? playerSpriteRow(actor) : enemySpriteRow(actor);
   const directionalSize =
     actor.radius *
-    (isPlayer
+    (usesPlayerFrame
       ? actor.frameId === "tank"
         ? 5.9
         : actor.frameId === "quad"
@@ -281,8 +282,8 @@ const drawMech = (
     }
     return;
   }
-  const spriteIndex = isPlayer ? 0 : actor.rank === "boss" ? 3 : actor.rank === "elite" ? 2 : 1;
-  if (!isPlayer && drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 2.9 : actor.rank === "elite" ? 2.7 : 2.5))) {
+  const spriteIndex = actor.rank === "boss" ? 3 : actor.rank === "elite" ? 2 : 1;
+  if (!usesPlayerFrame && drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 2.9 : actor.rank === "elite" ? 2.7 : 2.5))) {
     ctx.restore();
     drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
     if (label) {
@@ -296,7 +297,7 @@ const drawMech = (
   ctx.shadowBlur = isPlayer ? 18 : 10;
   ctx.lineWidth = 2;
   ctx.strokeStyle = isPlayer ? actor.color : actor.color;
-  ctx.fillStyle = isPlayer ? "rgba(216, 242, 248, .96)" : "#7c6b52";
+  ctx.fillStyle = isPlayer || actor.enemyRole === "rival" ? "rgba(216, 242, 248, .96)" : "#7c6b52";
   const frameId = actor.frameId ?? "medium";
   const coreWidth = frameId === "heavy" ? 40 : frameId === "tank" ? 46 : frameId === "light" ? 24 : 30;
   const coreHeight = frameId === "heavy" ? 38 : frameId === "tank" ? 34 : frameId === "light" ? 30 : 34;
@@ -447,6 +448,35 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   ctx.save();
   ctx.translate(effect.x, effect.y);
   ctx.globalAlpha = Math.max(0, 1 - progress);
+  if (effect.kind === "alert") {
+    const pulse = 0.45 + Math.sin(progress * Math.PI * 8) * 0.18;
+    ctx.translate(-effect.x, -effect.y);
+    ctx.globalAlpha = Math.max(0, Math.min(1, (1 - progress) * 1.18));
+    ctx.fillStyle = `rgba(255, 34, 58, ${pulse})`;
+    ctx.fillRect(0, effect.y - 54, ctx.canvas.width, 4);
+    ctx.fillRect(0, effect.y + 54, ctx.canvas.width, 4);
+    ctx.fillStyle = "rgba(0, 0, 0, .62)";
+    ctx.fillRect(0, effect.y - 46, ctx.canvas.width, 92);
+    ctx.strokeStyle = effect.color;
+    ctx.shadowColor = effect.color;
+    ctx.shadowBlur = 24;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, 54 + progress * 32, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, 92 + progress * 46, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#ffedf0";
+    ctx.font = "800 31px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("WARNING", ctx.canvas.width / 2, effect.y - 8);
+    ctx.font = "700 15px system-ui";
+    ctx.fillStyle = effect.color;
+    ctx.fillText(effect.label ?? "BOSS FRAME DETECTED", ctx.canvas.width / 2, effect.y + 23);
+    ctx.restore();
+    return;
+  }
   if (effect.kind === "explosion" && explosionBurstImage.complete && explosionBurstImage.naturalWidth > 0) {
     const size = effect.size * (1.05 + progress * 0.85);
     ctx.drawImage(
@@ -543,7 +573,7 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
     if (enemy.hp <= 0) {
       ctx.globalAlpha = Math.max(0.18, Math.min(0.55, (enemy.deathTimer ?? 0.2) / 0.38));
     }
-    drawMech(ctx, enemy, false, enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped");
+    drawMech(ctx, enemy, false, enemy.legType ?? (enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped"));
     ctx.restore();
   }
   state.players.forEach((unit) => {

@@ -46,8 +46,8 @@ export const stagePlans: StagePlan[] = [
     stage: 5,
     label: "ELITE",
     type: "elite",
-    threat: "Elite pair",
-    brief: "高耐久のエリートが出る節目。集中攻撃できるAI構成が有利。",
+    threat: "Mirror Vesper",
+    brief: "自軍機と同じ武器スロットとAIロジックで戦う単騎ボスが出る節目。集中攻撃できるAI構成が有利。",
     focus: "UNIT 3の加入準備",
   },
   {
@@ -63,7 +63,7 @@ export const stagePlans: StagePlan[] = [
     label: "BOSS",
     type: "boss",
     threat: "Signal Tyrant",
-    brief: "ボスと護衛が同時に出る最終戦。強敵優先か雑魚処理かを明確にする。",
+    brief: "全武装を使い分ける同型機構の単騎ボスが出る最終戦。強敵優先と一斉射撃を明確にする。",
     focus: "一斉射撃と範囲火力",
   },
 ];
