@@ -91,6 +91,9 @@ const rewardPartTitle = (slot: string): string => {
   if (slot === "BODY") {
     return "新しいコア";
   }
+  if (slot === "BOOSTER") {
+    return "新しいブースター";
+  }
   if (slot.includes("ARM")) {
     return "新しい腕部武器";
   }
@@ -117,7 +120,7 @@ export const generateRewardOptions = (
       title: owned > 0 ? "追加パーツ" : rewardPartTitle(part.slot),
       subtitle: part.name,
       description: `${getSlotLabel(part.slot)} / ${part.rarity.toUpperCase()} を1個入手${owned > 0 ? `（所持 ${owned}）` : ""}`,
-      accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : "blue",
+      accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
       payload: { kind: "part", partId: part.id },
     };
   });

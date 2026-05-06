@@ -615,6 +615,14 @@ select {
   border-color: var(--green);
 }
 
+.slot-booster {
+  border-color: var(--green);
+  background:
+    radial-gradient(circle at 72% 50%, rgba(84, 244, 167, 0.28), transparent 34%),
+    linear-gradient(135deg, rgba(54, 207, 255, 0.24), rgba(255, 255, 255, 0.02)),
+    linear-gradient(90deg, transparent 32%, rgba(255, 255, 255, 0.52) 34% 39%, transparent 42%);
+}
+
 .part-stat-line {
   color: var(--blue);
   font-size: 12px;

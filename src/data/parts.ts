@@ -29,6 +29,12 @@ const zeroStats: PartStats = {
   range: 0,
   attack: 0,
   cooldown: 0,
+  boostSpeed: 0,
+  quickBoostThrust: 0,
+  quickBoostReload: 0,
+  quickBoostCost: 0,
+  quickBoostDuration: 0,
+  quickBoostIdealWeight: 0,
 };
 
 const stats = (value: Partial<PartStats>): PartStats => ({
@@ -42,6 +48,7 @@ const clamp = (value: number, min: number, max: number): number =>
 const weaponSlotLabels: Record<EquipSlot, string> = {
   HEAD: "頭部",
   BODY: "コア",
+  BOOSTER: "ブースター",
   "L-ARM": "左腕",
   "R-ARM": "右腕",
   "L-SHOULDER": "左肩",
@@ -63,6 +70,7 @@ const weaponKindLabels: Record<WeaponKind, string> = {
 const weaponHardpoints: Record<EquipSlot, WeaponHardpoint | undefined> = {
   HEAD: undefined,
   BODY: undefined,
+  BOOSTER: undefined,
   "L-ARM": "leftArm",
   "R-ARM": "rightArm",
   "L-SHOULDER": "leftShoulder",
@@ -226,6 +234,85 @@ export const parts: Part[] = [
       weight: 2250,
       loadLimit: 3700,
       attack: 10,
+    }),
+  },
+  {
+    id: "booster-sparrow",
+    slot: "BOOSTER",
+    name: "SPARROW 軽量ブースター",
+    manufacturer: "Kairo Grid",
+    description: "軽量機向けの低燃費ブースター。クイックブーストの再使用が短い。",
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      enCapacity: 28,
+      enRegen: 2,
+      weight: 250,
+      boostSpeed: 268,
+      quickBoostThrust: 250,
+      quickBoostReload: 0.42,
+      quickBoostCost: 12,
+      quickBoostDuration: 0.18,
+      quickBoostIdealWeight: 3600,
+    }),
+  },
+  {
+    id: "booster-vanguard",
+    slot: "BOOSTER",
+    name: "VANGUARD 標準ブースター",
+    manufacturer: "North Arc",
+    description: "推力と消費ENのバランスが良い標準ブースター。",
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      enCapacity: 20,
+      weight: 340,
+      boostSpeed: 248,
+      quickBoostThrust: 274,
+      quickBoostReload: 0.5,
+      quickBoostCost: 16,
+      quickBoostDuration: 0.18,
+      quickBoostIdealWeight: 4700,
+    }),
+  },
+  {
+    id: "booster-drift",
+    slot: "BOOSTER",
+    name: "DRIFT 巡航ブースター",
+    manufacturer: "Mira Node",
+    description: "ブースト速度を伸ばすホバー・中距離戦向けブースター。",
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      enCapacity: 54,
+      enRegen: 3,
+      weight: 430,
+      boostSpeed: 304,
+      quickBoostThrust: 236,
+      quickBoostReload: 0.56,
+      quickBoostCost: 17,
+      quickBoostDuration: 0.22,
+      quickBoostIdealWeight: 5200,
+    }),
+  },
+  {
+    id: "booster-hammer",
+    slot: "BOOSTER",
+    name: "HAMMER 高出力ブースター",
+    manufacturer: "Vantline",
+    description: "重い機体を押し出す大推力ブースター。消費ENと重量は大きい。",
+    rarity: "elite",
+    initial: false,
+    stats: stats({
+      hp: 60,
+      defense: 8,
+      weight: 620,
+      boostSpeed: 236,
+      quickBoostThrust: 338,
+      quickBoostReload: 0.66,
+      quickBoostCost: 24,
+      quickBoostDuration: 0.16,
+      quickBoostIdealWeight: 6900,
     }),
   },
   {
@@ -754,6 +841,7 @@ export const baseUpgrades: PilotUpgrades = {
 export const initialLoadout: Loadout = {
   HEAD: "head-orbit-s",
   BODY: "body-aegis",
+  BOOSTER: "booster-vanguard",
   "L-ARM": "larm-pulse-needle",
   "R-ARM": "rarm-rail-carbine",
   "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
@@ -767,6 +855,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
       return {
         HEAD: "head-orbit-s",
         BODY: "body-flux",
+        BOOSTER: "booster-sparrow",
         "L-ARM": "larm-arc-blade",
         "R-ARM": "rarm-kinetic-rifle",
         "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
@@ -777,6 +866,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
       return {
         HEAD: "head-warden",
         BODY: "body-aegis",
+        BOOSTER: "booster-vanguard",
         "L-ARM": "larm-solid-shredder",
         "R-ARM": "rarm-burst-cannon",
         "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
@@ -787,6 +877,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
       return {
         HEAD: "head-orbit-s",
         BODY: "body-aegis",
+        BOOSTER: "booster-vanguard",
         "L-ARM": "larm-micro-missile",
         "R-ARM": "rarm-longshot-sniper",
         "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
@@ -797,6 +888,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
       return {
         HEAD: "head-warden",
         BODY: "body-aegis",
+        BOOSTER: "booster-vanguard",
         "L-ARM": "larm-solid-shredder",
         "R-ARM": "rarm-burst-cannon",
         "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
@@ -807,6 +899,15 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
     default:
       return { ...initialLoadout };
   }
+};
+
+export const normalizeLoadout = (loadout: Partial<Loadout> | undefined): Loadout => {
+  const withDefaults = EQUIP_SLOTS.reduce((next, slot) => {
+    next[slot] = loadout?.[slot] ?? initialLoadout[slot];
+    return next;
+  }, {} as Loadout);
+
+  return normalizeShoulderLoadout(withDefaults);
 };
 
 export const initialUnlockedPartIds = parts
@@ -852,7 +953,7 @@ export const playableParts = (): Part[] =>
   parts.filter((part) => part.slot !== "LEGS" && !isFreePart(part.id));
 
 export const buildFromLoadout = (loadout: Loadout): MechBuild => {
-  const normalizedLoadout = normalizeShoulderLoadout(loadout);
+  const normalizedLoadout = normalizeLoadout(loadout);
   return EQUIP_SLOTS.reduce((build, slot) => {
     build[slot] = getPartById(normalizedLoadout[slot]);
     return build;
@@ -890,6 +991,12 @@ export const calculateDerivedStats = (
       range: sum.range + part.stats.range,
       attack: sum.attack + part.stats.attack,
       cooldown: sum.cooldown + part.stats.cooldown,
+      boostSpeed: sum.boostSpeed + part.stats.boostSpeed,
+      quickBoostThrust: sum.quickBoostThrust + part.stats.quickBoostThrust,
+      quickBoostReload: sum.quickBoostReload + part.stats.quickBoostReload,
+      quickBoostCost: sum.quickBoostCost + part.stats.quickBoostCost,
+      quickBoostDuration: sum.quickBoostDuration + part.stats.quickBoostDuration,
+      quickBoostIdealWeight: sum.quickBoostIdealWeight + part.stats.quickBoostIdealWeight,
     }),
     { ...frame.stats },
   );
@@ -910,6 +1017,39 @@ export const calculateDerivedStats = (
   const turnWeightFactor = clamp(1.1 - loadRatio * 0.32 - overloadRatio * 0.5, 0.5, 1.06);
   const legCooldownBonus = legType === "quad" ? 0.94 : legType === "tank" ? 1.08 : 1;
   const dodgeMoveBonus = legType === "reverse" ? 1.08 : legType === "hover" ? 1.04 : 1;
+  const moveSpeed = Math.round(Math.max(38, total.moveSpeed * moveWeightFactor * dodgeMoveBonus));
+  const boostWeightFactor = clamp(1.12 - loadRatio * 0.25 - overloadRatio * 0.55, 0.55, 1.08);
+  const quickBoostIdealWeight = Math.max(1, total.quickBoostIdealWeight || loadLimit * 0.78);
+  const quickBoostWeightPenalty = total.weight <= quickBoostIdealWeight
+    ? 1
+    : clamp(1 + ((total.weight - quickBoostIdealWeight) / quickBoostIdealWeight) * 0.5, 1, 1.65);
+  const legBoostThrustBonus =
+    legType === "reverse" ? 1.12 : legType === "hover" ? 1.04 : legType === "tank" ? 0.82 : legType === "quad" ? 0.98 : 1;
+  const legBoostSpeedBonus =
+    legType === "hover" ? 1.12 : legType === "reverse" ? 1.05 : legType === "tank" ? 0.86 : legType === "quad" ? 1.02 : 1;
+  const legBoostReloadBonus =
+    legType === "reverse" ? 0.88 : legType === "hover" ? 0.96 : legType === "tank" ? 1.18 : 1;
+  const legBoostCostBonus =
+    legType === "reverse" ? 0.88 : legType === "hover" ? 0.96 : legType === "tank" ? 1.18 : legType === "quad" ? 1.02 : 1;
+  const boostSpeed = Math.round(
+    Math.max(moveSpeed * 1.15, Math.max(180, total.boostSpeed) * boostWeightFactor * legBoostSpeedBonus),
+  );
+  const quickBoostThrust = Math.round(
+    Math.max(90, total.quickBoostThrust) * boostWeightFactor * legBoostThrustBonus,
+  );
+  const quickBoostCooldown = Math.max(
+    0.24,
+    (total.quickBoostReload || 0.5) * quickBoostWeightPenalty * legBoostReloadBonus,
+  );
+  const quickBoostCost = Math.max(
+    4,
+    Math.round(Math.max(8, total.quickBoostCost) * legBoostCostBonus * (1 + overloadRatio * 0.35)),
+  );
+  const quickBoostDuration = clamp(
+    (total.quickBoostDuration || 0.18) * (legType === "hover" ? 1.08 : legType === "tank" ? 0.92 : 1),
+    0.1,
+    0.3,
+  );
   const frameCooldownOffset = frame.stats.cooldown;
   const cooldownPenalty = Math.max(0.82, legCooldownBonus * overloadPenalty + frameCooldownOffset);
   const weaponRange = weaponEntries.reduce((sum, entry) => sum + entry.part.stats.range, 0);
@@ -947,12 +1087,17 @@ export const calculateDerivedStats = (
     enMax: Math.round(total.enCapacity + upgrades.enCapacity),
     enRegen: Math.max(8, total.enRegen + upgrades.enRegen),
     defense: Math.max(0, Math.round(total.defense + upgrades.defense)),
-    moveSpeed: Math.round(Math.max(38, total.moveSpeed * moveWeightFactor * dodgeMoveBonus)),
+    moveSpeed,
     turnSpeed: Math.round(Math.max(30, total.turnSpeed * turnWeightFactor)),
     weight: Math.round(total.weight),
     loadLimit: Math.round(loadLimit),
     overloadRatio,
     legType,
+    boostSpeed,
+    quickBoostThrust,
+    quickBoostCooldown,
+    quickBoostCost,
+    quickBoostDuration,
     rightRange: rightHasWeapon ? Math.round(right.stats.range + supportRange) : 0,
     leftRange: leftHasWeapon ? Math.round(left.stats.range + supportRange) : 0,
     rightAttack: rightHasWeapon ? Math.round(right.stats.attack + supportAttack + upgrades.attack) : 0,
@@ -988,8 +1133,9 @@ export const equippedPartCounts = (
     if (!loadout) {
       continue;
     }
+    const normalizedLoadout = normalizeLoadout(loadout);
     for (const slot of EQUIP_SLOTS) {
-      const partId = normalizeShoulderLoadout(loadout)[slot];
+      const partId = normalizedLoadout[slot];
       if (isFreePart(partId)) {
         continue;
       }
@@ -1011,7 +1157,7 @@ export const unitsEquippingPart = (
 
   for (let unitIndex = 0; unitIndex < unlockedUnitCount; unitIndex += 1) {
     const loadout = loadouts[unitIndex];
-    if (loadout && EQUIP_SLOTS.some((slot: EquipSlot) => normalizeShoulderLoadout(loadout)[slot] === partId)) {
+    if (loadout && EQUIP_SLOTS.some((slot: EquipSlot) => normalizeLoadout(loadout)[slot] === partId)) {
       units.push(unitIndex);
     }
   }

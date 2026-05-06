@@ -23,7 +23,7 @@ import {
   initialLoadout,
   isFreePart,
   isShoulderSlotBlocked,
-  normalizeShoulderLoadout,
+  normalizeLoadout,
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
 import { CombatReport } from "./game/combat";
@@ -46,8 +46,9 @@ import {
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 const SAVE_KEY = `autocore-rogue-run-v${SAVE_VERSION}`;
+const LEGACY_SAVE_KEYS = ["autocore-rogue-run-v1"];
 const createInitialLoadouts = (): Loadout[] =>
   Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
 const createInitialFrameIds = (): BaseFrameId[] =>
@@ -106,12 +107,17 @@ const readSavedRunState = (): Partial<SavedRunState> | undefined => {
   }
 
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) {
-      return undefined;
+    for (const key of [SAVE_KEY, ...LEGACY_SAVE_KEYS]) {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        continue;
+      }
+      const payload = JSON.parse(raw) as Partial<SavedRunPayload>;
+      if (payload.state) {
+        return payload.state;
+      }
     }
-    const payload = JSON.parse(raw) as Partial<SavedRunPayload>;
-    return payload.version === SAVE_VERSION ? payload.state : undefined;
+    return undefined;
   } catch {
     return undefined;
   }
@@ -137,6 +143,9 @@ const saveRunState = (state: SavedRunState): void => {
 const normalizeSavedArray = <T,>(value: T[] | undefined, fallback: T[]): T[] =>
   Array.isArray(value) ? fallback.map((item, index) => value[index] ?? item) : fallback;
 
+const normalizeSavedLoadouts = (value: Loadout[] | undefined): Loadout[] =>
+  normalizeSavedArray(value, createInitialLoadouts()).map((loadout) => normalizeLoadout(loadout));
+
 const restoreScreen = (screen: ScreenId | undefined, hasSavedUnit: boolean): ScreenId => {
   if (!hasSavedUnit) {
     return "frameSelect";
@@ -149,7 +158,7 @@ const countEquippedPart = (loadouts: Loadout[], unlockedUnitCount: number, partI
     if (isFreePart(partId)) {
       return count;
     }
-    const normalizedLoadout = normalizeShoulderLoadout(loadout);
+    const normalizedLoadout = normalizeLoadout(loadout);
     const slotCount = EQUIP_SLOTS.filter((slot) => normalizedLoadout[slot] === partId).length;
     return count + slotCount;
   }, 0);
@@ -160,7 +169,7 @@ const applyShoulderCompatibility = (
   partId: string,
 ): Loadout => {
   const next = {
-    ...normalizeShoulderLoadout(loadout),
+    ...normalizeLoadout(loadout),
     [slot]: partId,
   };
 
@@ -173,7 +182,7 @@ const applyShoulderCompatibility = (
     next["B-SHOULDER"] = EMPTY_BOTH_SHOULDER_PART_ID;
   }
 
-  return normalizeShoulderLoadout(next);
+  return normalizeLoadout(next);
 };
 
 export default function App() {
@@ -184,7 +193,7 @@ export default function App() {
   );
   const [stage, setStage] = useState(() => savedRun?.stage ?? 1);
   const [loadouts, setLoadouts] = useState<Loadout[]>(() =>
-    normalizeSavedArray(savedRun?.loadouts, createInitialLoadouts()),
+    normalizeSavedLoadouts(savedRun?.loadouts),
   );
   const [unitFrameIds, setUnitFrameIds] = useState<BaseFrameId[]>(() =>
     normalizeSavedArray(savedRun?.unitFrameIds, createInitialFrameIds()),
@@ -318,7 +327,7 @@ export default function App() {
     }
 
     const activeLoadout = loadouts[activeUnitIndex]
-      ? normalizeShoulderLoadout(loadouts[activeUnitIndex])
+      ? normalizeLoadout(loadouts[activeUnitIndex])
       : undefined;
     if (!activeLoadout || activeLoadout[slot] === partId) {
       return;
@@ -337,7 +346,7 @@ export default function App() {
           (unitLoadout, index) =>
             index < unlockedUnitCount &&
             index !== activeUnitIndex &&
-            normalizeShoulderLoadout(unitLoadout)[slot] === partId,
+            normalizeLoadout(unitLoadout)[slot] === partId,
         )
       : -1;
 
@@ -355,7 +364,7 @@ export default function App() {
         if (index === donorIndex) {
           return applyShoulderCompatibility(unitLoadout, slot, previousPartId);
         }
-        return normalizeShoulderLoadout(unitLoadout);
+        return normalizeLoadout(unitLoadout);
       }),
     );
 

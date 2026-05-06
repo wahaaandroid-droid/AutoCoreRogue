@@ -25,6 +25,11 @@ const testStats: DerivedStats = {
   loadLimit: 6000,
   overloadRatio: 0,
   legType: "biped",
+  boostSpeed: 260,
+  quickBoostThrust: 260,
+  quickBoostCooldown: 0.5,
+  quickBoostCost: 16,
+  quickBoostDuration: 0.18,
   rightRange: 320,
   leftRange: 260,
   rightAttack: 60,
@@ -128,6 +133,30 @@ run("weapon weight affects mobility and empty arms lighten the build", () => {
 
   assert.ok(emptyArms.weight < armed.weight);
   assert.ok(emptyArms.moveSpeed > armed.moveSpeed);
+});
+
+run("booster choice changes quick boost apart from normal movement", () => {
+  const lowCost = calculateDerivedStats(
+    {
+      ...initialLoadout,
+      BOOSTER: "booster-sparrow",
+    },
+    baseUpgrades,
+    "medium",
+  );
+  const highThrust = calculateDerivedStats(
+    {
+      ...initialLoadout,
+      BOOSTER: "booster-hammer",
+    },
+    baseUpgrades,
+    "medium",
+  );
+
+  assert.ok(highThrust.quickBoostThrust > lowCost.quickBoostThrust);
+  assert.ok(lowCost.quickBoostCooldown < highThrust.quickBoostCooldown);
+  assert.ok(lowCost.quickBoostCost < highThrust.quickBoostCost);
+  assert.ok(Math.abs(highThrust.moveSpeed - lowCost.moveSpeed) < highThrust.quickBoostThrust - lowCost.quickBoostThrust);
 });
 
 run("enemy defeat plays destruction before removal", () => {

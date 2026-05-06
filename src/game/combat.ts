@@ -50,6 +50,10 @@ export interface CombatActor {
   enRegen: number;
   defense: number;
   moveSpeed: number;
+  quickBoostThrust: number;
+  quickBoostMaxSpeed: number;
+  quickBoostTime: number;
+  quickBoostDuration: number;
   range: number;
   attack: number;
   cooldown: number;
@@ -152,9 +156,6 @@ const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): vo
 const statsLoadRatio = (stats: Pick<DerivedStats, "weight" | "loadLimit">): number =>
   stats.weight / Math.max(1, stats.loadLimit);
 
-const boostImpulseFor = (stats: DerivedStats): number =>
-  clamp(1.12 - statsLoadRatio(stats) * 0.3 - stats.overloadRatio * 0.45, 0.58, 1.08);
-
 const actorBoostImpulseFor = (actor: CombatActor): number =>
   clamp(1.1 - actor.loadRatio * 0.22, 0.72, 1.05);
 
@@ -189,6 +190,10 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   enRegen: stats.enRegen,
   defense: stats.defense,
   moveSpeed: stats.moveSpeed,
+  quickBoostThrust: stats.quickBoostThrust,
+  quickBoostMaxSpeed: stats.boostSpeed,
+  quickBoostTime: 0,
+  quickBoostDuration: stats.quickBoostDuration,
   range: Math.max(...stats.weapons.map((weapon) => weapon.range), stats.rightRange, stats.leftRange),
   attack: Math.max(...stats.weapons.map((weapon) => weapon.attack), stats.rightAttack, stats.leftAttack),
   cooldown: 0,
@@ -305,6 +310,11 @@ const createRivalStats = (
     loadLimit: stats.loadLimit,
     overloadRatio: 0,
     legType,
+    boostSpeed: Math.round(Math.max(stats.moveSpeed * 1.25, stats.moveSpeed * 1.75)),
+    quickBoostThrust: Math.round(stats.moveSpeed * 2.05),
+    quickBoostCooldown: legType === "reverse" ? 0.44 : legType === "tank" ? 0.72 : 0.52,
+    quickBoostCost: legType === "reverse" ? 12 : legType === "tank" ? 22 : 16,
+    quickBoostDuration: legType === "hover" ? 0.22 : 0.18,
     rightRange: right.range,
     leftRange: left.range,
     rightAttack: right.attack,
@@ -530,6 +540,13 @@ const createEnemy = (
   const rivalAttack = rivalSpec
     ? Math.max(...rivalSpec.stats.weapons.map((weapon) => weapon.attack))
     : undefined;
+  const moveSpeed = rivalSpec?.stats.moveSpeed ?? (rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5) *
+    (role === "scout" ? 1.34 : role === "sniper" ? 0.72 : role === "bruiser" ? 0.82 : 1);
+  const quickBoostThrust = rivalSpec?.stats.quickBoostThrust ?? moveSpeed *
+    (rank === "boss" ? 1.2 : rank === "elite" ? 1.7 : role === "scout" ? 1.8 : 1.48);
+  const quickBoostMaxSpeed = rivalSpec?.stats.boostSpeed ?? moveSpeed *
+    (rank === "boss" ? 1.28 : rank === "elite" ? 1.78 : role === "scout" ? 2.05 : 1.78);
+  const quickBoostDuration = rivalSpec?.stats.quickBoostDuration ?? (rank === "boss" ? 0.15 : role === "scout" ? 0.2 : 0.17);
 
   return {
     id: uid("enemy"),
@@ -565,8 +582,11 @@ const createEnemy = (
     enRegen: rivalSpec?.stats.enRegen ?? 0,
     defense: rivalSpec?.stats.defense ?? (rank === "boss" ? 78 + stage * 6 : rank === "elite" ? 56 + stage * 5 : 30 + stage * 4) +
       (role === "bruiser" ? 22 : role === "scout" ? -8 : 0),
-    moveSpeed: rivalSpec?.stats.moveSpeed ?? (rank === "boss" ? 48 : rank === "elite" ? 66 : 76 + stage * 1.5) *
-      (role === "scout" ? 1.34 : role === "sniper" ? 0.72 : role === "bruiser" ? 0.82 : 1),
+    moveSpeed,
+    quickBoostThrust,
+    quickBoostMaxSpeed,
+    quickBoostTime: enterFromOffscreen ? quickBoostDuration : 0,
+    quickBoostDuration,
     range: rivalRange ?? (role === "sniper" ? 430 : role === "bruiser" ? 230 : rank === "boss" ? 380 : rank === "elite" ? 330 : 275),
     attack: rivalAttack ?? baseAttack * attackScale,
     cooldown: 0.4 + index * 0.35,
@@ -1383,15 +1403,17 @@ const applyPlayerAction = (
       applyThrust(player, perpendicular.x * 0.55 + toTarget.x * rangeBias, perpendicular.y * 0.55 + toTarget.y * rangeBias, 0.58);
       break;
     case "boostDodge": {
-      const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
+      const cost = unit.stats.quickBoostCost;
       if (unit.boostCooldown <= 0 && spendEnergy(player, cost)) {
-        const impulse = boostImpulseFor(unit.stats);
-        player.vx += perpendicular.x * player.moveSpeed * 2.08 * impulse;
-        player.vy += perpendicular.y * player.moveSpeed * 2.08 * impulse;
-        applyThrust(player, perpendicular.x, perpendicular.y, 1.28 * impulse);
+        const thrust = unit.stats.quickBoostThrust;
+        player.vx += perpendicular.x * thrust;
+        player.vy += perpendicular.y * thrust;
+        applyThrust(player, perpendicular.x, perpendicular.y, clamp(thrust / Math.max(1, player.moveSpeed * 2.6), 0.6, 1.55));
+        player.quickBoostTime = unit.stats.quickBoostDuration;
+        player.quickBoostMaxSpeed = unit.stats.boostSpeed;
         pushBoostBurst(state, player, perpendicular, player.team === "enemy" ? player.color : "#21e0ff");
         breakIncomingMissileLocks(state, player);
-        unit.boostCooldown = 0.5;
+        unit.boostCooldown = unit.stats.quickBoostCooldown;
         state.soundEvents.push("boost");
       } else {
         applyThrust(player, perpendicular.x * 0.35 + toTarget.x * rangeBias, perpendicular.y * 0.35 + toTarget.y * rangeBias, 0.32);
@@ -1611,10 +1633,11 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   if (threat && enemy.boostCooldown <= 0) {
     const dodgeSide = Math.sin(state.time * 3.1 + enemy.x * 0.013) > 0 ? 1 : -1;
     const dodge = { x: -threat.y * dodgeSide, y: threat.x * dodgeSide };
-    const impulse = actorBoostImpulseFor(enemy);
-    enemy.vx += dodge.x * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55) * impulse;
-    enemy.vy += dodge.y * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55) * impulse;
-    applyThrust(enemy, dodge.x, dodge.y, (enemy.rank === "boss" ? 0.65 : 0.85) * impulse);
+    const thrust = enemy.quickBoostThrust * actorBoostImpulseFor(enemy);
+    enemy.vx += dodge.x * thrust;
+    enemy.vy += dodge.y * thrust;
+    enemy.quickBoostTime = enemy.quickBoostDuration;
+    applyThrust(enemy, dodge.x, dodge.y, clamp(thrust / Math.max(1, enemy.moveSpeed * 3.2), 0.45, 1.05));
     pushBoostBurst(state, enemy, dodge, enemy.rank === "elite" ? "#d889ff" : "#ff9d42");
     state.soundEvents.push("boost");
     enemy.boostCooldown = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 0.85 : 1.25;

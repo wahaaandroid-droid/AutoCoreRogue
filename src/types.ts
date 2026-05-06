@@ -1,6 +1,7 @@
 export const EQUIP_SLOTS = [
   "HEAD",
   "BODY",
+  "BOOSTER",
   "L-ARM",
   "R-ARM",
   "L-SHOULDER",
@@ -55,6 +56,12 @@ export interface PartStats {
   range: number;
   attack: number;
   cooldown: number;
+  boostSpeed: number;
+  quickBoostThrust: number;
+  quickBoostReload: number;
+  quickBoostCost: number;
+  quickBoostDuration: number;
+  quickBoostIdealWeight: number;
 }
 
 export interface BaseFrame {
@@ -132,6 +139,11 @@ export interface DerivedStats {
   loadLimit: number;
   overloadRatio: number;
   legType: LegType;
+  boostSpeed: number;
+  quickBoostThrust: number;
+  quickBoostCooldown: number;
+  quickBoostCost: number;
+  quickBoostDuration: number;
   rightRange: number;
   leftRange: number;
   rightAttack: number;

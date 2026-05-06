@@ -21,6 +21,7 @@ import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
 import explosionBurstUrl from "../assets/explosion-burst.png";
 import guardShieldEffectUrl from "../assets/guard-shield-effect.png";
+import movementBoostTrailUrl from "../assets/movement-boost-trail.png";
 import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
 import enemyDirectionSpritesUrl from "../assets/enemy-direction-sprites.png";
 import projectileSpritesUrl from "../assets/projectile-sprites.png";
@@ -63,6 +64,8 @@ const explosionBurstImage = new Image();
 explosionBurstImage.src = explosionBurstUrl;
 const guardShieldEffectImage = new Image();
 guardShieldEffectImage.src = guardShieldEffectUrl;
+const movementBoostTrailImage = new Image();
+movementBoostTrailImage.src = movementBoostTrailUrl;
 const playerDirectionSpritesImage = new Image();
 playerDirectionSpritesImage.src = playerDirectionSpritesUrl;
 const enemyDirectionSpritesImage = new Image();
@@ -280,6 +283,39 @@ const drawEntryBoost = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
   ctx.shadowColor = actor.rank === "elite" ? "#d889ff" : "#ff9d42";
   ctx.shadowBlur = 24;
   ctx.drawImage(boostBurstImage, -length - actor.radius * 0.35, -width / 2, length, width);
+  ctx.restore();
+};
+
+const drawMovementBoost = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
+  if (
+    actor.hp <= 0 ||
+    isEntryBoosting(actor) ||
+    !movementBoostTrailImage.complete ||
+    movementBoostTrailImage.naturalWidth === 0
+  ) {
+    return;
+  }
+
+  const speed = Math.hypot(actor.vx, actor.vy);
+  const threshold = actor.moveSpeed * (actor.quickBoostTime > 0 ? 0.12 : 0.28);
+  if (speed < threshold) {
+    return;
+  }
+
+  const direction = Math.atan2(actor.vy, actor.vx);
+  const boostRatio = Math.min(1, speed / Math.max(actor.moveSpeed, actor.quickBoostMaxSpeed * 0.72));
+  const quickBoosting = actor.quickBoostTime > 0;
+  const length = actor.radius * (quickBoosting ? 4.2 : 2.7) * (0.68 + boostRatio * 0.38);
+  const width = actor.radius * (quickBoosting ? 1.55 : 0.92);
+
+  ctx.save();
+  ctx.translate(actor.x, actor.y);
+  ctx.rotate(Number.isFinite(direction) ? direction : 0);
+  ctx.scale(-1, 1);
+  ctx.globalAlpha = (quickBoosting ? 0.42 : 0.2) + boostRatio * (quickBoosting ? 0.18 : 0.1);
+  ctx.shadowColor = actor.team === "player" ? "#21e0ff" : actor.color;
+  ctx.shadowBlur = quickBoosting ? 18 : 10;
+  ctx.drawImage(movementBoostTrailImage, actor.radius * 0.25, -width / 2, length, width);
   ctx.restore();
 };
 
@@ -620,12 +656,14 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
     if (enemy.hp <= 0) {
       ctx.globalAlpha = Math.max(0.18, Math.min(0.55, (enemy.deathTimer ?? 0.2) / 0.38));
     }
+    drawMovementBoost(ctx, enemy);
     drawEntryBoost(ctx, enemy);
     drawGuardShield(ctx, enemy);
     drawMech(ctx, enemy, false, enemy.legType ?? (enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped"));
     ctx.restore();
   }
   state.players.forEach((unit) => {
+    drawMovementBoost(ctx, unit.actor);
     drawGuardShield(ctx, unit.actor);
     drawMech(ctx, unit.actor, true, unit.stats.legType, `U${unit.unitIndex + 1}`);
   });

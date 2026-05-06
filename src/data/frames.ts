@@ -12,6 +12,12 @@ const zeroStats: PartStats = {
   range: 0,
   attack: 0,
   cooldown: 0,
+  boostSpeed: 0,
+  quickBoostThrust: 0,
+  quickBoostReload: 0,
+  quickBoostCost: 0,
+  quickBoostDuration: 0,
+  quickBoostIdealWeight: 0,
 };
 
 const stats = (value: Partial<PartStats>): PartStats => ({

@@ -7,7 +7,7 @@ import {
   getWeaponKindLabel,
   isFreePart,
   isShoulderSlotBlocked,
-  normalizeShoulderLoadout,
+  normalizeLoadout,
   partsBySlot,
   unitsEquippingPart,
 } from "../data/parts";
@@ -17,6 +17,7 @@ import {
   EQUIP_SLOTS,
   EquipSlot,
   Loadout,
+  Part,
   PartInventory,
   WeaponAutoUse,
   WeaponHardpoint,
@@ -53,6 +54,10 @@ const statRows = [
   ["EN回復", "enRegen"],
   ["防御力", "defense"],
   ["移動速度", "moveSpeed"],
+  ["ブースト速度", "boostSpeed"],
+  ["QB推力", "quickBoostThrust"],
+  ["QB再使用", "quickBoostCooldown"],
+  ["QB消費", "quickBoostCost"],
   ["旋回速度", "turnSpeed"],
   ["重量", "weight"],
   ["積載量", "loadLimit"],
@@ -75,6 +80,16 @@ const framePreviewRow = (frameId: BaseFrameId): number => {
     default:
       return 1;
   }
+};
+
+const partStatSummary = (part: Part): string => {
+  if (part.slot === "BOOSTER") {
+    return `BST ${part.stats.boostSpeed} / QB ${part.stats.quickBoostThrust} / EN ${part.stats.quickBoostCost} / WT ${part.stats.weight}`;
+  }
+
+  return `ATK ${part.slot === "B-SHOULDER" ? part.stats.attack * 2 : part.stats.attack}${
+    part.slot === "B-SHOULDER" && part.stats.attack > 0 ? " (x2)" : ""
+  } / RNG ${part.stats.range} / WT ${part.stats.weight}`;
 };
 
 export default function AssembleScreen({
@@ -101,7 +116,7 @@ export default function AssembleScreen({
   canStartCombat,
 }: AssembleScreenProps) {
   const [activeSlot, setActiveSlot] = useState<EquipSlot>("R-ARM");
-  const loadout = normalizeShoulderLoadout(loadouts[activeUnitIndex] ?? loadouts[0]);
+  const loadout = normalizeLoadout(loadouts[activeUnitIndex] ?? loadouts[0]);
   const stats = statsByUnit[activeUnitIndex] ?? statsByUnit[0];
   const currentHp = Math.min(unitHpByUnit[activeUnitIndex] ?? stats.hpMax, stats.hpMax);
   const canRepair = repairKitStock > 0 && currentHp < stats.hpMax;
@@ -299,10 +314,7 @@ export default function AssembleScreen({
                   </span>
                 )}
                 <span className="part-stat-line">
-                  ATK {part.slot === "B-SHOULDER" ? part.stats.attack * 2 : part.stats.attack}
-                  {part.slot === "B-SHOULDER" && part.stats.attack > 0 ? " (x2)" : ""}
-                  {" / "}
-                  RNG {part.stats.range} / WT {part.stats.weight}
+                  {partStatSummary(part)}
                 </span>
                 {part.weaponKind && (
                   <span className="part-stat-line">

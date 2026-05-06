@@ -12,25 +12,27 @@ const weightInertiaFactor = (actor: CombatActor): number => {
 };
 
 const maxSpeedFor = (actor: CombatActor): number => {
+  const quickBoostLimit = actor.quickBoostTime > 0 ? actor.quickBoostMaxSpeed : 0;
   if (actor.team === "enemy") {
     if (actor.rivalAi) {
       const legBonus =
         actor.legType === "reverse" ? 1.18 : actor.legType === "hover" ? 1.1 : actor.legType === "tank" ? 0.88 : 1;
-      return actor.moveSpeed * legBonus * (isEntryBoosting(actor) ? 1.42 : 1);
+      return Math.max(actor.moveSpeed * legBonus * (isEntryBoosting(actor) ? 1.42 : 1), quickBoostLimit);
     }
     if (isEntryBoosting(actor)) {
       return actor.moveSpeed * (actor.rank === "boss" ? 1.25 : actor.rank === "elite" ? 1.72 : 1.92);
     }
-    return actor.moveSpeed * (actor.rank === "boss" ? 0.82 : 0.96);
+    return Math.max(actor.moveSpeed * (actor.rank === "boss" ? 0.82 : 0.96), quickBoostLimit);
   }
 
   const legBonus =
     actor.legType === "reverse" ? 1.18 : actor.legType === "hover" ? 1.1 : actor.legType === "tank" ? 0.88 : 1;
-  return actor.moveSpeed * legBonus;
+  return Math.max(actor.moveSpeed * legBonus, quickBoostLimit);
 };
 
 const dragFor = (actor: CombatActor): number => {
   const inertiaFactor = weightInertiaFactor(actor);
+  const quickBoostDragFactor = actor.quickBoostTime > 0 ? 0.62 : 1;
   if (actor.team === "enemy") {
     if (actor.rivalAi) {
       const baseDrag = (() => {
@@ -47,9 +49,9 @@ const dragFor = (actor: CombatActor): number => {
             return 1.58;
         }
       })();
-      return baseDrag * inertiaFactor;
+      return baseDrag * inertiaFactor * quickBoostDragFactor;
     }
-    return (actor.rank === "boss" ? 1.35 : 1.55) * inertiaFactor;
+    return (actor.rank === "boss" ? 1.35 : 1.55) * inertiaFactor * quickBoostDragFactor;
   }
 
   const baseDrag = (() => {
@@ -66,7 +68,7 @@ const dragFor = (actor: CombatActor): number => {
         return 1.58;
     }
   })();
-  return baseDrag * inertiaFactor;
+  return baseDrag * inertiaFactor * quickBoostDragFactor;
 };
 
 export const updatePositions = (state: CombatState, dt: number): void => {
@@ -105,6 +107,7 @@ export const updatePositions = (state: CombatState, dt: number): void => {
     const drag = Math.exp(-dragFor(actor) * dt);
     actor.vx *= drag;
     actor.vy *= drag;
+    actor.quickBoostTime = Math.max(0, actor.quickBoostTime - dt);
     actor.ax = 0;
     actor.ay = 0;
   }
