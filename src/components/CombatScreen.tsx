@@ -77,6 +77,7 @@ const DIRECTION_COLUMNS = 4;
 const PLAYER_SPRITE_ROWS = 5;
 const ENEMY_SPRITE_ROWS = 7;
 const PROJECTILE_SPRITE_COLUMNS = 5;
+const BLADE_SLASH_IMAGE_FORWARD_OFFSET = -Math.PI * 0.12;
 
 const spriteCell = (index: number) => ({
   column: index % 4,
@@ -575,11 +576,12 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   ctx.shadowBlur = 20;
 
   if (effect.kind === "slash") {
-    ctx.rotate(effect.rotation ?? 0);
+    ctx.rotate((effect.rotation ?? 0) + BLADE_SLASH_IMAGE_FORWARD_OFFSET);
     if (bladeSlashEffectImage.complete && bladeSlashEffectImage.naturalWidth > 0) {
-      const size = effect.size * (2.05 + progress * 0.34);
+      const length = effect.size * (2.45 + progress * 0.42);
+      const height = effect.size * (1.65 + progress * 0.18);
       ctx.globalAlpha *= 0.92 - progress * 0.18;
-      ctx.drawImage(bladeSlashEffectImage, -size * 0.52, -size * 0.5, size, size);
+      ctx.drawImage(bladeSlashEffectImage, -length * 0.45, -height * 0.5, length, height);
       ctx.restore();
       return;
     }

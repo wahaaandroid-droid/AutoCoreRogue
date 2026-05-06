@@ -51,6 +51,31 @@ const testStats: DerivedStats = {
 const createOneUnitState = (stage: number) =>
   createCombatState(stage, [testStats], [testStats.hpMax], [true], 1, []);
 
+const bladeStats: DerivedStats = {
+  ...testStats,
+  leftRange: 86,
+  leftAttack: 126,
+  leftCooldown: 0.3,
+  leftWeaponKind: "blade",
+  leftEnergyCost: 0,
+  weapons: [
+    {
+      hardpoint: "leftArm",
+      slot: "L-ARM",
+      partId: "test-blade",
+      label: "Test Blade",
+      range: 86,
+      attack: 100,
+      cooldown: 0.3,
+      resource: "energy",
+      weaponKind: "blade",
+      energyCost: 0,
+      ammoMax: 0,
+      blastRadius: 0,
+    },
+  ],
+};
+
 const run = (name: string, test: () => void) => {
   try {
     test();
@@ -157,6 +182,32 @@ run("booster choice changes quick boost apart from normal movement", () => {
   assert.ok(lowCost.quickBoostCooldown < highThrust.quickBoostCooldown);
   assert.ok(lowCost.quickBoostCost < highThrust.quickBoostCost);
   assert.ok(Math.abs(highThrust.moveSpeed - lowCost.moveSpeed) < highThrust.quickBoostThrust - lowCost.quickBoostThrust);
+});
+
+run("blade slash effect records the attack direction", () => {
+  const state = createCombatState(5, [bladeStats], [bladeStats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+
+  const player = state.players[0].actor;
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+
+  state.enemyQueue = [];
+  player.x = 420;
+  player.y = 320;
+  player.vx = 0;
+  player.vy = 0;
+  enemy.x = player.x;
+  enemy.y = player.y - 58;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  state.players[0].weapons[0].cooldownRemaining = 0;
+
+  stepCombat(state, 0.016, [[{ id: "blade-direction", condition: "always", action: "shootLeft", enabled: true }]]);
+
+  const slash = state.effects.find((effect) => effect.kind === "slash");
+  assert.ok(slash);
+  assert.ok(Math.abs((slash.rotation ?? 0) + Math.PI / 2) < 0.001);
 });
 
 run("enemy defeat plays destruction before removal", () => {
