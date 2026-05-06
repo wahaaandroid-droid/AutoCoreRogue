@@ -190,7 +190,8 @@ select {
 .ai-flow-panel,
 .reward-panel,
 .map-panel,
-.run-panel {
+.run-panel,
+.run-complete-panel {
   padding: 14px;
   min-height: 0;
 }
@@ -1043,19 +1044,28 @@ select {
 }
 
 .reward-screen,
+.run-complete-screen,
 .map-screen {
   min-height: 0;
   display: grid;
   place-items: center;
 }
 
-.reward-panel {
+.reward-panel,
+.run-complete-panel {
   width: min(980px, 100%);
 }
 
-.reward-panel h1 {
+.reward-panel h1,
+.run-complete-panel h1 {
   margin: 0 0 18px;
   font-size: 28px;
+}
+
+.run-complete-panel p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  max-width: 560px;
 }
 
 .combat-report {

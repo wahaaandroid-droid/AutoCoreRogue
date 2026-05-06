@@ -1,6 +1,14 @@
 import { evaluateAiRules } from "./aiController";
+import { damageAfterDefense, updateHits } from "./combatDamage";
+import { updateEnemyDestructions } from "./combatDestruction";
+import { isEntryBoosting, resolveActorCollisions, updatePositions } from "./combatMovement";
 import {
-  advanceProjectiles,
+  activeEnemyCap,
+  createEnemyRanks,
+  enemySpawnDelayFor,
+  nextEnemyBatchSize,
+} from "./enemyWaves";
+import {
   createEffect,
   createProjectile,
   Effect,
@@ -95,6 +103,7 @@ export interface CombatState {
   enemyQueue: CombatActor["rank"][];
   enemyTotal: number;
   spawnedEnemyCount: number;
+  defeatedEnemyCount: number;
   nextEnemySpawnAt: number;
   projectiles: Projectile[];
   effects: Effect[];
@@ -105,7 +114,6 @@ export interface CombatState {
 
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
-const PLAYER_DAMAGE_MULTIPLIER = 0.48;
 const BOOST_LOCK_BREAK_MIN_DISTANCE = 52;
 const BOOST_LOCK_BREAK_MAX_DISTANCE = 108;
 const BOOST_LOCK_BREAK_MIN_APPROACH = 0.35;
@@ -116,56 +124,14 @@ const uid = (prefix: string): string => `${prefix}-${nextId++}`;
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
-const isEntryBoosting = (actor: CombatActor): boolean =>
-  actor.team === "enemy" && (actor.entryBoostTime ?? 0) > 0;
-
 const normalize = (dx: number, dy: number): { x: number; y: number; distance: number } => {
   const distance = Math.max(1, Math.hypot(dx, dy));
   return { x: dx / distance, y: dy / distance, distance };
 };
 
-const damageAfterDefense = (raw: number, target: CombatActor): number => {
-  const mitigation = Math.min(0.68, target.defense / (target.defense + 380));
-  const guard = target.guard ? 0.72 : 1;
-  const teamScale = target.team === "enemy" ? PLAYER_DAMAGE_MULTIPLIER : 1;
-  return Math.max(2, raw * teamScale * (1 - mitigation) * guard);
-};
-
 const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): void => {
   actor.ax += x * actor.moveSpeed * 3.15 * strength;
   actor.ay += y * actor.moveSpeed * 3.15 * strength;
-};
-
-const maxSpeedFor = (actor: CombatActor): number => {
-  if (actor.team === "enemy") {
-    if (isEntryBoosting(actor)) {
-      return actor.moveSpeed * (actor.rank === "boss" ? 1.25 : actor.rank === "elite" ? 1.72 : 1.92);
-    }
-    return actor.moveSpeed * (actor.rank === "boss" ? 0.82 : 0.96);
-  }
-
-  const legBonus =
-    actor.legType === "reverse" ? 1.18 : actor.legType === "hover" ? 1.1 : actor.legType === "tank" ? 0.88 : 1;
-  return actor.moveSpeed * legBonus;
-};
-
-const dragFor = (actor: CombatActor): number => {
-  if (actor.team === "enemy") {
-    return actor.rank === "boss" ? 1.35 : 1.55;
-  }
-
-  switch (actor.legType) {
-    case "hover":
-      return 0.88;
-    case "tank":
-      return 1.18;
-    case "reverse":
-      return 1.75;
-    case "quad":
-      return 1.5;
-    default:
-      return 1.58;
-  }
 };
 
 const PLAYER_FORMATION = [
@@ -353,38 +319,6 @@ const createEnemy = (
   };
 };
 
-const createEnemyRanks = (stage: number, playerCount: number): CombatActor["rank"][] => {
-  const normals = (count: number) => Array.from({ length: count }, () => "normal" as const);
-  const elites = (count: number) => Array.from({ length: count }, () => "elite" as const);
-
-  if (stage === 7) {
-    return [
-      ...normals(playerCount >= 3 ? 14 : 10),
-      "boss",
-      "elite",
-      "elite",
-    ];
-  }
-  if (stage === 5) {
-    return [
-      ...normals(playerCount >= 3 ? 12 : 10),
-      "elite",
-      "elite",
-    ];
-  }
-
-  const normalCountByStage = [0, 6, 8, 11, 13, 13, 16, 16];
-  const normalCount = normalCountByStage[stage] ?? 26;
-  const eliteCount = stage >= 6 ? Math.min(3, Math.max(1, playerCount)) : 0;
-  return [
-    ...normals(normalCount),
-    ...elites(eliteCount),
-  ];
-};
-
-const activeEnemyCap = (stage: number, playerCount: number): number =>
-  Math.min(stage >= 7 ? 10 : stage >= 5 ? 9 : stage >= 3 ? 7 : 5, Math.max(5, playerCount * 4));
-
 const spawnEnemies = (
   stage: number,
   ranks: CombatActor["rank"][],
@@ -404,6 +338,7 @@ const createInitialEnemies = (
   enemyQueue: CombatActor["rank"][];
   enemyTotal: number;
   spawnedEnemyCount: number;
+  defeatedEnemyCount: number;
   nextEnemySpawnAt: number;
 } => {
   const ranks = createEnemyRanks(stage, playerCount);
@@ -413,60 +348,9 @@ const createInitialEnemies = (
     enemyQueue: ranks,
     enemyTotal: ranks.length,
     spawnedEnemyCount: 0,
+    defeatedEnemyCount: 0,
     nextEnemySpawnAt: 0,
   };
-};
-
-const countFrontRanks = (
-  ranks: CombatActor["rank"][],
-  predicate: (rank: CombatActor["rank"]) => boolean,
-): number => {
-  let count = 0;
-  for (const rank of ranks) {
-    if (!predicate(rank)) {
-      break;
-    }
-    count += 1;
-  }
-  return count;
-};
-
-const nextEnemyBatchSize = (state: CombatState, capacity: number): number => {
-  const frontRank = state.enemyQueue[0];
-  if (!frontRank || capacity <= 0) {
-    return 0;
-  }
-
-  if (frontRank !== "normal") {
-    return Math.min(capacity, countFrontRanks(state.enemyQueue, (rank) => rank !== "normal"));
-  }
-
-  const normalSpan = countFrontRanks(state.enemyQueue, (rank) => rank === "normal");
-  const progress = state.enemyTotal > 0 ? state.spawnedEnemyCount / state.enemyTotal : 0;
-  const opening = state.spawnedEnemyCount === 0;
-  const midBattleSurge = progress >= 0.42 && progress <= 0.64;
-  const livingCount = state.enemies.filter((enemy) => enemy.hp > 0).length;
-  const quietBonus = livingCount <= Math.max(1, state.players.length) ? 1 : 0;
-  const baseSize = opening
-    ? state.stage >= 5 ? 3 : 2
-    : midBattleSurge
-      ? state.stage >= 3 ? 4 : 3
-      : state.stage >= 6 ? 2 : 1;
-
-  return Math.max(1, Math.min(capacity, normalSpan, baseSize + quietBonus));
-};
-
-const enemySpawnDelayFor = (
-  state: CombatState,
-  incoming: CombatActor["rank"][],
-): number => {
-  if (incoming.some((rank) => rank !== "normal")) {
-    return 1.35;
-  }
-  if (incoming.length >= 3) {
-    return state.stage >= 5 ? 1.75 : 1.95;
-  }
-  return state.stage >= 5 ? 1.05 : 1.25;
 };
 
 const refillEnemyWave = (state: CombatState): void => {
@@ -528,6 +412,7 @@ export const createCombatState = (
     enemyQueue: wave.enemyQueue,
     enemyTotal: wave.enemyTotal,
     spawnedEnemyCount: wave.spawnedEnemyCount,
+    defeatedEnemyCount: wave.defeatedEnemyCount,
     nextEnemySpawnAt: wave.nextEnemySpawnAt,
     projectiles: [],
     effects: [],
@@ -542,9 +427,6 @@ export const createCombatState = (
 
 const livingPlayerUnits = (state: CombatState): PlayerCombatUnit[] =>
   state.players.filter((unit) => unit.actor.hp > 0);
-
-const livingPlayerActors = (state: CombatState): CombatActor[] =>
-  livingPlayerUnits(state).map((unit) => unit.actor);
 
 const livingEnemies = (state: CombatState): CombatActor[] =>
   state.enemies.filter((enemy) => enemy.hp > 0);
@@ -1321,231 +1203,6 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   }
 };
 
-const updatePositions = (state: CombatState, dt: number): void => {
-  const actors = [...state.players.map((unit) => unit.actor), ...state.enemies];
-  for (const actor of actors) {
-    if (actor.hp <= 0) {
-      continue;
-    }
-    actor.vx += actor.ax * dt;
-    actor.vy += actor.ay * dt;
-
-    const speed = Math.hypot(actor.vx, actor.vy);
-    const maxSpeed = maxSpeedFor(actor);
-    if (speed > maxSpeed) {
-      actor.vx = (actor.vx / speed) * maxSpeed;
-      actor.vy = (actor.vy / speed) * maxSpeed;
-    }
-
-    const minX = 36;
-    const maxX = state.width - 36;
-    const minY = 36;
-    const maxY = state.height - 36;
-    const nextX = actor.x + actor.vx * dt;
-    const nextY = actor.y + actor.vy * dt;
-    const entryPadding = isEntryBoosting(actor) ? 132 : 0;
-    actor.x = clamp(nextX, minX - entryPadding, maxX + entryPadding);
-    actor.y = clamp(nextY, minY - entryPadding, maxY + entryPadding);
-
-    if (!isEntryBoosting(actor) && (actor.x === minX || actor.x === maxX)) {
-      actor.vx *= -0.38;
-    }
-    if (!isEntryBoosting(actor) && (actor.y === minY || actor.y === maxY)) {
-      actor.vy *= -0.38;
-    }
-
-    const drag = Math.exp(-dragFor(actor) * dt);
-    actor.vx *= drag;
-    actor.vy *= drag;
-    actor.ax = 0;
-    actor.ay = 0;
-  }
-};
-
-const resolveActorCollisions = (state: CombatState): void => {
-  const actors = [...state.players.map((unit) => unit.actor), ...state.enemies].filter((actor) => actor.hp > 0);
-  const minX = 36;
-  const maxX = state.width - 36;
-  const minY = 36;
-  const maxY = state.height - 36;
-
-  for (let pass = 0; pass < 2; pass += 1) {
-    for (let a = 0; a < actors.length; a += 1) {
-      for (let b = a + 1; b < actors.length; b += 1) {
-        const first = actors[a];
-        const second = actors[b];
-        const dx = second.x - first.x;
-        const dy = second.y - first.y;
-        const distance = Math.hypot(dx, dy);
-        const minimum = first.radius + second.radius + 3;
-        if (distance >= minimum) {
-          continue;
-        }
-
-        const normalX = distance > 0.001 ? dx / distance : Math.cos(a + b);
-        const normalY = distance > 0.001 ? dy / distance : Math.sin(a + b);
-        const overlap = minimum - Math.max(distance, 0.001);
-        const firstMass = first.radius * (first.team === "player" ? 1.15 : first.rank === "boss" ? 1.8 : 1);
-        const secondMass = second.radius * (second.team === "player" ? 1.15 : second.rank === "boss" ? 1.8 : 1);
-        const totalMass = firstMass + secondMass;
-        const firstPush = (overlap * secondMass) / totalMass;
-        const secondPush = (overlap * firstMass) / totalMass;
-
-        first.x = clamp(first.x - normalX * firstPush, minX, maxX);
-        first.y = clamp(first.y - normalY * firstPush, minY, maxY);
-        second.x = clamp(second.x + normalX * secondPush, minX, maxX);
-        second.y = clamp(second.y + normalY * secondPush, minY, maxY);
-
-        const relativeVelocity = (second.vx - first.vx) * normalX + (second.vy - first.vy) * normalY;
-        if (relativeVelocity < 0) {
-          const impulse = relativeVelocity * -0.42;
-          first.vx -= normalX * impulse * (secondMass / totalMass);
-          first.vy -= normalY * impulse * (secondMass / totalMass);
-          second.vx += normalX * impulse * (firstMass / totalMass);
-          second.vy += normalY * impulse * (firstMass / totalMass);
-        }
-      }
-    }
-  }
-};
-
-const updateHits = (state: CombatState, dt: number): void => {
-  const getTarget = (targetId: string | undefined) => {
-    if (!targetId) {
-      return undefined;
-    }
-    const player = state.players.find((unit) => unit.actor.id === targetId)?.actor;
-    if (player) {
-      return player;
-    }
-    return state.enemies.find((enemy) => enemy.id === targetId);
-  };
-
-  const moved = advanceProjectiles(state.projectiles, dt, getTarget);
-  const survivors: Projectile[] = [];
-
-  for (const projectile of moved) {
-    const targets = projectile.owner === "player" ? state.enemies : livingPlayerActors(state);
-    const hitTarget = targets.find(
-      (target) =>
-        target.hp > 0 &&
-        Math.hypot(projectile.x - target.x, projectile.y - target.y) <= projectile.radius + target.radius,
-    );
-
-    if (hitTarget) {
-      const blastRadius = projectile.blastRadius ?? 0;
-      const impactedTargets = blastRadius > 0
-        ? targets.filter(
-            (target) =>
-              target.hp > 0 &&
-              Math.hypot(projectile.x - target.x, projectile.y - target.y) <= blastRadius + target.radius,
-          )
-        : [hitTarget];
-
-      for (const target of impactedTargets) {
-        const distance = Math.hypot(projectile.x - target.x, projectile.y - target.y);
-        const falloff = blastRadius > 0
-          ? clamp(1 - distance / Math.max(1, blastRadius), 0.34, 1)
-          : 1;
-        const damage = damageAfterDefense(projectile.damage * falloff, target);
-        target.hp = Math.max(0, target.hp - damage);
-        if (projectile.owner === "player" && projectile.sourceUnitIndex !== undefined) {
-          state.report.damageByUnit[projectile.sourceUnitIndex] =
-            (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;
-        }
-      }
-      state.soundEvents.push("hit");
-      state.effects.push(
-        createEffect({
-          id: uid("effect"),
-          kind: "explosion",
-          x: projectile.x,
-          y: projectile.y,
-          life: projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade" ? 0.36 : 0.18,
-          maxLife: projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade" ? 0.36 : 0.18,
-          color: projectile.color,
-          size: blastRadius > 0 ? Math.max(30, blastRadius * 0.72) : projectile.kind === "missile" ? 30 : 18,
-        }),
-      );
-      continue;
-    }
-
-    if (
-      projectile.x > -30 &&
-      projectile.x < state.width + 30 &&
-      projectile.y > -30 &&
-      projectile.y < state.height + 30
-    ) {
-      survivors.push(projectile);
-    }
-  }
-
-  state.projectiles = survivors;
-};
-
-const triggerEnemyDestruction = (state: CombatState, enemy: CombatActor): void => {
-  if (enemy.deathEffectPlayed) {
-    return;
-  }
-
-  enemy.deathEffectPlayed = true;
-  enemy.deathTimer = enemy.rank === "boss" ? 0.68 : enemy.rank === "elite" ? 0.52 : 0.38;
-  enemy.vx *= 0.12;
-  enemy.vy *= 0.12;
-  enemy.ax = 0;
-  enemy.ay = 0;
-  state.soundEvents.push("explosion");
-  state.effects.push(
-    createEffect({
-      id: uid("effect"),
-      kind: "explosion",
-      x: enemy.x,
-      y: enemy.y,
-      life: enemy.rank === "boss" ? 0.62 : enemy.rank === "elite" ? 0.5 : 0.42,
-      maxLife: enemy.rank === "boss" ? 0.62 : enemy.rank === "elite" ? 0.5 : 0.42,
-      color: enemy.color,
-      size: enemy.radius * (enemy.rank === "boss" ? 5.2 : enemy.rank === "elite" ? 4.4 : 3.5),
-    }),
-  );
-
-  if (enemy.rank !== "normal") {
-    const offset = enemy.radius * 0.62;
-    state.effects.push(
-      createEffect({
-        id: uid("effect"),
-        kind: "explosion",
-        x: enemy.x - offset,
-        y: enemy.y + offset * 0.45,
-        life: 0.38,
-        maxLife: 0.38,
-        color: enemy.color,
-        size: enemy.radius * 2.8,
-      }),
-      createEffect({
-        id: uid("effect"),
-        kind: "explosion",
-        x: enemy.x + offset * 0.72,
-        y: enemy.y - offset * 0.5,
-        life: 0.34,
-        maxLife: 0.34,
-        color: enemy.color,
-        size: enemy.radius * 2.45,
-      }),
-    );
-  }
-};
-
-const updateEnemyDestructions = (state: CombatState, dt: number): void => {
-  for (const enemy of state.enemies) {
-    if (enemy.hp > 0) {
-      continue;
-    }
-
-    triggerEnemyDestruction(state, enemy);
-    enemy.deathTimer = Math.max(0, (enemy.deathTimer ?? 0) - dt);
-  }
-};
-
 const updateEffects = (state: CombatState, dt: number): void => {
   state.effects = state.effects
     .map((effect) => ({ ...effect, life: effect.life - dt }))
@@ -1655,8 +1312,8 @@ export const stepCombat = (
 
   updatePositions(state, dt);
   resolveActorCollisions(state);
-  updateHits(state, dt);
-  updateEnemyDestructions(state, dt);
+  updateHits(state, dt, uid);
+  updateEnemyDestructions(state, dt, uid);
   updateEffects(state, dt);
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 || (enemy.deathTimer ?? 0) > 0);
   refillEnemyWave(state);

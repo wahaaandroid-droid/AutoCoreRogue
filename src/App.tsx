@@ -4,6 +4,7 @@ import AiEditorScreen from "./components/AiEditorScreen";
 import CombatScreen from "./components/CombatScreen";
 import FrameSelectScreen from "./components/FrameSelectScreen";
 import RewardScreen from "./components/RewardScreen";
+import RunCompleteScreen from "./components/RunCompleteScreen";
 import StageMapScreen from "./components/StageMapScreen";
 import { createInitialAiRules, ensureAiRuleSlots } from "./data/aiRules";
 import { getBaseFrameById, initialFrameId } from "./data/frames";
@@ -500,6 +501,12 @@ export default function App() {
       current.map((hp, index) => remainingHpByUnit[index] ?? hp),
     );
     setLastCombatReport(report);
+    if (stage >= 7) {
+      setRewardOptions([]);
+      setLastOutcome("RUN COMPLETE: 全ステージ制圧");
+      setScreen("complete");
+      return;
+    }
     setRewardOptions(generateRewardOptions(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5));
     setLastOutcome(`STAGE ${stage} CLEAR`);
     setScreen("reward");
@@ -559,9 +566,9 @@ export default function App() {
     }
 
     if (stage >= 7) {
-      resetRun();
-      setLastOutcome("RUN COMPLETE: 新しいランを開始");
-      setScreen("frameSelect");
+      setRewardOptions([]);
+      setLastOutcome("RUN COMPLETE: 全ステージ制圧");
+      setScreen("complete");
       return;
     }
 
@@ -587,6 +594,10 @@ export default function App() {
   };
 
   const startCombat = () => {
+    if (runComplete) {
+      setLastOutcome("RUN COMPLETE: 新しいランを開始できます");
+      return;
+    }
     if (!sortieReady) {
       setLastOutcome("出撃可能なユニットがありません");
       setScreen(unlockedUnitCount === 0 ? "frameSelect" : "assemble");
@@ -603,6 +614,7 @@ export default function App() {
   };
 
   const hasUnit = unlockedUnitCount > 0;
+  const runComplete = stage >= 7 && lastOutcome?.startsWith("RUN COMPLETE") === true;
   const topNav = (
     <header className="app-header">
       <div>
@@ -625,8 +637,8 @@ export default function App() {
         <button className={screen === "map" ? "active" : ""} onClick={() => setScreen("map")} disabled={!hasUnit}>
           MAP
         </button>
-        <button className="primary" onClick={startCombat} disabled={!sortieReady}>
-          STAGE {stage}
+        <button className="primary" onClick={startCombat} disabled={!sortieReady || runComplete}>
+          {runComplete ? "RUN CLEAR" : `STAGE ${stage}`}
         </button>
         <button onClick={startNewRun} disabled={!hasUnit && stage === 1}>
           NEW RUN
@@ -712,6 +724,15 @@ export default function App() {
           report={lastCombatReport}
           rulesByUnit={normalizedRulesByUnit}
           onPickReward={applyReward}
+        />
+      )}
+      {screen === "complete" && hasUnit && (
+        <RunCompleteScreen
+          report={lastCombatReport}
+          rulesByUnit={normalizedRulesByUnit}
+          onOpenAssemble={() => setScreen("assemble")}
+          onOpenAi={() => setScreen("ai")}
+          onNewRun={startNewRun}
         />
       )}
       {screen === "map" && hasUnit && (

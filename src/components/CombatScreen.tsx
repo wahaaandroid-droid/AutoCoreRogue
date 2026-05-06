@@ -597,6 +597,7 @@ export default function CombatScreen({
     createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit),
   );
   const resolvedRef = useRef(false);
+  const resolveTimeoutRef = useRef<number | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
   const [paused, setPaused] = useState(false);
   const [speedMultiplier, setSpeedMultiplier] = useState(1);
@@ -609,6 +610,10 @@ export default function CombatScreen({
   const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
   useEffect(() => {
+    if (resolveTimeoutRef.current !== undefined) {
+      window.clearTimeout(resolveTimeoutRef.current);
+      resolveTimeoutRef.current = undefined;
+    }
     stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit);
     resolvedRef.current = false;
     setPaused(false);
@@ -660,7 +665,8 @@ export default function CombatScreen({
 
       if (!resolvedRef.current && current.status !== "running") {
         resolvedRef.current = true;
-        window.setTimeout(() => {
+        resolveTimeoutRef.current = window.setTimeout(() => {
+          resolveTimeoutRef.current = undefined;
           if (current.status === "victory") {
             onVictory(
               current.players.reduce<number[]>((hpByUnit, unit) => {
@@ -679,7 +685,13 @@ export default function CombatScreen({
     };
 
     animation = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(animation);
+    return () => {
+      cancelAnimationFrame(animation);
+      if (resolveTimeoutRef.current !== undefined) {
+        window.clearTimeout(resolveTimeoutRef.current);
+        resolveTimeoutRef.current = undefined;
+      }
+    };
   }, [onDefeat, onVictory, paused, rulesByUnit, speedMultiplier, stage, targetPrioritiesByUnit]);
 
   if (!activeUnit || !activeStats) {
@@ -687,6 +699,9 @@ export default function CombatScreen({
   }
 
   const activeActor = activeUnit.actor;
+  const livingEnemies = snapshot.enemies.filter((enemy) => enemy.hp > 0);
+  const incomingEnemyCount = snapshot.enemyQueue.length;
+  const defeatedEnemyCount = Math.min(snapshot.enemyTotal, snapshot.defeatedEnemyCount);
 
   return (
     <main className="combat-layout">
@@ -695,9 +710,8 @@ export default function CombatScreen({
           <div className="section-title">STAGE {stage}</div>
           <strong>{stagePlan.label}</strong>
           <small>{stagePlan.threat}</small>
-          <small>
-            敵 {snapshot.enemyTotal - snapshot.enemyQueue.length - snapshot.enemies.length}/{snapshot.enemyTotal} 撃破
-          </small>
+          <small>撃破 {defeatedEnemyCount}/{snapshot.enemyTotal}</small>
+          <small>交戦中 {livingEnemies.length} / 増援待ち {incomingEnemyCount}</small>
         </div>
         <div className="panel compact">
           <div className="section-title">STATUS</div>
@@ -794,7 +808,7 @@ export default function CombatScreen({
                 }}
               />
             ))}
-            {snapshot.enemies.map((enemy) => (
+            {livingEnemies.map((enemy) => (
               <span
                 key={enemy.id}
                 className={`radar-enemy ${enemy.rank}`}
@@ -808,7 +822,7 @@ export default function CombatScreen({
         </div>
         <div className="panel compact enemy-list">
           <div className="section-title">TARGETS</div>
-          {snapshot.enemies.map((enemy) => (
+          {livingEnemies.map((enemy) => (
             <div className="enemy-row" key={enemy.id}>
               <span>{enemy.name}</span>
               <div className="meter hp mini"><span style={{ width: `${hpPercent(enemy) * 100}%` }} /></div>

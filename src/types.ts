@@ -196,4 +196,4 @@ export interface AiRule {
   enabled: boolean;
 }
 
-export type ScreenId = "frameSelect" | "assemble" | "ai" | "combat" | "reward" | "map";
+export type ScreenId = "frameSelect" | "assemble" | "ai" | "combat" | "reward" | "map" | "complete";
