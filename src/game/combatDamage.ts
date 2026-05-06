@@ -69,7 +69,11 @@ export const updateHits = (
             (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;
         }
       }
-      state.soundEvents.push("hit");
+      state.soundEvents.push(
+        projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade"
+          ? "hitExplosive"
+          : "hit",
+      );
       state.effects.push(
         createEffect({
           id: createId("effect"),

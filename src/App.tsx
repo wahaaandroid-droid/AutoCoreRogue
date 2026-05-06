@@ -27,7 +27,7 @@ import {
 } from "./data/parts";
 import { generateRewardOptions, RewardOption } from "./data/rewards";
 import { CombatReport } from "./game/combat";
-import { unlockCombatAudio } from "./game/sound";
+import { playUiSound, unlockCombatAudio } from "./game/sound";
 import {
   AiRule,
   BaseFrameId,
@@ -322,6 +322,7 @@ export default function App() {
 
     const part = getPartById(partId);
     if (part.slot !== slot) {
+      playUiSound("error");
       setLastOutcome("このスロットには装備できません");
       return;
     }
@@ -334,6 +335,7 @@ export default function App() {
     }
 
     if (isShoulderSlotBlocked(activeLoadout, slot) && !isFreePart(partId)) {
+      playUiSound("error");
       setLastOutcome("両肩武装を装備中のため、左右肩武装は装備できません");
       return;
     }
@@ -351,10 +353,12 @@ export default function App() {
       : -1;
 
     if (available <= 0 && donorIndex < 0) {
+      playUiSound("error");
       setLastOutcome(`${part.name} の空き在庫がありません`);
       return;
     }
 
+    playUiSound("equip");
     const previousPartId = activeLoadout[slot];
     setLoadouts((current) =>
       current.map((unitLoadout, index) => {
@@ -382,12 +386,14 @@ export default function App() {
   };
 
   const changeActiveTargetPriority = (priority: TargetPriorityId) => {
+    playUiSound("select");
     setTargetPrioritiesByUnit((current) =>
       current.map((unitPriority, index) => (index === activeUnitIndex ? priority : unitPriority)),
     );
   };
 
   const toggleWeaponAutoUse = (hardpoint: WeaponHardpoint) => {
+    playUiSound("toggle");
     setWeaponAutoUseByUnit((current) =>
       current.map((config, index) =>
         index === activeUnitIndex
@@ -402,27 +408,29 @@ export default function App() {
 
   const toggleSortie = (unitIndex: number) => {
     if (unitIndex >= unlockedUnitCount) {
+      playUiSound("error");
       setLastOutcome(`UNIT ${unitIndex + 1} は未配備です`);
       return;
     }
 
     const unitHp = unitHpByUnit[unitIndex] ?? statsByUnit[unitIndex]?.hpMax ?? 0;
     if (unitHp <= 0) {
+      playUiSound("error");
       setLastOutcome(`UNIT ${unitIndex + 1} は大破中: リペアキットが必要`);
       return;
     }
 
-    setSortieEnabled((current) => {
-      const next = current.map((enabled, index) => (index === unitIndex ? !enabled : enabled));
-      const hasReadyUnit = next.some((enabled, index) =>
-        index < unlockedUnitCount && enabled && (unitHpByUnit[index] ?? statsByUnit[index]?.hpMax ?? 0) > 0,
-      );
-      if (!hasReadyUnit) {
-        setLastOutcome("最低1体は出撃ONにしてください");
-        return current;
-      }
-      return next;
-    });
+    const next = sortieEnabled.map((enabled, index) => (index === unitIndex ? !enabled : enabled));
+    const hasReadyUnit = next.some((enabled, index) =>
+      index < unlockedUnitCount && enabled && (unitHpByUnit[index] ?? statsByUnit[index]?.hpMax ?? 0) > 0,
+    );
+    if (!hasReadyUnit) {
+      playUiSound("error");
+      setLastOutcome("最低1体は出撃ONにしてください");
+      return;
+    }
+    playUiSound("toggle");
+    setSortieEnabled(next);
   };
 
   const useRepairKit = (unitIndex: number) => {
@@ -430,6 +438,7 @@ export default function App() {
       return;
     }
     if (repairKitStock <= 0) {
+      playUiSound("error");
       setLastOutcome("リペアキットのストックがありません");
       return;
     }
@@ -437,10 +446,12 @@ export default function App() {
     const maxHp = statsByUnit[unitIndex]?.hpMax ?? 0;
     const currentHp = unitHpByUnit[unitIndex] ?? maxHp;
     if (currentHp >= maxHp) {
+      playUiSound("error");
       setLastOutcome(`UNIT ${unitIndex + 1} は修理不要`);
       return;
     }
 
+    playUiSound("repair");
     setRepairKitStock((current) => Math.max(0, current - 1));
     setUnitHpByUnit((current) =>
       current.map((hp, index) => (index === unitIndex ? maxHp : hp)),
@@ -472,6 +483,7 @@ export default function App() {
   };
 
   const selectFrame = (frameId: BaseFrameId) => {
+    playUiSound("confirm");
     const unitIndex = pendingUnitIndex;
     const frame = getBaseFrameById(frameId);
     const frameLoadout = createInitialLoadoutForFrame(frameId);
@@ -512,11 +524,13 @@ export default function App() {
     );
     setLastCombatReport(report);
     if (stage >= 7) {
+      playUiSound("runComplete");
       setRewardOptions([]);
       setLastOutcome("RUN COMPLETE: 全ステージ制圧");
       setScreen("complete");
       return;
     }
+    playUiSound("stageClear");
     setRewardOptions(generateRewardOptions(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5));
     setLastOutcome(`STAGE ${stage} CLEAR`);
     setScreen("reward");
@@ -529,6 +543,7 @@ export default function App() {
   };
 
   const applyReward = (reward: RewardOption) => {
+    playUiSound("reward");
     const payload = reward.payload;
 
     if (payload.kind === "part") {
@@ -605,19 +620,23 @@ export default function App() {
 
   const startCombat = () => {
     if (runComplete) {
+      playUiSound("error");
       setLastOutcome("RUN COMPLETE: 新しいランを開始できます");
       return;
     }
     if (!sortieReady) {
+      playUiSound("error");
       setLastOutcome("出撃可能なユニットがありません");
       setScreen(unlockedUnitCount === 0 ? "frameSelect" : "assemble");
       return;
     }
+    playUiSound("confirm");
     unlockCombatAudio();
     setScreen("combat");
   };
 
   const startNewRun = () => {
+    playUiSound("confirm");
     resetRun();
     setLastOutcome("新しいランを開始");
     setScreen("frameSelect");
@@ -625,6 +644,14 @@ export default function App() {
 
   const hasUnit = unlockedUnitCount > 0;
   const runComplete = stage >= 7 && lastOutcome?.startsWith("RUN COMPLETE") === true;
+  const selectActiveUnit = (index: number) => {
+    playUiSound("select");
+    setActiveUnitIndex(index);
+  };
+  const openScreen = (nextScreen: ScreenId) => {
+    playUiSound("select");
+    setScreen(nextScreen);
+  };
   const topNav = (
     <header className="app-header">
       <div>
@@ -636,15 +663,15 @@ export default function App() {
       <nav>
         <button
           className={screen === "assemble" ? "active" : ""}
-          onClick={() => setScreen("assemble")}
+          onClick={() => openScreen("assemble")}
           disabled={!hasUnit}
         >
           ASSEMBLE
         </button>
-        <button className={screen === "ai" ? "active" : ""} onClick={() => setScreen("ai")} disabled={!hasUnit}>
+        <button className={screen === "ai" ? "active" : ""} onClick={() => openScreen("ai")} disabled={!hasUnit}>
           AI
         </button>
-        <button className={screen === "map" ? "active" : ""} onClick={() => setScreen("map")} disabled={!hasUnit}>
+        <button className={screen === "map" ? "active" : ""} onClick={() => openScreen("map")} disabled={!hasUnit}>
           MAP
         </button>
         <button className="primary" onClick={startCombat} disabled={!sortieReady || runComplete}>
@@ -682,13 +709,13 @@ export default function App() {
           activeUnitIndex={activeUnitIndex}
           lastOutcome={lastOutcome}
           weaponAutoUse={weaponAutoUseByUnit[activeUnitIndex] ?? createWeaponAutoUse()}
-          onSelectUnit={setActiveUnitIndex}
+          onSelectUnit={selectActiveUnit}
           onChangeLoadout={changeLoadout}
           onToggleWeaponAutoUse={toggleWeaponAutoUse}
           onToggleSortie={toggleSortie}
           onUseRepairKit={useRepairKit}
-          onOpenAi={() => setScreen("ai")}
-          onOpenMap={() => setScreen("map")}
+          onOpenAi={() => openScreen("ai")}
+          onOpenMap={() => openScreen("map")}
           onStartCombat={startCombat}
           canStartCombat={sortieReady}
         />
@@ -701,11 +728,11 @@ export default function App() {
           unlockedUnitCount={unlockedUnitCount}
           statsByUnit={statsByUnit}
           targetPriority={targetPrioritiesByUnit[activeUnitIndex] ?? "nearest"}
-          onSelectUnit={setActiveUnitIndex}
+          onSelectUnit={selectActiveUnit}
           onChangeRules={changeActiveAiRules}
           onChangeTargetPriority={changeActiveTargetPriority}
-          onOpenAssemble={() => setScreen("assemble")}
-          onOpenMap={() => setScreen("map")}
+          onOpenAssemble={() => openScreen("assemble")}
+          onOpenMap={() => openScreen("map")}
           onStartCombat={startCombat}
         />
       )}
@@ -720,11 +747,11 @@ export default function App() {
           targetPrioritiesByUnit={targetPrioritiesByUnit}
           weaponAutoUseByUnit={weaponAutoUseByUnit}
           activeUnitIndex={activeUnitIndex}
-          onSelectUnit={setActiveUnitIndex}
+          onSelectUnit={selectActiveUnit}
           onVictory={handleVictory}
           onDefeat={handleDefeat}
-          onOpenAssemble={() => setScreen("assemble")}
-          onOpenAi={() => setScreen("ai")}
+          onOpenAssemble={() => openScreen("assemble")}
+          onOpenAi={() => openScreen("ai")}
         />
       )}
       {screen === "reward" && (
@@ -740,8 +767,8 @@ export default function App() {
         <RunCompleteScreen
           report={lastCombatReport}
           rulesByUnit={normalizedRulesByUnit}
-          onOpenAssemble={() => setScreen("assemble")}
-          onOpenAi={() => setScreen("ai")}
+          onOpenAssemble={() => openScreen("assemble")}
+          onOpenAi={() => openScreen("ai")}
           onNewRun={startNewRun}
         />
       )}
@@ -750,8 +777,8 @@ export default function App() {
           stage={stage}
           lastOutcome={lastOutcome}
           unlockedUnitCount={unlockedUnitCount}
-          onOpenAssemble={() => setScreen("assemble")}
-          onOpenAi={() => setScreen("ai")}
+          onOpenAssemble={() => openScreen("assemble")}
+          onOpenAi={() => openScreen("ai")}
           onStartCombat={startCombat}
         />
       )}

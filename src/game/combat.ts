@@ -103,7 +103,18 @@ export interface RivalBossAi {
   targetPriority: TargetPriorityId;
 }
 
-export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "explosion" | "defeat" | "alert";
+export type CombatSoundEvent =
+  | "shoot"
+  | "shootEnergy"
+  | "shootBallistic"
+  | "missile"
+  | "boost"
+  | "blade"
+  | "hit"
+  | "hitExplosive"
+  | "explosion"
+  | "defeat"
+  | "alert";
 
 export interface CombatReport {
   damageByUnit: number[];
@@ -1006,7 +1017,13 @@ const fireProjectile = (
       size: 16,
     }),
   );
-  state.soundEvents.push(kind === "missile" || kind === "rocket" || kind === "grenade" ? "missile" : "shoot");
+  state.soundEvents.push(
+    kind === "missile" || kind === "rocket" || kind === "grenade"
+      ? "missile"
+      : kind === "pulse"
+        ? "shootEnergy"
+        : "shootBallistic",
+  );
 };
 
 const projectileProfile = (
