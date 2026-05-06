@@ -1,6 +1,7 @@
 import { frameChoicesForUnit } from "../data/frames";
 import { BaseFrameId } from "../types";
 import frameLineupUrl from "../assets/base-frame-lineup.png";
+import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
 
 interface FrameSelectScreenProps {
   unitIndex: number;
@@ -8,6 +9,24 @@ interface FrameSelectScreenProps {
   lastOutcome?: string;
   onSelectFrame: (frameId: BaseFrameId) => void;
 }
+
+const FRAME_PREVIEW_COLUMN = 2;
+
+const framePreviewRow = (frameId: BaseFrameId): number => {
+  switch (frameId) {
+    case "light":
+      return 1;
+    case "heavy":
+      return 2;
+    case "quad":
+      return 3;
+    case "tank":
+      return 4;
+    case "medium":
+    default:
+      return 0;
+  }
+};
 
 export default function FrameSelectScreen({
   unitIndex,
@@ -53,7 +72,18 @@ export default function FrameSelectScreen({
             className={`frame-card accent-${frame.accent}`}
             onClick={() => onSelectFrame(frame.id)}
           >
-            <span className="frame-type">{frame.typeLabel}</span>
+            <div className="frame-card-head">
+              <span className="frame-type">{frame.typeLabel}</span>
+              <div
+                className={`frame-card-image frame-${frame.id}`}
+                style={{
+                  backgroundImage: `url(${playerDirectionSpritesUrl})`,
+                  backgroundPosition: `${(FRAME_PREVIEW_COLUMN / 3) * 100}% ${(framePreviewRow(frame.id) / 4) * 100}%`,
+                }}
+                role="img"
+                aria-label={`${frame.name} 機体画像`}
+              />
+            </div>
             <strong>{frame.name}</strong>
             <small>{frame.role}</small>
             <p>{frame.description}</p>

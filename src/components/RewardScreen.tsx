@@ -3,6 +3,12 @@ import { getPartById, getSlotLabel } from "../data/parts";
 import { CombatReport } from "../game/combat";
 import { RewardOption } from "../data/rewards";
 import { AiRule } from "../types";
+import rewardCategoryAiUrl from "../assets/reward-category-ai.png";
+import rewardCategoryCooldownUrl from "../assets/reward-category-cooldown.png";
+import rewardCategoryMobilityUrl from "../assets/reward-category-mobility.png";
+import rewardCategoryPartUrl from "../assets/reward-category-part.png";
+import rewardCategoryRepairUrl from "../assets/reward-category-repair.png";
+import rewardCategoryStatUrl from "../assets/reward-category-stat.png";
 
 interface RewardScreenProps {
   stage: number;
@@ -26,6 +32,24 @@ const rewardGlyph = (reward: RewardOption): string => {
     return "KIT";
   }
   return reward.payload.stat.toUpperCase();
+};
+
+const rewardImageUrl = (reward: RewardOption): string => {
+  switch (reward.payload.kind) {
+    case "part": {
+      const part = getPartById(reward.payload.partId);
+      return part.slot === "BOOSTER" ? rewardCategoryMobilityUrl : rewardCategoryPartUrl;
+    }
+    case "aiSlot":
+      return rewardCategoryAiUrl;
+    case "cooldown":
+      return rewardCategoryCooldownUrl;
+    case "repairKit":
+      return rewardCategoryRepairUrl;
+    case "stat":
+    default:
+      return rewardCategoryStatUrl;
+  }
 };
 
 const topRuleLine = (report: CombatReport | undefined, rules: AiRule[], unitIndex: number): string => {
@@ -68,7 +92,10 @@ export default function RewardScreen({ stage, rewards, report, rulesByUnit, onPi
               className={`reward-card accent-${reward.accent}`}
               onClick={() => onPickReward(reward)}
             >
-              <span className="reward-glyph">{rewardGlyph(reward)}</span>
+              <span className="reward-visual">
+                <img src={rewardImageUrl(reward)} alt="" />
+                <span className="reward-glyph">{rewardGlyph(reward)}</span>
+              </span>
               <strong>{reward.title}</strong>
               <small>{reward.subtitle}</small>
               <p>{reward.description}</p>
