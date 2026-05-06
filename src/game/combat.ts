@@ -95,7 +95,9 @@ export interface CombatState {
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
 const PLAYER_DAMAGE_MULTIPLIER = 0.48;
-const BOOST_LOCK_BREAK_RADIUS = 210;
+const BOOST_LOCK_BREAK_MIN_DISTANCE = 52;
+const BOOST_LOCK_BREAK_MAX_DISTANCE = 108;
+const BOOST_LOCK_BREAK_MIN_APPROACH = 0.35;
 let nextId = 1;
 
 const uid = (prefix: string): string => `${prefix}-${nextId++}`;
@@ -529,11 +531,19 @@ const nearestEnemyProjectileDistance = (state: CombatState, player: CombatActor)
 
 const breakIncomingMissileLocks = (state: CombatState, player: CombatActor): void => {
   for (const projectile of state.projectiles) {
+    const dx = player.x - projectile.x;
+    const dy = player.y - projectile.y;
+    const distance = Math.hypot(dx, dy);
+    const speed = Math.max(1, Math.hypot(projectile.vx, projectile.vy));
+    const approach = (projectile.vx * dx + projectile.vy * dy) / Math.max(1, speed * distance);
+
     if (
       projectile.owner === "enemy" &&
       projectile.kind === "missile" &&
       projectile.targetId === player.id &&
-      Math.hypot(projectile.x - player.x, projectile.y - player.y) <= BOOST_LOCK_BREAK_RADIUS
+      distance >= BOOST_LOCK_BREAK_MIN_DISTANCE &&
+      distance <= BOOST_LOCK_BREAK_MAX_DISTANCE &&
+      approach >= BOOST_LOCK_BREAK_MIN_APPROACH
     ) {
       projectile.targetId = undefined;
     }
