@@ -17,8 +17,10 @@ import { AiRule, DerivedStats, LegType, TargetPriorityId, WeaponAutoUse } from "
 import arenaFloorUrl from "../assets/arena-floor.png";
 import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
+import explosionBurstUrl from "../assets/explosion-burst.png";
 import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
 import enemyDirectionSpritesUrl from "../assets/enemy-direction-sprites.png";
+import projectileSpritesUrl from "../assets/projectile-sprites.png";
 
 interface CombatScreenProps {
   stage: number;
@@ -52,14 +54,19 @@ const boostBurstImage = new Image();
 boostBurstImage.src = boostBurstUrl;
 const combatSpritesImage = new Image();
 combatSpritesImage.src = combatSpritesUrl;
+const explosionBurstImage = new Image();
+explosionBurstImage.src = explosionBurstUrl;
 const playerDirectionSpritesImage = new Image();
 playerDirectionSpritesImage.src = playerDirectionSpritesUrl;
 const enemyDirectionSpritesImage = new Image();
 enemyDirectionSpritesImage.src = enemyDirectionSpritesUrl;
+const projectileSpritesImage = new Image();
+projectileSpritesImage.src = projectileSpritesUrl;
 
 const DIRECTION_COLUMNS = 4;
 const PLAYER_SPRITE_ROWS = 5;
 const ENEMY_SPRITE_ROWS = 7;
+const PROJECTILE_SPRITE_COLUMNS = 5;
 
 const spriteCell = (index: number) => ({
   column: index % 4,
@@ -346,11 +353,73 @@ const drawMech = (
   }
 };
 
+const projectileSpriteColumn = (projectile: Projectile): number => {
+  switch (projectile.kind) {
+    case "pulse":
+      return 1;
+    case "missile":
+      return 2;
+    case "rocket":
+      return 3;
+    case "grenade":
+      return 4;
+    case "bullet":
+    default:
+      return 0;
+  }
+};
+
+const projectileSpriteSize = (projectile: Projectile): number => {
+  switch (projectile.kind) {
+    case "pulse":
+      return 42;
+    case "missile":
+      return 50;
+    case "rocket":
+      return 54;
+    case "grenade":
+      return 58;
+    case "bullet":
+    default:
+      return 38;
+  }
+};
+
+const drawProjectileSprite = (
+  ctx: CanvasRenderingContext2D,
+  projectile: Projectile,
+): boolean => {
+  if (!projectileSpritesImage.complete || projectileSpritesImage.naturalWidth === 0) {
+    return false;
+  }
+
+  const column = projectileSpriteColumn(projectile);
+  const cellWidth = projectileSpritesImage.naturalWidth / PROJECTILE_SPRITE_COLUMNS;
+  const cellHeight = projectileSpritesImage.naturalHeight;
+  const size = projectileSpriteSize(projectile);
+  ctx.drawImage(
+    projectileSpritesImage,
+    column * cellWidth,
+    0,
+    cellWidth,
+    cellHeight,
+    -size / 2,
+    -size / 2,
+    size,
+    size,
+  );
+  return true;
+};
+
 const drawProjectile = (ctx: CanvasRenderingContext2D, projectile: Projectile) => {
   ctx.save();
   ctx.translate(projectile.x, projectile.y);
   const angle = Math.atan2(projectile.vy, projectile.vx) + Math.PI / 2;
   ctx.rotate(Number.isFinite(angle) ? angle : 0);
+  if (drawProjectileSprite(ctx, projectile)) {
+    ctx.restore();
+    return;
+  }
   const explosive = projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade";
   const spriteIndex = explosive ? 6 : projectile.color.toLowerCase().startsWith("#ff") ? 5 : 4;
   if (drawAtlasSprite(ctx, spriteIndex, explosive ? 34 : 20)) {
@@ -378,6 +447,18 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   ctx.save();
   ctx.translate(effect.x, effect.y);
   ctx.globalAlpha = Math.max(0, 1 - progress);
+  if (effect.kind === "explosion" && explosionBurstImage.complete && explosionBurstImage.naturalWidth > 0) {
+    const size = effect.size * (1.05 + progress * 0.85);
+    ctx.drawImage(
+      explosionBurstImage,
+      -size / 2,
+      -size / 2,
+      size,
+      size,
+    );
+    ctx.restore();
+    return;
+  }
   if (effect.kind === "explosion" && drawAtlasSprite(ctx, 7, effect.size * (1.4 + progress * 1.3))) {
     ctx.restore();
     return;
@@ -454,15 +535,23 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
   for (const projectile of state.projectiles) {
     drawProjectile(ctx, projectile);
   }
-  for (const effect of state.effects) {
+  for (const effect of state.effects.filter((item) => item.kind === "boost")) {
     drawEffect(ctx, effect);
   }
   for (const enemy of state.enemies) {
+    ctx.save();
+    if (enemy.hp <= 0) {
+      ctx.globalAlpha = Math.max(0.18, Math.min(0.55, (enemy.deathTimer ?? 0.2) / 0.38));
+    }
     drawMech(ctx, enemy, false, enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped");
+    ctx.restore();
   }
   state.players.forEach((unit) => {
     drawMech(ctx, unit.actor, true, unit.stats.legType, `U${unit.unitIndex + 1}`);
   });
+  for (const effect of state.effects.filter((item) => item.kind !== "boost")) {
+    drawEffect(ctx, effect);
+  }
 
   if (paused && state.status === "running") {
     ctx.save();

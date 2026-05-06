@@ -107,6 +107,12 @@ const playEvent = (context: AudioContext, event: CombatSoundEvent): void => {
     case "hit":
       playNoise(context, 0.11, 0.04);
       break;
+    case "explosion":
+      playTone(context, "sawtooth", 96, 38, 0.32, 0.074);
+      playTone(context, "triangle", 58, 32, 0.36, 0.046);
+      playNoise(context, 0.34, 0.082, 150, 0.72);
+      playNoise(context, 0.16, 0.048, 1250, 0.86);
+      break;
     case "defeat":
       playTone(context, "sawtooth", 220, 55, 0.55, 0.05);
       playNoise(context, 0.24, 0.045);
@@ -131,7 +137,7 @@ export const playCombatSoundEvents = (events: CombatSoundEvent[]): void => {
   const now = performance.now();
   for (const event of [...new Set(events)]) {
     const previous = lastPlayedAt.get(event) ?? 0;
-    const cooldown = event === "hit" ? 55 : event === "shoot" ? 45 : 90;
+    const cooldown = event === "hit" ? 55 : event === "shoot" ? 45 : event === "explosion" ? 95 : 90;
     if (now - previous < cooldown) {
       continue;
     }

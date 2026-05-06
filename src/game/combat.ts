@@ -57,6 +57,8 @@ export interface CombatActor {
   enemyRole?: "drone" | "scout" | "sniper" | "bruiser" | "jammer";
   entryBoostTime?: number;
   entryBoostPulse?: number;
+  deathTimer?: number;
+  deathEffectPlayed?: boolean;
 }
 
 export interface PlayerCombatUnit {
@@ -76,7 +78,7 @@ export interface PlayerWeaponState extends WeaponStats {
   autoUse: boolean;
 }
 
-export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
+export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "explosion" | "defeat";
 
 export interface CombatReport {
   damageByUnit: number[];
@@ -93,6 +95,7 @@ export interface CombatState {
   enemyQueue: CombatActor["rank"][];
   enemyTotal: number;
   spawnedEnemyCount: number;
+  nextEnemySpawnAt: number;
   projectiles: Projectile[];
   effects: Effect[];
   soundEvents: CombatSoundEvent[];
@@ -351,19 +354,22 @@ const createEnemy = (
 };
 
 const createEnemyRanks = (stage: number, playerCount: number): CombatActor["rank"][] => {
+  const normals = (count: number) => Array.from({ length: count }, () => "normal" as const);
+  const elites = (count: number) => Array.from({ length: count }, () => "elite" as const);
+
   if (stage === 7) {
     return [
+      ...normals(playerCount >= 3 ? 14 : 10),
       "boss",
       "elite",
       "elite",
-      ...Array.from({ length: playerCount >= 3 ? 14 : 10 }, () => "normal" as const),
     ];
   }
   if (stage === 5) {
     return [
+      ...normals(playerCount >= 3 ? 12 : 10),
       "elite",
       "elite",
-      ...Array.from({ length: playerCount >= 3 ? 12 : 10 }, () => "normal" as const),
     ];
   }
 
@@ -371,8 +377,8 @@ const createEnemyRanks = (stage: number, playerCount: number): CombatActor["rank
   const normalCount = normalCountByStage[stage] ?? 26;
   const eliteCount = stage >= 6 ? Math.min(3, Math.max(1, playerCount)) : 0;
   return [
-    ...Array.from({ length: eliteCount }, () => "elite" as const),
-    ...Array.from({ length: normalCount }, () => "normal" as const),
+    ...normals(normalCount),
+    ...elites(eliteCount),
   ];
 };
 
@@ -393,16 +399,74 @@ const spawnEnemies = (
 const createInitialEnemies = (
   stage: number,
   playerCount: number,
-): { enemies: CombatActor[]; enemyQueue: CombatActor["rank"][]; enemyTotal: number; spawnedEnemyCount: number } => {
+): {
+  enemies: CombatActor[];
+  enemyQueue: CombatActor["rank"][];
+  enemyTotal: number;
+  spawnedEnemyCount: number;
+  nextEnemySpawnAt: number;
+} => {
   const ranks = createEnemyRanks(stage, playerCount);
-  const initialCount = Math.min(activeEnemyCap(stage, playerCount), ranks.length);
 
   return {
-    enemies: spawnEnemies(stage, ranks.slice(0, initialCount), 0, ranks.length),
-    enemyQueue: ranks.slice(initialCount),
+    enemies: [],
+    enemyQueue: ranks,
     enemyTotal: ranks.length,
-    spawnedEnemyCount: initialCount,
+    spawnedEnemyCount: 0,
+    nextEnemySpawnAt: 0,
   };
+};
+
+const countFrontRanks = (
+  ranks: CombatActor["rank"][],
+  predicate: (rank: CombatActor["rank"]) => boolean,
+): number => {
+  let count = 0;
+  for (const rank of ranks) {
+    if (!predicate(rank)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+};
+
+const nextEnemyBatchSize = (state: CombatState, capacity: number): number => {
+  const frontRank = state.enemyQueue[0];
+  if (!frontRank || capacity <= 0) {
+    return 0;
+  }
+
+  if (frontRank !== "normal") {
+    return Math.min(capacity, countFrontRanks(state.enemyQueue, (rank) => rank !== "normal"));
+  }
+
+  const normalSpan = countFrontRanks(state.enemyQueue, (rank) => rank === "normal");
+  const progress = state.enemyTotal > 0 ? state.spawnedEnemyCount / state.enemyTotal : 0;
+  const opening = state.spawnedEnemyCount === 0;
+  const midBattleSurge = progress >= 0.42 && progress <= 0.64;
+  const livingCount = state.enemies.filter((enemy) => enemy.hp > 0).length;
+  const quietBonus = livingCount <= Math.max(1, state.players.length) ? 1 : 0;
+  const baseSize = opening
+    ? state.stage >= 5 ? 3 : 2
+    : midBattleSurge
+      ? state.stage >= 3 ? 4 : 3
+      : state.stage >= 6 ? 2 : 1;
+
+  return Math.max(1, Math.min(capacity, normalSpan, baseSize + quietBonus));
+};
+
+const enemySpawnDelayFor = (
+  state: CombatState,
+  incoming: CombatActor["rank"][],
+): number => {
+  if (incoming.some((rank) => rank !== "normal")) {
+    return 1.35;
+  }
+  if (incoming.length >= 3) {
+    return state.stage >= 5 ? 1.75 : 1.95;
+  }
+  return state.stage >= 5 ? 1.05 : 1.25;
 };
 
 const refillEnemyWave = (state: CombatState): void => {
@@ -410,12 +474,22 @@ const refillEnemyWave = (state: CombatState): void => {
   if (capacity <= 0 || state.enemyQueue.length === 0) {
     return;
   }
+  const livingCount = state.enemies.filter((enemy) => enemy.hp > 0).length;
+  if (state.time < state.nextEnemySpawnAt && livingCount > 0) {
+    return;
+  }
 
-  const incoming = state.enemyQueue.splice(0, capacity);
+  const batchSize = nextEnemyBatchSize(state, capacity);
+  if (batchSize <= 0) {
+    return;
+  }
+
+  const incoming = state.enemyQueue.splice(0, batchSize);
   state.enemies.push(
     ...spawnEnemies(state.stage, incoming, state.spawnedEnemyCount, state.enemyTotal, true),
   );
   state.spawnedEnemyCount += incoming.length;
+  state.nextEnemySpawnAt = state.time + enemySpawnDelayFor(state, incoming);
 };
 
 export const createCombatState = (
@@ -454,6 +528,7 @@ export const createCombatState = (
     enemyQueue: wave.enemyQueue,
     enemyTotal: wave.enemyTotal,
     spawnedEnemyCount: wave.spawnedEnemyCount,
+    nextEnemySpawnAt: wave.nextEnemySpawnAt,
     projectiles: [],
     effects: [],
     soundEvents: [],
@@ -1408,6 +1483,69 @@ const updateHits = (state: CombatState, dt: number): void => {
   state.projectiles = survivors;
 };
 
+const triggerEnemyDestruction = (state: CombatState, enemy: CombatActor): void => {
+  if (enemy.deathEffectPlayed) {
+    return;
+  }
+
+  enemy.deathEffectPlayed = true;
+  enemy.deathTimer = enemy.rank === "boss" ? 0.68 : enemy.rank === "elite" ? 0.52 : 0.38;
+  enemy.vx *= 0.12;
+  enemy.vy *= 0.12;
+  enemy.ax = 0;
+  enemy.ay = 0;
+  state.soundEvents.push("explosion");
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "explosion",
+      x: enemy.x,
+      y: enemy.y,
+      life: enemy.rank === "boss" ? 0.62 : enemy.rank === "elite" ? 0.5 : 0.42,
+      maxLife: enemy.rank === "boss" ? 0.62 : enemy.rank === "elite" ? 0.5 : 0.42,
+      color: enemy.color,
+      size: enemy.radius * (enemy.rank === "boss" ? 5.2 : enemy.rank === "elite" ? 4.4 : 3.5),
+    }),
+  );
+
+  if (enemy.rank !== "normal") {
+    const offset = enemy.radius * 0.62;
+    state.effects.push(
+      createEffect({
+        id: uid("effect"),
+        kind: "explosion",
+        x: enemy.x - offset,
+        y: enemy.y + offset * 0.45,
+        life: 0.38,
+        maxLife: 0.38,
+        color: enemy.color,
+        size: enemy.radius * 2.8,
+      }),
+      createEffect({
+        id: uid("effect"),
+        kind: "explosion",
+        x: enemy.x + offset * 0.72,
+        y: enemy.y - offset * 0.5,
+        life: 0.34,
+        maxLife: 0.34,
+        color: enemy.color,
+        size: enemy.radius * 2.45,
+      }),
+    );
+  }
+};
+
+const updateEnemyDestructions = (state: CombatState, dt: number): void => {
+  for (const enemy of state.enemies) {
+    if (enemy.hp > 0) {
+      continue;
+    }
+
+    triggerEnemyDestruction(state, enemy);
+    enemy.deathTimer = Math.max(0, (enemy.deathTimer ?? 0) - dt);
+  }
+};
+
 const updateEffects = (state: CombatState, dt: number): void => {
   state.effects = state.effects
     .map((effect) => ({ ...effect, life: effect.life - dt }))
@@ -1518,8 +1656,9 @@ export const stepCombat = (
   updatePositions(state, dt);
   resolveActorCollisions(state);
   updateHits(state, dt);
+  updateEnemyDestructions(state, dt);
   updateEffects(state, dt);
-  state.enemies = state.enemies.filter((enemy) => enemy.hp > 0);
+  state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 || (enemy.deathTimer ?? 0) > 0);
   refillEnemyWave(state);
 
   if (livingPlayerUnits(state).length === 0) {
