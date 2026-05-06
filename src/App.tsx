@@ -16,6 +16,7 @@ import {
   EMPTY_BOTH_SHOULDER_PART_ID,
   EMPTY_LEFT_SHOULDER_PART_ID,
   EMPTY_RIGHT_SHOULDER_PART_ID,
+  ensureStarterKit,
   equippedPartCounts,
   getPartById,
   grantStarterKit,
@@ -192,7 +193,7 @@ export default function App() {
   const [pendingUnitIndex, setPendingUnitIndex] = useState(() => savedRun?.pendingUnitIndex ?? 0);
   const [activeUnitIndex, setActiveUnitIndex] = useState(() => savedRun?.activeUnitIndex ?? 0);
   const [partInventory, setPartInventory] = useState<PartInventory>(() =>
-    savedRun?.partInventory ?? createEmptyPartInventory(),
+    savedRun?.partInventory ? ensureStarterKit(savedRun.partInventory) : createEmptyPartInventory(),
   );
   const [upgrades, setUpgrades] = useState<PilotUpgrades>(() => ({
     ...cloneUpgrades(),
@@ -331,14 +332,14 @@ export default function App() {
     const owned = partInventory[partId] ?? 0;
     const used = countEquippedPart(loadouts, unlockedUnitCount, partId);
     const available = isFreePart(partId) ? 1 : owned - used;
-    const donorIndex = isFreePart(partId)
-      ? -1
-      : loadouts.findIndex(
+    const donorIndex = !isFreePart(partId) && available <= 0
+      ? loadouts.findIndex(
           (unitLoadout, index) =>
             index < unlockedUnitCount &&
             index !== activeUnitIndex &&
             normalizeShoulderLoadout(unitLoadout)[slot] === partId,
-        );
+        )
+      : -1;
 
     if (available <= 0 && donorIndex < 0) {
       setLastOutcome(`${part.name} の空き在庫がありません`);

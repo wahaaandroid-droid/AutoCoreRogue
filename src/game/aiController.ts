@@ -17,6 +17,7 @@ export interface AiRuntimeContext {
   rightShoulderCanPay: boolean;
   bothShoulderCanPay: boolean;
   enemyProjectileDistance: number;
+  canGuard: boolean;
 }
 
 export interface AiDecision {
@@ -71,6 +72,9 @@ export const evaluateAiRules = (
   const decisions: AiDecision[] = [];
 
   for (const rule of rules) {
+    if (rule.enabled && rule.action === "guard" && !context.canGuard) {
+      continue;
+    }
     if (rule.enabled && isConditionMet(rule.condition, context)) {
       decisions.push({
         action: rule.action,

@@ -36,6 +36,9 @@ const stats = (value: Partial<PartStats>): PartStats => ({
   ...value,
 });
 
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
 const weaponSlotLabels: Record<EquipSlot, string> = {
   HEAD: "頭部",
   BODY: "コア",
@@ -67,11 +70,15 @@ const weaponHardpoints: Record<EquipSlot, WeaponHardpoint | undefined> = {
   "B-SHOULDER": "bothShoulders",
 };
 
+export const EMPTY_LEFT_ARM_PART_ID = "empty-larm";
+export const EMPTY_RIGHT_ARM_PART_ID = "empty-rarm";
 export const EMPTY_LEFT_SHOULDER_PART_ID = "empty-lshoulder";
 export const EMPTY_RIGHT_SHOULDER_PART_ID = "empty-rshoulder";
 export const EMPTY_BOTH_SHOULDER_PART_ID = "empty-bshoulder";
 
 const freePartIds = new Set<string>([
+  EMPTY_LEFT_ARM_PART_ID,
+  EMPTY_RIGHT_ARM_PART_ID,
   EMPTY_LEFT_SHOULDER_PART_ID,
   EMPTY_RIGHT_SHOULDER_PART_ID,
   EMPTY_BOTH_SHOULDER_PART_ID,
@@ -222,6 +229,16 @@ export const parts: Part[] = [
     }),
   },
   {
+    id: EMPTY_LEFT_ARM_PART_ID,
+    slot: "L-ARM",
+    name: "左腕 未装備",
+    manufacturer: "Standard",
+    description: "左腕武装を外し、重量とEN負荷を空ける。",
+    rarity: "common",
+    initial: true,
+    stats: stats({}),
+  },
+  {
     id: "larm-pulse-needle",
     slot: "L-ARM",
     name: "パルスニードル",
@@ -300,10 +317,38 @@ export const parts: Part[] = [
       defense: 9,
       moveSpeed: 4,
       weight: 430,
-      range: 118,
+      range: 86,
       attack: 126,
       cooldown: 1.05,
     }),
+  },
+  {
+    id: "larm-aegis-shield",
+    slot: "L-ARM",
+    name: "AEGIS ガードシールド",
+    manufacturer: "North Arc",
+    description: "防御姿勢を有効化する左腕用シールド。火器を持たない代わりに防御を厚くする。",
+    guardEnabled: true,
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      hp: 130,
+      enCapacity: 30,
+      enRegen: 2,
+      defense: 36,
+      turnSpeed: 4,
+      weight: 280,
+    }),
+  },
+  {
+    id: EMPTY_RIGHT_ARM_PART_ID,
+    slot: "R-ARM",
+    name: "右腕 未装備",
+    manufacturer: "Standard",
+    description: "右腕武装を外し、軽量化して機動を優先する。",
+    rarity: "common",
+    initial: true,
+    stats: stats({}),
   },
   {
     id: "rarm-rail-carbine",
@@ -782,7 +827,15 @@ export const grantStarterKit = (inventory: PartInventory): PartInventory => {
   return next;
 };
 
-export const createInitialPartInventory = (): PartInventory => grantStarterKit(createEmptyPartInventory());
+export const ensureStarterKit = (inventory: PartInventory): PartInventory => {
+  const next = { ...inventory };
+  for (const partId of starterKitPartIds) {
+    next[partId] = Math.max(1, next[partId] ?? 0);
+  }
+  return next;
+};
+
+export const createInitialPartInventory = (): PartInventory => ensureStarterKit(createEmptyPartInventory());
 
 export const getPartById = (partId: string): Part => {
   const part = parts.find((item) => item.id === partId);
@@ -846,13 +899,15 @@ export const calculateDerivedStats = (
   const weaponEntries = EQUIP_SLOTS
     .map((slot) => ({ slot, part: build[slot], hardpoint: weaponHardpoints[slot] }))
     .filter((entry): entry is { slot: EquipSlot; part: Part; hardpoint: WeaponHardpoint } =>
-      Boolean(entry.hardpoint) && !isFreePart(entry.part.id),
+      Boolean(entry.hardpoint) && !isFreePart(entry.part.id) && Boolean(entry.part.weaponKind),
     );
   const legType = frame.legType;
   const loadLimit = Math.max(1, total.loadLimit);
+  const loadRatio = total.weight / loadLimit;
   const overloadRatio = Math.max(0, (total.weight - loadLimit) / loadLimit);
-  const overloadPenalty = 1 + overloadRatio * 0.7;
-  const mobilityPenalty = Math.max(0.45, 1 - overloadRatio * 0.45);
+  const overloadPenalty = 1 + overloadRatio * 1.05 + Math.max(0, loadRatio - 0.72) * 0.28;
+  const moveWeightFactor = clamp(1.16 - loadRatio * 0.44 - overloadRatio * 0.62, 0.46, 1.12);
+  const turnWeightFactor = clamp(1.1 - loadRatio * 0.32 - overloadRatio * 0.5, 0.5, 1.06);
   const legCooldownBonus = legType === "quad" ? 0.94 : legType === "tank" ? 1.08 : 1;
   const dodgeMoveBonus = legType === "reverse" ? 1.08 : legType === "hover" ? 1.04 : 1;
   const frameCooldownOffset = frame.stats.cooldown;
@@ -861,6 +916,8 @@ export const calculateDerivedStats = (
   const weaponAttack = weaponEntries.reduce((sum, entry) => sum + entry.part.stats.attack, 0);
   const supportRange = total.range - weaponRange;
   const supportAttack = total.attack - weaponAttack;
+  const rightHasWeapon = !isFreePart(right.id) && Boolean(right.weaponKind);
+  const leftHasWeapon = !isFreePart(left.id) && Boolean(left.weaponKind);
   const weaponFor = (slot: EquipSlot, part: Part, hardpoint: WeaponHardpoint): WeaponStats => {
     const attackMultiplier = hardpoint === "bothShoulders" ? 2 : 1;
     return {
@@ -890,32 +947,33 @@ export const calculateDerivedStats = (
     enMax: Math.round(total.enCapacity + upgrades.enCapacity),
     enRegen: Math.max(8, total.enRegen + upgrades.enRegen),
     defense: Math.max(0, Math.round(total.defense + upgrades.defense)),
-    moveSpeed: Math.round(Math.max(46, total.moveSpeed * mobilityPenalty * dodgeMoveBonus)),
-    turnSpeed: Math.round(Math.max(34, total.turnSpeed * mobilityPenalty)),
+    moveSpeed: Math.round(Math.max(38, total.moveSpeed * moveWeightFactor * dodgeMoveBonus)),
+    turnSpeed: Math.round(Math.max(30, total.turnSpeed * turnWeightFactor)),
     weight: Math.round(total.weight),
     loadLimit: Math.round(loadLimit),
     overloadRatio,
     legType,
-    rightRange: Math.round(right.stats.range + supportRange),
-    leftRange: Math.round(left.stats.range + supportRange),
-    rightAttack: Math.round(right.stats.attack + supportAttack + upgrades.attack),
-    leftAttack: Math.round(left.stats.attack + supportAttack + upgrades.attack),
+    rightRange: rightHasWeapon ? Math.round(right.stats.range + supportRange) : 0,
+    leftRange: leftHasWeapon ? Math.round(left.stats.range + supportRange) : 0,
+    rightAttack: rightHasWeapon ? Math.round(right.stats.attack + supportAttack + upgrades.attack) : 0,
+    leftAttack: leftHasWeapon ? Math.round(left.stats.attack + supportAttack + upgrades.attack) : 0,
     rightCooldown: Math.max(
-      0.18,
-      right.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
+      rightHasWeapon ? 0.18 : 0,
+      rightHasWeapon ? right.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty : 0,
     ),
     leftCooldown: Math.max(
-      0.2,
-      left.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
+      leftHasWeapon ? 0.2 : 0,
+      leftHasWeapon ? left.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty : 0,
     ),
     rightResource: right.weaponResource ?? "energy",
     leftResource: left.weaponResource ?? "energy",
     rightWeaponKind: right.weaponKind ?? "rifle",
     leftWeaponKind: left.weaponKind ?? "rifle",
-    rightEnergyCost: right.energyCost ?? 6,
-    leftEnergyCost: left.energyCost ?? 5,
-    rightAmmoMax: right.weaponResource === "ballistic" ? right.ammoCapacity ?? 32 : 0,
-    leftAmmoMax: left.weaponResource === "ballistic" ? left.ammoCapacity ?? 32 : 0,
+    rightEnergyCost: rightHasWeapon ? right.energyCost ?? 6 : 0,
+    leftEnergyCost: leftHasWeapon ? left.energyCost ?? 5 : 0,
+    rightAmmoMax: rightHasWeapon && right.weaponResource === "ballistic" ? right.ammoCapacity ?? 32 : 0,
+    leftAmmoMax: leftHasWeapon && left.weaponResource === "ballistic" ? left.ammoCapacity ?? 32 : 0,
+    canGuard: selected.some((part) => part.guardEnabled),
     weapons,
   };
 };

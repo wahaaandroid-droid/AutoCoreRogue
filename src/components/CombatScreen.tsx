@@ -11,13 +11,16 @@ import {
   createCombatState,
   stepCombat,
 } from "../game/combat";
+import { isEntryBoosting } from "../game/combatMovement";
 import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType, TargetPriorityId, WeaponAutoUse } from "../types";
 import arenaFloorUrl from "../assets/arena-floor.png";
+import bladeSlashEffectUrl from "../assets/blade-slash-effect.png";
 import boostBurstUrl from "../assets/boost-burst.png";
 import combatSpritesUrl from "../assets/combat-sprites.png";
 import explosionBurstUrl from "../assets/explosion-burst.png";
+import guardShieldEffectUrl from "../assets/guard-shield-effect.png";
 import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
 import enemyDirectionSpritesUrl from "../assets/enemy-direction-sprites.png";
 import projectileSpritesUrl from "../assets/projectile-sprites.png";
@@ -50,12 +53,16 @@ const cooldownPercent = (value: number, max: number): number => {
 
 const arenaFloorImage = new Image();
 arenaFloorImage.src = arenaFloorUrl;
+const bladeSlashEffectImage = new Image();
+bladeSlashEffectImage.src = bladeSlashEffectUrl;
 const boostBurstImage = new Image();
 boostBurstImage.src = boostBurstUrl;
 const combatSpritesImage = new Image();
 combatSpritesImage.src = combatSpritesUrl;
 const explosionBurstImage = new Image();
 explosionBurstImage.src = explosionBurstUrl;
+const guardShieldEffectImage = new Image();
+guardShieldEffectImage.src = guardShieldEffectUrl;
 const playerDirectionSpritesImage = new Image();
 playerDirectionSpritesImage.src = playerDirectionSpritesUrl;
 const enemyDirectionSpritesImage = new Image();
@@ -240,6 +247,39 @@ const drawUnitTag = (
   ctx.shadowColor = "rgba(0, 0, 0, .8)";
   ctx.shadowBlur = 6;
   ctx.fillText(label, actor.x, actor.y - actor.radius - 20);
+  ctx.restore();
+};
+
+const drawGuardShield = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
+  if (!actor.guard || !guardShieldEffectImage.complete || guardShieldEffectImage.naturalWidth === 0) {
+    return;
+  }
+
+  const size = actor.radius * (actor.frameId === "tank" ? 7.2 : actor.rank === "boss" ? 7.7 : 6.6);
+  ctx.save();
+  ctx.translate(actor.x, actor.y);
+  ctx.globalAlpha = actor.team === "player" ? 0.62 : 0.54;
+  ctx.shadowColor = actor.team === "player" ? "#63e8ff" : actor.color;
+  ctx.shadowBlur = 18;
+  ctx.drawImage(guardShieldEffectImage, -size / 2, -size / 2, size, size);
+  ctx.restore();
+};
+
+const drawEntryBoost = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
+  if (!isEntryBoosting(actor) || !boostBurstImage.complete || boostBurstImage.naturalWidth === 0) {
+    return;
+  }
+
+  const angle = Math.atan2(actor.vy || actor.facingY, actor.vx || actor.facingX);
+  const length = actor.radius * (actor.rank === "boss" ? 8.6 : actor.rank === "elite" ? 8.1 : 7.4);
+  const width = actor.radius * (actor.rank === "boss" ? 3.6 : 3.1);
+  ctx.save();
+  ctx.translate(actor.x, actor.y);
+  ctx.rotate(Number.isFinite(angle) ? angle : 0);
+  ctx.globalAlpha = 0.82;
+  ctx.shadowColor = actor.rank === "elite" ? "#d889ff" : "#ff9d42";
+  ctx.shadowBlur = 24;
+  ctx.drawImage(boostBurstImage, -length - actor.radius * 0.35, -width / 2, length, width);
   ctx.restore();
 };
 
@@ -500,6 +540,13 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
 
   if (effect.kind === "slash") {
     ctx.rotate(effect.rotation ?? 0);
+    if (bladeSlashEffectImage.complete && bladeSlashEffectImage.naturalWidth > 0) {
+      const size = effect.size * (2.05 + progress * 0.34);
+      ctx.globalAlpha *= 0.92 - progress * 0.18;
+      ctx.drawImage(bladeSlashEffectImage, -size * 0.52, -size * 0.5, size, size);
+      ctx.restore();
+      return;
+    }
     ctx.lineCap = "round";
     ctx.lineWidth = 7 * (1 - progress * 0.35);
     ctx.beginPath();
@@ -573,10 +620,13 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
     if (enemy.hp <= 0) {
       ctx.globalAlpha = Math.max(0.18, Math.min(0.55, (enemy.deathTimer ?? 0.2) / 0.38));
     }
+    drawEntryBoost(ctx, enemy);
+    drawGuardShield(ctx, enemy);
     drawMech(ctx, enemy, false, enemy.legType ?? (enemy.rank === "boss" ? "tank" : enemy.rank === "elite" ? "quad" : "biped"));
     ctx.restore();
   }
   state.players.forEach((unit) => {
+    drawGuardShield(ctx, unit.actor);
     drawMech(ctx, unit.actor, true, unit.stats.legType, `U${unit.unitIndex + 1}`);
   });
   for (const effect of state.effects.filter((item) => item.kind !== "boost")) {

@@ -78,6 +78,7 @@ export interface Part {
   legType?: LegType;
   weaponResource?: WeaponResource;
   weaponKind?: WeaponKind;
+  guardEnabled?: boolean;
   blastRadius?: number;
   energyCost?: number;
   ammoCapacity?: number;
@@ -145,6 +146,7 @@ export interface DerivedStats {
   leftEnergyCost: number;
   rightAmmoMax: number;
   leftAmmoMax: number;
+  canGuard: boolean;
   weapons: WeaponStats[];
 }
 

@@ -1,6 +1,13 @@
 import { strict as assert } from "node:assert";
 import { createCombatState, stepCombat } from "../src/game/combat";
 import { createEnemyRanks } from "../src/game/enemyWaves";
+import {
+  EMPTY_LEFT_ARM_PART_ID,
+  EMPTY_RIGHT_ARM_PART_ID,
+  baseUpgrades,
+  calculateDerivedStats,
+  initialLoadout,
+} from "../src/data/parts";
 import type { AiRule, DerivedStats } from "../src/types";
 
 const rules: AiRule[][] = [[]];
@@ -32,6 +39,7 @@ const testStats: DerivedStats = {
   leftEnergyCost: 5,
   rightAmmoMax: 0,
   leftAmmoMax: 0,
+  canGuard: false,
   weapons: [],
 };
 
@@ -91,6 +99,35 @@ run("rival boss spawns with player-style weapons and alert effect", () => {
   );
   assert.ok(state.effects.some((effect) => effect.kind === "alert" && effect.label === boss.name));
   assert.ok(state.soundEvents.includes("alert"));
+});
+
+run("guard action requires shield capability", () => {
+  const guardRules: AiRule[][] = [[{ id: "guard-test", condition: "always", action: "guard", enabled: true }]];
+  const unshielded = createOneUnitState(1);
+  stepCombat(unshielded, 0.016, rules);
+  stepCombat(unshielded, 0.016, guardRules);
+  assert.equal(unshielded.players[0].actor.guard, false);
+
+  const shielded = createCombatState(1, [{ ...testStats, canGuard: true }], [testStats.hpMax], [true], 1, []);
+  stepCombat(shielded, 0.016, rules);
+  stepCombat(shielded, 0.016, guardRules);
+  assert.equal(shielded.players[0].actor.guard, true);
+});
+
+run("weapon weight affects mobility and empty arms lighten the build", () => {
+  const armed = calculateDerivedStats(initialLoadout, baseUpgrades, "medium");
+  const emptyArms = calculateDerivedStats(
+    {
+      ...initialLoadout,
+      "L-ARM": EMPTY_LEFT_ARM_PART_ID,
+      "R-ARM": EMPTY_RIGHT_ARM_PART_ID,
+    },
+    baseUpgrades,
+    "medium",
+  );
+
+  assert.ok(emptyArms.weight < armed.weight);
+  assert.ok(emptyArms.moveSpeed > armed.moveSpeed);
 });
 
 run("enemy defeat plays destruction before removal", () => {

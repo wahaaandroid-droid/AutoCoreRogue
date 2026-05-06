@@ -418,6 +418,23 @@ select {
   background-size: 28px 28px;
 }
 
+.frame-preview-image {
+  width: min(76%, 330px);
+  aspect-ratio: 1 / 1;
+  background-repeat: no-repeat;
+  background-size: 400% 500%;
+  filter: drop-shadow(0 0 24px rgba(84, 244, 167, 0.18));
+}
+
+.frame-preview-image.frame-heavy,
+.frame-preview-image.frame-tank {
+  width: min(84%, 360px);
+}
+
+.frame-preview-image.frame-light {
+  width: min(68%, 300px);
+}
+
 .leg-badge {
   position: absolute;
   right: 16px;

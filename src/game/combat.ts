@@ -56,6 +56,8 @@ export interface CombatActor {
   cooldownMax: number;
   boostCooldown: number;
   guard: boolean;
+  canGuard: boolean;
+  loadRatio: number;
   facingX: number;
   facingY: number;
   frameId?: BaseFrameId;
@@ -65,7 +67,7 @@ export interface CombatActor {
   enemyRole?: "drone" | "scout" | "sniper" | "bruiser" | "jammer" | "rival";
   rivalAi?: RivalBossAi;
   entryBoostTime?: number;
-  entryBoostPulse?: number;
+  entryBoostSoundPlayed?: boolean;
   deathTimer?: number;
   deathEffectPlayed?: boolean;
 }
@@ -128,6 +130,8 @@ const ARENA_HEIGHT = 570;
 const BOOST_LOCK_BREAK_MIN_DISTANCE = 52;
 const BOOST_LOCK_BREAK_MAX_DISTANCE = 108;
 const BOOST_LOCK_BREAK_MIN_APPROACH = 0.35;
+const BLADE_REACH_CAP = 86;
+const BLADE_ENGAGE_BUFFER = 146;
 let nextId = 1;
 
 const uid = (prefix: string): string => `${prefix}-${nextId++}`;
@@ -144,6 +148,15 @@ const applyThrust = (actor: CombatActor, x: number, y: number, strength = 1): vo
   actor.ax += x * actor.moveSpeed * 3.15 * strength;
   actor.ay += y * actor.moveSpeed * 3.15 * strength;
 };
+
+const statsLoadRatio = (stats: Pick<DerivedStats, "weight" | "loadLimit">): number =>
+  stats.weight / Math.max(1, stats.loadLimit);
+
+const boostImpulseFor = (stats: DerivedStats): number =>
+  clamp(1.12 - statsLoadRatio(stats) * 0.3 - stats.overloadRatio * 0.45, 0.58, 1.08);
+
+const actorBoostImpulseFor = (actor: CombatActor): number =>
+  clamp(1.1 - actor.loadRatio * 0.22, 0.72, 1.05);
 
 const PLAYER_FORMATION = [
   { x: 0.38, y: 0.64 },
@@ -182,6 +195,8 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   cooldownMax: 1,
   boostCooldown: 0,
   guard: false,
+  canGuard: stats.canGuard,
+  loadRatio: statsLoadRatio(stats),
   facingX: 0,
   facingY: -1,
   frameId: stats.frameId,
@@ -270,6 +285,7 @@ const createRivalStats = (
     loadLimit: number;
   },
   weapons: WeaponStats[],
+  canGuard = false,
 ): DerivedStats => {
   const byHardpoint = (hardpoint: WeaponHardpoint): WeaponStats | undefined =>
     weapons.find((weapon) => weapon.hardpoint === hardpoint);
@@ -303,6 +319,7 @@ const createRivalStats = (
     leftEnergyCost: left.energyCost,
     rightAmmoMax: right.ammoMax,
     leftAmmoMax: left.ammoMax,
+    canGuard,
     weapons,
   };
 };
@@ -330,7 +347,7 @@ const createStageFiveRivalBossSpec = (): RivalBossSpec => {
       energyCost: 9,
     }),
     createRivalWeapon("leftArm", "L-ARM", "Breaker Blade", {
-      range: 132,
+      range: 90,
       attack: 72,
       cooldown: 1.18,
       resource: "energy",
@@ -390,7 +407,7 @@ const createStageSevenRivalBossSpec = (): RivalBossSpec => {
       energyCost: 10,
     }),
     createRivalWeapon("leftArm", "L-ARM", "Heap Blade", {
-      range: 136,
+      range: 92,
       attack: 90,
       cooldown: 1.04,
       resource: "energy",
@@ -427,7 +444,7 @@ const createStageSevenRivalBossSpec = (): RivalBossSpec => {
       turnSpeed: 72,
       weight: 5600,
       loadLimit: 6800,
-    }, weapons),
+    }, weapons, true),
     color: "#ff6a42",
     targetPriority: "lowestHp",
     rules: [
@@ -503,7 +520,7 @@ const createEnemy = (
         ? ARENA_HEIGHT + entryOffset
         : clamp(entryTargetY, 84, ARENA_HEIGHT - 84);
   const entryDirection = normalize(entryTargetX - entryX, entryTargetY - entryY);
-  const initialSpeed = rank === "boss" ? 70 : rank === "elite" ? 116 : 138;
+  const initialSpeed = rank === "boss" ? 112 : rank === "elite" ? 172 : 198;
   const rivalSpec = role === "rival" ? createRivalBossSpec(stage) : undefined;
   const rivalRightWeapon = rivalSpec?.stats.weapons.find((weapon) => weapon.hardpoint === "rightArm");
   const rivalLeftWeapon = rivalSpec?.stats.weapons.find((weapon) => weapon.hardpoint === "leftArm");
@@ -556,6 +573,8 @@ const createEnemy = (
     cooldownMax: role === "scout" ? 0.92 : role === "sniper" ? 1.46 : rank === "boss" ? 0.82 : rank === "elite" ? 1.0 : 1.18,
     boostCooldown: 1.1 + index * 0.18,
     guard: false,
+    canGuard: rivalSpec?.stats.canGuard ?? false,
+    loadRatio: rivalSpec ? statsLoadRatio(rivalSpec.stats) : rank === "boss" ? 0.94 : rank === "elite" ? 0.82 : 0.68,
     facingX: rank === "boss" ? 0 : -entryDirection.x,
     facingY: rank === "boss" ? 1 : -entryDirection.y,
     frameId: rivalSpec?.stats.frameId,
@@ -573,8 +592,8 @@ const createEnemy = (
           targetPriority: rivalSpec.targetPriority,
         }
       : undefined,
-    entryBoostTime: enterFromOffscreen ? 1.15 : undefined,
-    entryBoostPulse: enterFromOffscreen ? 0 : undefined,
+    entryBoostTime: enterFromOffscreen ? 1.42 : undefined,
+    entryBoostSoundPlayed: false,
   };
 };
 
@@ -1127,6 +1146,20 @@ const weaponByHardpoint = (
 ): PlayerWeaponState | undefined =>
   unit.weapons.find((weapon) => weapon.hardpoint === hardpoint);
 
+const bladeReachFor = (
+  actor: CombatActor,
+  target: CombatActor,
+  weapon: Pick<PlayerWeaponState, "range">,
+): number =>
+  actor.radius + target.radius + Math.min(BLADE_REACH_CAP, Math.max(0, weapon.range));
+
+const bladeEngageDistanceFor = (
+  actor: CombatActor,
+  target: CombatActor,
+  weapon: Pick<PlayerWeaponState, "range">,
+): number =>
+  bladeReachFor(actor, target, weapon) + BLADE_ENGAGE_BUFFER;
+
 const firstReadyShoulderWeapon = (
   unit: PlayerCombatUnit,
   target: CombatActor,
@@ -1157,7 +1190,7 @@ const isWeaponInRange = (
   weapon: PlayerWeaponState,
 ): boolean => {
   if (weapon.weaponKind === "blade") {
-    return Math.hypot(target.x - actor.x, target.y - actor.y) <= actor.radius + target.radius + 118;
+    return Math.hypot(target.x - actor.x, target.y - actor.y) <= bladeReachFor(actor, target, weapon);
   }
   return Math.hypot(target.x - actor.x, target.y - actor.y) <= weapon.range + target.radius;
 };
@@ -1191,7 +1224,7 @@ const firePlayerWeapon = (
   const toTarget = normalize(target.x - player.x, target.y - player.y);
 
   if (weapon.weaponKind === "blade") {
-    const bladeReach = player.radius + target.radius + 118;
+    const bladeReach = bladeReachFor(player, target, weapon);
     if (toTarget.distance > bladeReach) {
       return false;
     }
@@ -1352,9 +1385,10 @@ const applyPlayerAction = (
     case "boostDodge": {
       const cost = player.legType === "reverse" ? 12 : player.legType === "tank" ? 22 : 16;
       if (unit.boostCooldown <= 0 && spendEnergy(player, cost)) {
-        player.vx += perpendicular.x * player.moveSpeed * 2.08;
-        player.vy += perpendicular.y * player.moveSpeed * 2.08;
-        applyThrust(player, perpendicular.x, perpendicular.y, 1.28);
+        const impulse = boostImpulseFor(unit.stats);
+        player.vx += perpendicular.x * player.moveSpeed * 2.08 * impulse;
+        player.vy += perpendicular.y * player.moveSpeed * 2.08 * impulse;
+        applyThrust(player, perpendicular.x, perpendicular.y, 1.28 * impulse);
         pushBoostBurst(state, player, perpendicular, player.team === "enemy" ? player.color : "#21e0ff");
         breakIncomingMissileLocks(state, player);
         unit.boostCooldown = 0.5;
@@ -1387,7 +1421,7 @@ const applyPlayerAction = (
     case "shootLeft": {
       const leftWeapon = weaponByHardpoint(unit, "leftArm");
       if (leftWeapon?.weaponKind === "blade") {
-        const bladeReach = player.radius + target.radius + 118;
+        const bladeReach = bladeReachFor(player, target, leftWeapon);
         if (toTarget.distance > bladeReach) {
           applyThrust(player, toTarget.x, toTarget.y, 1.15);
           break;
@@ -1420,8 +1454,12 @@ const applyPlayerAction = (
       firePlayerWeapon(state, unit, firstReadyShoulderWeapon(unit, target), target, true);
       break;
     case "guard":
-      player.guard = true;
-      applyThrust(player, -toTarget.x, -toTarget.y, 0.2);
+      if (unit.stats.canGuard && player.canGuard) {
+        player.guard = true;
+        applyThrust(player, -toTarget.x, -toTarget.y, 0.2);
+      } else {
+        combatDrift();
+      }
       break;
     case "idle":
       combatDrift();
@@ -1484,11 +1522,17 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
     rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
     bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
     enemyProjectileDistance: nearestHostileProjectileDistance(state, enemy),
+    canGuard: rival.stats.canGuard,
   });
 
-  const bladeEngageDistance = target ? enemy.radius + target.radius + 284 : 0;
+  const bladeEngageDistance = target && leftWeapon?.weaponKind === "blade"
+    ? bladeEngageDistanceFor(enemy, target, leftWeapon)
+    : 0;
   const hasDefensiveDecision = decision.some(
-    (item) => item.action === "retreat" || item.action === "guard" || item.action === "boostDodge",
+    (item) =>
+      item.action === "retreat" ||
+      item.action === "boostDodge" ||
+      (item.action === "guard" && rival.stats.canGuard),
   );
   if (
     leftWeapon?.weaponKind === "blade" &&
@@ -1532,7 +1576,10 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
 
   if (isEntryBoosting(enemy)) {
     enemy.entryBoostTime = Math.max(0, (enemy.entryBoostTime ?? 0) - dt);
-    enemy.entryBoostPulse = Math.max(0, (enemy.entryBoostPulse ?? 0) - dt);
+    if (!enemy.entryBoostSoundPlayed) {
+      enemy.entryBoostSoundPlayed = true;
+      state.soundEvents.push("boost");
+    }
 
     const entryAnchor = {
       x: clamp(enemy.x, 112, state.width - 112),
@@ -1541,12 +1588,6 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
     const toArena = normalize(entryAnchor.x - enemy.x, entryAnchor.y - enemy.y);
     const thrust = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 1.65 : 1.9;
     applyThrust(enemy, toArena.x, toArena.y, thrust);
-
-    if ((enemy.entryBoostPulse ?? 0) <= 0) {
-      pushBoostBurst(state, enemy, toArena, enemy.rank === "elite" ? "#d889ff" : "#ff9d42");
-      state.soundEvents.push("boost");
-      enemy.entryBoostPulse = 0.18;
-    }
 
     const inside =
       enemy.x > 44 &&
@@ -1559,7 +1600,6 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
     }
 
     enemy.entryBoostTime = 0;
-    enemy.entryBoostPulse = undefined;
   }
 
   if (enemy.rivalAi) {
@@ -1571,9 +1611,10 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   if (threat && enemy.boostCooldown <= 0) {
     const dodgeSide = Math.sin(state.time * 3.1 + enemy.x * 0.013) > 0 ? 1 : -1;
     const dodge = { x: -threat.y * dodgeSide, y: threat.x * dodgeSide };
-    enemy.vx += dodge.x * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55);
-    enemy.vy += dodge.y * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55);
-    applyThrust(enemy, dodge.x, dodge.y, enemy.rank === "boss" ? 0.65 : 0.85);
+    const impulse = actorBoostImpulseFor(enemy);
+    enemy.vx += dodge.x * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55) * impulse;
+    enemy.vy += dodge.y * enemy.moveSpeed * (enemy.rank === "boss" ? 1.1 : 1.55) * impulse;
+    applyThrust(enemy, dodge.x, dodge.y, (enemy.rank === "boss" ? 0.65 : 0.85) * impulse);
     pushBoostBurst(state, enemy, dodge, enemy.rank === "elite" ? "#d889ff" : "#ff9d42");
     state.soundEvents.push("boost");
     enemy.boostCooldown = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 0.85 : 1.25;
@@ -1683,11 +1724,17 @@ export const stepCombat = (
       rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
       bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
       enemyProjectileDistance: nearestHostileProjectileDistance(state, player),
+      canGuard: unit.stats.canGuard,
     });
 
-    const bladeEngageDistance = target ? player.radius + target.radius + 284 : 0;
+    const bladeEngageDistance = target && leftWeapon?.weaponKind === "blade"
+      ? bladeEngageDistanceFor(player, target, leftWeapon)
+      : 0;
     const hasDefensiveDecision = decision.some(
-      (item) => item.action === "retreat" || item.action === "guard" || item.action === "boostDodge",
+      (item) =>
+        item.action === "retreat" ||
+        item.action === "boostDodge" ||
+        (item.action === "guard" && unit.stats.canGuard),
     );
     if (
       target &&

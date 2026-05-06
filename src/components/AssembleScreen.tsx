@@ -21,7 +21,7 @@ import {
   WeaponAutoUse,
   WeaponHardpoint,
 } from "../types";
-import MechSilhouette from "./MechSilhouette";
+import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
 
 interface AssembleScreenProps {
   loadouts: Loadout[];
@@ -58,6 +58,25 @@ const statRows = [
   ["積載量", "loadLimit"],
 ] as const;
 
+const FRAME_PREVIEW_COLUMN = 1;
+
+const framePreviewRow = (frameId: BaseFrameId): number => {
+  switch (frameId) {
+    case "light":
+      return 0;
+    case "medium":
+      return 1;
+    case "heavy":
+      return 2;
+    case "quad":
+      return 3;
+    case "tank":
+      return 4;
+    default:
+      return 1;
+  }
+};
+
 export default function AssembleScreen({
   loadouts,
   unitFrameIds,
@@ -89,6 +108,10 @@ export default function AssembleScreen({
   const build = buildFromLoadout(loadout);
   const activeFrame = getBaseFrameById(unitFrameIds[activeUnitIndex] ?? stats.frameId);
   const activeSlotBlocked = isShoulderSlotBlocked(loadout, activeSlot);
+  const framePreviewStyle = {
+    backgroundImage: `url(${playerDirectionSpritesUrl})`,
+    backgroundPosition: `${(FRAME_PREVIEW_COLUMN / 3) * 100}% ${(framePreviewRow(activeFrame.id) / 4) * 100}%`,
+  };
 
   const partStatus = (partId: string) => {
     if (isFreePart(partId)) {
@@ -182,7 +205,12 @@ export default function AssembleScreen({
       <section className="panel mech-preview-panel">
         <div className="section-title">FRAME PREVIEW</div>
         <div className="mech-preview">
-          <MechSilhouette frameId={activeFrame.id} legType={stats.legType} />
+          <div
+            className={`frame-preview-image frame-${activeFrame.id}`}
+            style={framePreviewStyle}
+            role="img"
+            aria-label={`${activeFrame.name} 機体画像`}
+          />
           <div className="leg-badge">{activeFrame.typeLabel} / {getLegLabel(stats.legType)}</div>
         </div>
       </section>

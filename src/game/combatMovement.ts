@@ -6,6 +6,11 @@ const clamp = (value: number, min: number, max: number): number =>
 export const isEntryBoosting = (actor: CombatActor): boolean =>
   actor.team === "enemy" && (actor.entryBoostTime ?? 0) > 0;
 
+const weightInertiaFactor = (actor: CombatActor): number => {
+  const loadRatio = actor.loadRatio || 0.72;
+  return clamp(1.22 - loadRatio * 0.46, 0.62, 1.16);
+};
+
 const maxSpeedFor = (actor: CombatActor): number => {
   if (actor.team === "enemy") {
     if (actor.rivalAi) {
@@ -25,36 +30,43 @@ const maxSpeedFor = (actor: CombatActor): number => {
 };
 
 const dragFor = (actor: CombatActor): number => {
+  const inertiaFactor = weightInertiaFactor(actor);
   if (actor.team === "enemy") {
     if (actor.rivalAi) {
-      switch (actor.legType) {
-        case "hover":
-          return 0.88;
-        case "tank":
-          return 1.18;
-        case "reverse":
-          return 1.75;
-        case "quad":
-          return 1.5;
-        default:
-          return 1.58;
-      }
+      const baseDrag = (() => {
+        switch (actor.legType) {
+          case "hover":
+            return 0.88;
+          case "tank":
+            return 1.18;
+          case "reverse":
+            return 1.75;
+          case "quad":
+            return 1.5;
+          default:
+            return 1.58;
+        }
+      })();
+      return baseDrag * inertiaFactor;
     }
-    return actor.rank === "boss" ? 1.35 : 1.55;
+    return (actor.rank === "boss" ? 1.35 : 1.55) * inertiaFactor;
   }
 
-  switch (actor.legType) {
-    case "hover":
-      return 0.88;
-    case "tank":
-      return 1.18;
-    case "reverse":
-      return 1.75;
-    case "quad":
-      return 1.5;
-    default:
-      return 1.58;
-  }
+  const baseDrag = (() => {
+    switch (actor.legType) {
+      case "hover":
+        return 0.88;
+      case "tank":
+        return 1.18;
+      case "reverse":
+        return 1.75;
+      case "quad":
+        return 1.5;
+      default:
+        return 1.58;
+    }
+  })();
+  return baseDrag * inertiaFactor;
 };
 
 export const updatePositions = (state: CombatState, dt: number): void => {
