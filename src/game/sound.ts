@@ -1,8 +1,7 @@
 import type { CombatSoundEvent } from "./combat";
 import alertOneUrl from "../assets/sfx/alert_1.ogg";
 import alertTwoUrl from "../assets/sfx/alert_2.ogg";
-import bladeOneUrl from "../assets/sfx/blade_1.ogg";
-import bladeTwoUrl from "../assets/sfx/blade_2.ogg";
+import bladeCustomUrl from "../assets/sfx/blade_custom.mp3";
 import boostOneUrl from "../assets/sfx/boost_1.ogg";
 import boostTwoUrl from "../assets/sfx/boost_2.ogg";
 import defeatOneUrl from "../assets/sfx/defeat_1.ogg";
@@ -82,7 +81,7 @@ const combatSamples: Record<CombatSoundEvent, SampleConfig> = {
     pitchJitter: 0.04,
   },
   blade: {
-    urls: [bladeOneUrl, bladeTwoUrl],
+    urls: [bladeCustomUrl],
     gain: 0.23,
     pitchJitter: 0.05,
   },

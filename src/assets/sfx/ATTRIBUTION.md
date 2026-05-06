@@ -1,6 +1,8 @@
 # Sound Effect Attribution
 
-All sound effects in this folder are from Kenney audio asset packs.
+Most sound effects in this folder are from Kenney audio asset packs.
+
+`blade_custom.mp3` is a user-provided replacement for the blade attack sound and is not from Kenney.
 
 Source packs:
 
