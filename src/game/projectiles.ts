@@ -1,6 +1,6 @@
 export type ProjectileOwner = "player" | "enemy";
 
-export type ProjectileKind = "bullet" | "pulse" | "missile";
+export type ProjectileKind = "bullet" | "pulse" | "missile" | "rocket" | "grenade";
 
 export interface Projectile {
   id: string;
@@ -12,6 +12,7 @@ export interface Projectile {
   vy: number;
   damage: number;
   radius: number;
+  blastRadius?: number;
   life: number;
   color: string;
   targetId?: string;

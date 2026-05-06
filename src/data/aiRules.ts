@@ -1,4 +1,4 @@
-import { AiActionId, AiConditionId, AiRule, TargetPriorityId } from "../types";
+import { AiActionId, AiConditionId, AiRule, BaseFrameId, TargetPriorityId } from "../types";
 
 export interface ConditionDefinition {
   id: AiConditionId;
@@ -26,6 +26,10 @@ export const conditionDefinitions: ConditionDefinition[] = [
   { id: "enHigh", label: "ENが50%以上", tint: "cyan" },
   { id: "rightReady", label: "右腕武器が使用可能", tint: "blue" },
   { id: "leftReady", label: "左腕武器が使用可能", tint: "green" },
+  { id: "leftShoulderReady", label: "左肩武器が使用可能", tint: "orange" },
+  { id: "rightShoulderReady", label: "右肩武器が使用可能", tint: "orange" },
+  { id: "bothShoulderReady", label: "両肩武器が使用可能", tint: "purple" },
+  { id: "shoulderReady", label: "肩武器が使用可能", tint: "purple" },
   { id: "enemyProjectileNear", label: "敵弾が近い", tint: "orange" },
   { id: "always", label: "常に", tint: "gray" },
 ];
@@ -37,7 +41,11 @@ export const actionDefinitions: ActionDefinition[] = [
   { id: "boostDodge", label: "ブースト回避", tint: "cyan" },
   { id: "shootRight", label: "右腕武器を撃つ", tint: "blue" },
   { id: "shootLeft", label: "左腕武器を撃つ", tint: "green" },
-  { id: "fireMissile", label: "ミサイルを撃つ", tint: "orange" },
+  { id: "fireLeftShoulder", label: "左肩武器を撃つ", tint: "orange" },
+  { id: "fireRightShoulder", label: "右肩武器を撃つ", tint: "orange" },
+  { id: "fireBothShoulders", label: "両肩武器を撃つ", tint: "purple" },
+  { id: "fireShoulder", label: "肩武器を撃つ", tint: "purple" },
+  { id: "fireMissile", label: "肩ミサイルを撃つ", tint: "orange" },
   { id: "guard", label: "防御する", tint: "gray" },
   { id: "idle", label: "何もしない", tint: "gray" },
 ];
@@ -65,13 +73,52 @@ export const createEmptyRule = (index: number): AiRule => ({
   enabled: true,
 });
 
-export const createInitialAiRules = (): AiRule[] => [
-  { id: "rule-1", condition: "hpLow", action: "retreat", enabled: true },
-  { id: "rule-2", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
-  { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
-  { id: "rule-4", condition: "leftReady", action: "shootLeft", enabled: true },
-  { id: "rule-5", condition: "always", action: "strafe", enabled: true },
-];
+export const createInitialAiRules = (frameId: BaseFrameId = "medium"): AiRule[] => {
+  switch (frameId) {
+    case "light":
+      return [
+        { id: "rule-1", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
+        { id: "rule-2", condition: "enemyClose", action: "shootLeft", enabled: true },
+        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
+        { id: "rule-4", condition: "rightShoulderReady", action: "fireRightShoulder", enabled: true },
+        { id: "rule-5", condition: "always", action: "strafe", enabled: true },
+      ];
+    case "heavy":
+      return [
+        { id: "rule-1", condition: "enemyClose", action: "guard", enabled: true },
+        { id: "rule-2", condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
+        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
+        { id: "rule-4", condition: "leftShoulderReady", action: "fireLeftShoulder", enabled: true },
+        { id: "rule-5", condition: "always", action: "retreat", enabled: true },
+      ];
+    case "quad":
+      return [
+        { id: "rule-1", condition: "enemyFar", action: "shootRight", enabled: true },
+        { id: "rule-2", condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
+        { id: "rule-3", condition: "leftReady", action: "shootLeft", enabled: true },
+        { id: "rule-4", condition: "leftShoulderReady", action: "fireLeftShoulder", enabled: true },
+        { id: "rule-5", condition: "always", action: "strafe", enabled: true },
+      ];
+    case "tank":
+      return [
+        { id: "rule-1", condition: "hpLow", action: "guard", enabled: true },
+        { id: "rule-2", condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
+        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
+        { id: "rule-4", condition: "rightShoulderReady", action: "fireRightShoulder", enabled: true },
+        { id: "rule-5", condition: "always", action: "approach", enabled: true },
+      ];
+    case "medium":
+    default:
+      return [
+        { id: "rule-1", condition: "hpLow", action: "retreat", enabled: true },
+        { id: "rule-2", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
+        { id: "rule-3", condition: "rightReady", action: "shootRight", enabled: true },
+        { id: "rule-4", condition: "leftReady", action: "shootLeft", enabled: true },
+        { id: "rule-5", condition: "shoulderReady", action: "fireShoulder", enabled: true },
+        { id: "rule-6", condition: "always", action: "strafe", enabled: true },
+      ];
+  }
+};
 
 export const ensureAiRuleSlots = (rules: AiRule[], slotCount: number): AiRule[] => {
   const normalized = [...rules];

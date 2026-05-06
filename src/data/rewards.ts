@@ -1,5 +1,5 @@
 import { PartInventory } from "../types";
-import { playableParts } from "./parts";
+import { getSlotLabel, playableParts } from "./parts";
 
 export type RewardPayload =
   | { kind: "part"; partId: string }
@@ -102,8 +102,8 @@ export const generateRewardOptions = (
       id: `part-${part.id}`,
       title: owned > 0 ? "追加パーツ" : rewardIconSeed[index % rewardIconSeed.length],
       subtitle: part.name,
-      description: `${part.slot} / ${part.rarity.toUpperCase()} を1個入手${owned > 0 ? `（所持 ${owned}）` : ""}`,
-      accent: part.slot.includes("ARM") ? "orange" : "blue",
+      description: `${getSlotLabel(part.slot)} / ${part.rarity.toUpperCase()} を1個入手${owned > 0 ? `（所持 ${owned}）` : ""}`,
+      accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : "blue",
       payload: { kind: "part", partId: part.id },
     };
   });

@@ -7,9 +7,14 @@ export interface AiRuntimeContext {
   nearestEnemyDistance: number;
   rightCooldown: number;
   leftCooldown: number;
-  missileCooldown: number;
+  leftShoulderCooldown: number;
+  rightShoulderCooldown: number;
+  bothShoulderCooldown: number;
   rightCanPay: boolean;
   leftCanPay: boolean;
+  leftShoulderCanPay: boolean;
+  rightShoulderCanPay: boolean;
+  bothShoulderCanPay: boolean;
   enemyProjectileDistance: number;
 }
 
@@ -35,6 +40,18 @@ const isConditionMet = (condition: AiConditionId, context: AiRuntimeContext): bo
       return context.rightCooldown <= 0 && context.rightCanPay;
     case "leftReady":
       return context.leftCooldown <= 0 && context.leftCanPay;
+    case "leftShoulderReady":
+      return context.leftShoulderCooldown <= 0 && context.leftShoulderCanPay;
+    case "rightShoulderReady":
+      return context.rightShoulderCooldown <= 0 && context.rightShoulderCanPay;
+    case "bothShoulderReady":
+      return context.bothShoulderCooldown <= 0 && context.bothShoulderCanPay;
+    case "shoulderReady":
+      return (
+        (context.leftShoulderCooldown <= 0 && context.leftShoulderCanPay) ||
+        (context.rightShoulderCooldown <= 0 && context.rightShoulderCanPay) ||
+        (context.bothShoulderCooldown <= 0 && context.bothShoulderCanPay)
+      );
     case "enemyProjectileNear":
       return context.enemyProjectileDistance < 82;
     case "always":

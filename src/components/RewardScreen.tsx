@@ -1,5 +1,5 @@
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
-import { getPartById } from "../data/parts";
+import { getPartById, getSlotLabel } from "../data/parts";
 import { CombatReport } from "../game/combat";
 import { RewardOption } from "../data/rewards";
 import { AiRule } from "../types";
@@ -14,7 +14,7 @@ interface RewardScreenProps {
 
 const rewardGlyph = (reward: RewardOption): string => {
   if (reward.payload.kind === "part") {
-    return getPartById(reward.payload.partId).slot;
+    return getSlotLabel(getPartById(reward.payload.partId).slot);
   }
   if (reward.payload.kind === "aiSlot") {
     return "AI";

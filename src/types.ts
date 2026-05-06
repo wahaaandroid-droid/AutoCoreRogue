@@ -1,4 +1,12 @@
-export const EQUIP_SLOTS = ["HEAD", "BODY", "L-ARM", "R-ARM"] as const;
+export const EQUIP_SLOTS = [
+  "HEAD",
+  "BODY",
+  "L-ARM",
+  "R-ARM",
+  "L-SHOULDER",
+  "R-SHOULDER",
+  "B-SHOULDER",
+] as const;
 export const PART_SLOTS = [...EQUIP_SLOTS, "LEGS"] as const;
 
 export const SQUAD_SIZE = 3;
@@ -15,7 +23,22 @@ export type Rarity = "common" | "rare" | "elite";
 
 export type WeaponResource = "energy" | "ballistic";
 
-export type WeaponKind = "gun" | "missile" | "blade";
+export type WeaponKind =
+  | "rifle"
+  | "sniperRifle"
+  | "machineGun"
+  | "rocket"
+  | "grenade"
+  | "missile"
+  | "pulse"
+  | "blade";
+
+export type WeaponHardpoint =
+  | "leftArm"
+  | "rightArm"
+  | "leftShoulder"
+  | "rightShoulder"
+  | "bothShoulders";
 
 export interface PartStats {
   hp: number;
@@ -52,6 +75,7 @@ export interface Part {
   legType?: LegType;
   weaponResource?: WeaponResource;
   weaponKind?: WeaponKind;
+  blastRadius?: number;
   energyCost?: number;
   ammoCapacity?: number;
   rarity: Rarity;
@@ -64,6 +88,21 @@ export type Loadout = Record<EquipSlot, string>;
 export type MechBuild = Record<EquipSlot, Part>;
 
 export type PartInventory = Record<string, number>;
+
+export interface WeaponStats {
+  hardpoint: WeaponHardpoint;
+  slot: EquipSlot;
+  partId: string;
+  label: string;
+  range: number;
+  attack: number;
+  cooldown: number;
+  resource: WeaponResource;
+  weaponKind: WeaponKind;
+  energyCost: number;
+  ammoMax: number;
+  blastRadius: number;
+}
 
 export interface PilotUpgrades {
   hp: number;
@@ -101,9 +140,7 @@ export interface DerivedStats {
   leftEnergyCost: number;
   rightAmmoMax: number;
   leftAmmoMax: number;
-  missileAttack: number;
-  missileCooldown: number;
-  missileEnergyCost: number;
+  weapons: WeaponStats[];
 }
 
 export type AiConditionId =
@@ -114,6 +151,10 @@ export type AiConditionId =
   | "enHigh"
   | "rightReady"
   | "leftReady"
+  | "leftShoulderReady"
+  | "rightShoulderReady"
+  | "bothShoulderReady"
+  | "shoulderReady"
   | "enemyProjectileNear"
   | "always";
 
@@ -124,6 +165,10 @@ export type AiActionId =
   | "boostDodge"
   | "shootRight"
   | "shootLeft"
+  | "fireLeftShoulder"
+  | "fireRightShoulder"
+  | "fireBothShoulders"
+  | "fireShoulder"
   | "fireMissile"
   | "guard"
   | "idle";

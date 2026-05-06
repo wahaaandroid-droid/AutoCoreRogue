@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { getBaseFrameById } from "../data/frames";
-import { buildFromLoadout, getLegLabel, partsBySlot, unitsEquippingPart } from "../data/parts";
+import {
+  buildFromLoadout,
+  getLegLabel,
+  getSlotLabel,
+  getWeaponKindLabel,
+  partsBySlot,
+  unitsEquippingPart,
+} from "../data/parts";
 import { BaseFrameId, DerivedStats, EQUIP_SLOTS, EquipSlot, Loadout, PartInventory } from "../types";
 import MechSilhouette from "./MechSilhouette";
 
@@ -134,7 +141,7 @@ export default function AssembleScreen({
                 key={slot}
                 onClick={() => setActiveSlot(slot)}
               >
-                <span className="slot-token">{slot}</span>
+                <span className="slot-token">{getSlotLabel(slot)}</span>
                 <span>
                   <strong>{part.name}</strong>
                   <small>{part.manufacturer}</small>
@@ -180,6 +187,15 @@ export default function AssembleScreen({
             <dd>{stats.leftAttack}</dd>
           </div>
         </dl>
+        <div className="weapon-status-list">
+          {stats.weapons.map((weapon) => (
+            <div key={weapon.hardpoint}>
+              <span>{weapon.label}</span>
+              <strong>{getWeaponKindLabel(weapon.weaponKind)}</strong>
+              <small>ATK {weapon.attack} / RNG {weapon.range} / CD {weapon.cooldown.toFixed(1)}</small>
+            </div>
+          ))}
+        </div>
         {stats.overloadRatio > 0 && (
           <div className="warning-line">積載超過: 機動とクールダウンにペナルティ</div>
         )}
@@ -194,7 +210,7 @@ export default function AssembleScreen({
               className={activeSlot === slot ? "active" : ""}
               onClick={() => setActiveSlot(slot)}
             >
-              {slot}
+              {getSlotLabel(slot)}
             </button>
           ))}
         </div>
@@ -226,6 +242,12 @@ export default function AssembleScreen({
                 <span className="part-stat-line">
                   ATK {part.stats.attack} / RNG {part.stats.range} / WT {part.stats.weight}
                 </span>
+                {part.weaponKind && (
+                  <span className="part-stat-line">
+                    TYPE {getWeaponKindLabel(part.weaponKind)}
+                    {part.blastRadius ? ` / BLAST ${part.blastRadius}` : ""}
+                  </span>
+                )}
                 {part.weaponResource && (
                   <span className="part-stat-line">
                     {part.weaponResource === "ballistic"

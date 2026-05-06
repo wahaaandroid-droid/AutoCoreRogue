@@ -11,6 +11,9 @@ import {
   PartSlot,
   PartStats,
   PilotUpgrades,
+  WeaponHardpoint,
+  WeaponKind,
+  WeaponStats,
 } from "../types";
 import { getBaseFrameById, initialFrameId } from "./frames";
 
@@ -32,6 +35,42 @@ const stats = (value: Partial<PartStats>): PartStats => ({
   ...zeroStats,
   ...value,
 });
+
+const weaponSlotLabels: Record<EquipSlot, string> = {
+  HEAD: "頭部",
+  BODY: "コア",
+  "L-ARM": "左腕",
+  "R-ARM": "右腕",
+  "L-SHOULDER": "左肩",
+  "R-SHOULDER": "右肩",
+  "B-SHOULDER": "両肩",
+};
+
+const weaponKindLabels: Record<WeaponKind, string> = {
+  rifle: "ライフル",
+  sniperRifle: "スナイパーライフル",
+  machineGun: "マシンガン",
+  rocket: "ロケット",
+  grenade: "グレネード",
+  missile: "ミサイル",
+  pulse: "パルス",
+  blade: "ブレード",
+};
+
+const weaponHardpoints: Record<EquipSlot, WeaponHardpoint | undefined> = {
+  HEAD: undefined,
+  BODY: undefined,
+  "L-ARM": "leftArm",
+  "R-ARM": "rightArm",
+  "L-SHOULDER": "leftShoulder",
+  "R-SHOULDER": "rightShoulder",
+  "B-SHOULDER": "bothShoulders",
+};
+
+export const getSlotLabel = (slot: PartSlot): string =>
+  slot === "LEGS" ? "脚部" : weaponSlotLabels[slot];
+
+export const getWeaponKindLabel = (kind: WeaponKind): string => weaponKindLabels[kind];
 
 export const parts: Part[] = [
   {
@@ -153,6 +192,7 @@ export const parts: Part[] = [
     manufacturer: "Kairo Grid",
     description: "短い間隔で撃てる左腕用パルス武器。",
     weaponResource: "energy",
+    weaponKind: "pulse",
     energyCost: 5,
     rarity: "common",
     initial: true,
@@ -173,6 +213,7 @@ export const parts: Part[] = [
     manufacturer: "Vantline",
     description: "実弾を消費する左腕用軽機関砲。ステージ開始時に弾薬全回復。",
     weaponResource: "ballistic",
+    weaponKind: "machineGun",
     ammoCapacity: 72,
     rarity: "common",
     initial: true,
@@ -195,7 +236,7 @@ export const parts: Part[] = [
     weaponKind: "missile",
     ammoCapacity: 12,
     rarity: "rare",
-    initial: false,
+    initial: true,
     stats: stats({
       hp: 90,
       enCapacity: 35,
@@ -216,7 +257,7 @@ export const parts: Part[] = [
     weaponKind: "blade",
     energyCost: 8,
     rarity: "rare",
-    initial: false,
+    initial: true,
     stats: stats({
       hp: 85,
       enCapacity: 55,
@@ -235,6 +276,7 @@ export const parts: Part[] = [
     manufacturer: "Kairo Grid",
     description: "射程と連射のバランスが良い右腕ライフル。",
     weaponResource: "energy",
+    weaponKind: "rifle",
     energyCost: 6,
     rarity: "common",
     initial: true,
@@ -255,6 +297,7 @@ export const parts: Part[] = [
     manufacturer: "North Arc",
     description: "実弾を消費する右腕ライフル。ENを節約しながら安定射撃できる。",
     weaponResource: "ballistic",
+    weaponKind: "rifle",
     ammoCapacity: 48,
     rarity: "common",
     initial: true,
@@ -268,15 +311,38 @@ export const parts: Part[] = [
     }),
   },
   {
+    id: "rarm-longshot-sniper",
+    slot: "R-ARM",
+    name: "ロングショットSR",
+    manufacturer: "Kairo Grid",
+    description: "遠距離から高弾速の一撃を通す右腕スナイパーライフル。",
+    weaponResource: "ballistic",
+    weaponKind: "sniperRifle",
+    ammoCapacity: 22,
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      hp: 74,
+      defense: 6,
+      turnSpeed: -4,
+      weight: 700,
+      range: 510,
+      attack: 112,
+      cooldown: 1.38,
+    }),
+  },
+  {
     id: "rarm-burst-cannon",
     slot: "R-ARM",
     name: "バーストキャノン",
     manufacturer: "Vantline",
     description: "重いが威力の高い右腕キャノン。",
     weaponResource: "ballistic",
+    weaponKind: "rocket",
+    blastRadius: 36,
     ammoCapacity: 18,
     rarity: "rare",
-    initial: false,
+    initial: true,
     stats: stats({
       hp: 120,
       enCapacity: 10,
@@ -295,6 +361,7 @@ export const parts: Part[] = [
     manufacturer: "Mira Node",
     description: "EN消費で高弾速を出す実験兵装。",
     weaponResource: "energy",
+    weaponKind: "pulse",
     energyCost: 9,
     rarity: "elite",
     initial: false,
@@ -307,6 +374,137 @@ export const parts: Part[] = [
       range: 350,
       attack: 96,
       cooldown: 0.58,
+    }),
+  },
+  {
+    id: "lshoulder-harrier-rocket",
+    slot: "L-SHOULDER",
+    name: "HARRIER 左肩ロケット",
+    manufacturer: "North Arc",
+    description: "中遠距離から直進ロケットを撃ち込む左肩武装。",
+    weaponResource: "ballistic",
+    weaponKind: "rocket",
+    blastRadius: 42,
+    ammoCapacity: 14,
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      hp: 64,
+      defense: 5,
+      turnSpeed: -3,
+      weight: 620,
+      range: 420,
+      attack: 118,
+      cooldown: 1.65,
+    }),
+  },
+  {
+    id: "lshoulder-sentinel-sniper",
+    slot: "L-SHOULDER",
+    name: "SENTINEL 肩部狙撃砲",
+    manufacturer: "Kairo Grid",
+    description: "静止砲撃に向いた左肩用スナイパーライフル。",
+    weaponResource: "energy",
+    weaponKind: "sniperRifle",
+    energyCost: 14,
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      hp: 50,
+      enCapacity: 34,
+      defense: 4,
+      turnSpeed: -5,
+      weight: 560,
+      range: 560,
+      attack: 132,
+      cooldown: 1.72,
+    }),
+  },
+  {
+    id: "rshoulder-lynx-mg",
+    slot: "R-SHOULDER",
+    name: "LYNX 右肩マシンガン",
+    manufacturer: "Vantline",
+    description: "近中距離で弾幕を張る右肩マシンガン。",
+    weaponResource: "ballistic",
+    weaponKind: "machineGun",
+    ammoCapacity: 120,
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      hp: 56,
+      defense: 4,
+      weight: 470,
+      range: 285,
+      attack: 24,
+      cooldown: 0.16,
+    }),
+  },
+  {
+    id: "rshoulder-viper-missile",
+    slot: "R-SHOULDER",
+    name: "VIPER 右肩ミサイル",
+    manufacturer: "North Arc",
+    description: "回避行動中でも追尾弾で圧をかける右肩ミサイルポッド。",
+    weaponResource: "ballistic",
+    weaponKind: "missile",
+    ammoCapacity: 16,
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      hp: 62,
+      enCapacity: 20,
+      defense: 5,
+      weight: 540,
+      range: 390,
+      attack: 76,
+      cooldown: 1.08,
+    }),
+  },
+  {
+    id: "bshoulder-crater-grenade",
+    slot: "B-SHOULDER",
+    name: "CRATER 両肩グレネード",
+    manufacturer: "Vantline",
+    description: "両肩で反動を受け止め、着弾点を範囲爆破する重グレネード。",
+    weaponResource: "ballistic",
+    weaponKind: "grenade",
+    blastRadius: 76,
+    ammoCapacity: 8,
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      hp: 110,
+      defense: 12,
+      moveSpeed: -4,
+      turnSpeed: -8,
+      weight: 980,
+      range: 365,
+      attack: 152,
+      cooldown: 2.35,
+    }),
+  },
+  {
+    id: "bshoulder-siege-rocket",
+    slot: "B-SHOULDER",
+    name: "SIEGE 両肩ロケット",
+    manufacturer: "Mira Node",
+    description: "長射程の連装ロケット。単体火力と制圧力を両立する。",
+    weaponResource: "ballistic",
+    weaponKind: "rocket",
+    blastRadius: 52,
+    ammoCapacity: 10,
+    rarity: "elite",
+    initial: false,
+    stats: stats({
+      hp: 82,
+      enRegen: -2,
+      defense: 7,
+      turnSpeed: -6,
+      weight: 860,
+      range: 470,
+      attack: 138,
+      cooldown: 1.85,
     }),
   },
   {
@@ -447,6 +645,57 @@ export const initialLoadout: Loadout = {
   BODY: "body-aegis",
   "L-ARM": "larm-pulse-needle",
   "R-ARM": "rarm-rail-carbine",
+  "L-SHOULDER": "lshoulder-harrier-rocket",
+  "R-SHOULDER": "rshoulder-lynx-mg",
+  "B-SHOULDER": "bshoulder-crater-grenade",
+};
+
+export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
+  switch (frameId) {
+    case "light":
+      return {
+        HEAD: "head-orbit-s",
+        BODY: "body-flux",
+        "L-ARM": "larm-arc-blade",
+        "R-ARM": "rarm-kinetic-rifle",
+        "L-SHOULDER": "lshoulder-harrier-rocket",
+        "R-SHOULDER": "rshoulder-lynx-mg",
+        "B-SHOULDER": "bshoulder-crater-grenade",
+      };
+    case "heavy":
+      return {
+        HEAD: "head-warden",
+        BODY: "body-aegis",
+        "L-ARM": "larm-solid-shredder",
+        "R-ARM": "rarm-burst-cannon",
+        "L-SHOULDER": "lshoulder-harrier-rocket",
+        "R-SHOULDER": "rshoulder-lynx-mg",
+        "B-SHOULDER": "bshoulder-crater-grenade",
+      };
+    case "quad":
+      return {
+        HEAD: "head-orbit-s",
+        BODY: "body-aegis",
+        "L-ARM": "larm-micro-missile",
+        "R-ARM": "rarm-longshot-sniper",
+        "L-SHOULDER": "lshoulder-harrier-rocket",
+        "R-SHOULDER": "rshoulder-lynx-mg",
+        "B-SHOULDER": "bshoulder-crater-grenade",
+      };
+    case "tank":
+      return {
+        HEAD: "head-warden",
+        BODY: "body-aegis",
+        "L-ARM": "larm-solid-shredder",
+        "R-ARM": "rarm-burst-cannon",
+        "L-SHOULDER": "lshoulder-harrier-rocket",
+        "R-SHOULDER": "rshoulder-lynx-mg",
+        "B-SHOULDER": "bshoulder-crater-grenade",
+      };
+    case "medium":
+    default:
+      return { ...initialLoadout };
+  }
 };
 
 export const initialUnlockedPartIds = parts
@@ -526,6 +775,11 @@ export const calculateDerivedStats = (
 
   const right = build["R-ARM"];
   const left = build["L-ARM"];
+  const weaponEntries = EQUIP_SLOTS
+    .map((slot) => ({ slot, part: build[slot], hardpoint: weaponHardpoints[slot] }))
+    .filter((entry): entry is { slot: EquipSlot; part: Part; hardpoint: WeaponHardpoint } =>
+      Boolean(entry.hardpoint),
+    );
   const legType = frame.legType;
   const loadLimit = Math.max(1, total.loadLimit);
   const overloadRatio = Math.max(0, (total.weight - loadLimit) / loadLimit);
@@ -535,8 +789,28 @@ export const calculateDerivedStats = (
   const dodgeMoveBonus = legType === "reverse" ? 1.08 : legType === "hover" ? 1.04 : 1;
   const frameCooldownOffset = frame.stats.cooldown;
   const cooldownPenalty = Math.max(0.82, legCooldownBonus * overloadPenalty + frameCooldownOffset);
-  const supportRange = total.range - right.stats.range - left.stats.range;
-  const supportAttack = total.attack - right.stats.attack - left.stats.attack;
+  const weaponRange = weaponEntries.reduce((sum, entry) => sum + entry.part.stats.range, 0);
+  const weaponAttack = weaponEntries.reduce((sum, entry) => sum + entry.part.stats.attack, 0);
+  const supportRange = total.range - weaponRange;
+  const supportAttack = total.attack - weaponAttack;
+  const weaponFor = (slot: EquipSlot, part: Part, hardpoint: WeaponHardpoint): WeaponStats => ({
+    hardpoint,
+    slot,
+    partId: part.id,
+    label: weaponSlotLabels[slot],
+    range: Math.round(part.stats.range + supportRange),
+    attack: Math.round(part.stats.attack + supportAttack + upgrades.attack),
+    cooldown: Math.max(
+      hardpoint === "bothShoulders" ? 0.85 : hardpoint.includes("Shoulder") ? 0.4 : 0.18,
+      part.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
+    ),
+    resource: part.weaponResource ?? "energy",
+    weaponKind: part.weaponKind ?? "rifle",
+    energyCost: part.energyCost ?? (hardpoint.includes("Shoulder") ? 10 : 6),
+    ammoMax: part.weaponResource === "ballistic" ? part.ammoCapacity ?? 24 : 0,
+    blastRadius: part.blastRadius ?? (part.weaponKind === "grenade" ? 70 : part.weaponKind === "rocket" ? 42 : 0),
+  });
+  const weapons = weaponEntries.map((entry) => weaponFor(entry.slot, entry.part, entry.hardpoint));
 
   return {
     frameId,
@@ -565,15 +839,13 @@ export const calculateDerivedStats = (
     ),
     rightResource: right.weaponResource ?? "energy",
     leftResource: left.weaponResource ?? "energy",
-    rightWeaponKind: right.weaponKind ?? "gun",
-    leftWeaponKind: left.weaponKind ?? "gun",
+    rightWeaponKind: right.weaponKind ?? "rifle",
+    leftWeaponKind: left.weaponKind ?? "rifle",
     rightEnergyCost: right.energyCost ?? 6,
     leftEnergyCost: left.energyCost ?? 5,
     rightAmmoMax: right.weaponResource === "ballistic" ? right.ammoCapacity ?? 32 : 0,
     leftAmmoMax: left.weaponResource === "ballistic" ? left.ammoCapacity ?? 32 : 0,
-    missileAttack: Math.round(58 + total.attack * 0.45 + upgrades.attack * 0.7),
-    missileCooldown: Math.max(1.25, 2.8 * upgrades.cooldownMultiplier * cooldownPenalty),
-    missileEnergyCost: 9,
+    weapons,
   };
 };
 

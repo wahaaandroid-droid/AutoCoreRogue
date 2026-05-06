@@ -6,7 +6,18 @@ import {
   Effect,
   Projectile,
 } from "./projectiles";
-import { AiActionId, AiRule, BaseFrameId, DerivedStats, LegType, TargetPriorityId, WeaponResource } from "../types";
+import {
+  AiActionId,
+  AiRule,
+  BaseFrameId,
+  DerivedStats,
+  LegType,
+  TargetPriorityId,
+  WeaponHardpoint,
+  WeaponKind,
+  WeaponResource,
+  WeaponStats,
+} from "../types";
 
 export interface CombatActor {
   id: string;
@@ -53,19 +64,14 @@ export interface PlayerCombatUnit {
   stats: DerivedStats;
   activeAction: AiActionId;
   activeRuleId?: string;
-  rightCooldown: number;
-  leftCooldown: number;
-  missileCooldown: number;
+  weapons: PlayerWeaponState[];
   boostCooldown: number;
-  rightResource: WeaponResource;
-  leftResource: WeaponResource;
-  rightAmmo: number;
-  rightAmmoMax: number;
-  leftAmmo: number;
-  leftAmmoMax: number;
-  rightEnergyCost: number;
-  leftEnergyCost: number;
-  missileEnergyCost: number;
+}
+
+export interface PlayerWeaponState extends WeaponStats {
+  cooldownRemaining: number;
+  cooldownMax: number;
+  ammo: number;
 }
 
 export type CombatSoundEvent = "shoot" | "missile" | "boost" | "blade" | "hit" | "defeat";
@@ -188,8 +194,8 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   enRegen: stats.enRegen,
   defense: stats.defense,
   moveSpeed: stats.moveSpeed,
-  range: Math.max(stats.rightRange, stats.leftRange),
-  attack: Math.max(stats.rightAttack, stats.leftAttack),
+  range: Math.max(...stats.weapons.map((weapon) => weapon.range), stats.rightRange, stats.leftRange),
+  attack: Math.max(...stats.weapons.map((weapon) => weapon.attack), stats.rightAttack, stats.leftAttack),
   cooldown: 0,
   cooldownMax: 1,
   boostCooldown: 0,
@@ -212,25 +218,20 @@ const createPlayerUnit = (
   actor.x = ARENA_WIDTH * (PLAYER_FORMATION[formationIndex]?.x ?? 0.5);
   actor.y = ARENA_HEIGHT * (PLAYER_FORMATION[formationIndex]?.y ?? 0.58);
   actor.hp = clamp(currentHp, 0, stats.hpMax);
+  const weapons = stats.weapons.map((weapon, weaponIndex): PlayerWeaponState => ({
+    ...weapon,
+    cooldownRemaining: 0.18 + formationIndex * 0.08 + weaponIndex * 0.12,
+    cooldownMax: weapon.cooldown,
+    ammo: weapon.ammoMax,
+  }));
 
   return {
     unitIndex,
     actor,
     stats,
     activeAction: "idle",
-    rightCooldown: 0.2 + formationIndex * 0.08,
-    leftCooldown: 0.35 + formationIndex * 0.08,
-    missileCooldown: 1.5 + formationIndex * 0.16,
+    weapons,
     boostCooldown: 0,
-    rightResource: stats.rightResource,
-    leftResource: stats.leftResource,
-    rightAmmo: stats.rightAmmoMax,
-    rightAmmoMax: stats.rightAmmoMax,
-    leftAmmo: stats.leftAmmoMax,
-    leftAmmoMax: stats.leftAmmoMax,
-    rightEnergyCost: stats.rightEnergyCost,
-    leftEnergyCost: stats.leftEnergyCost,
-    missileEnergyCost: stats.missileEnergyCost,
   };
 };
 
@@ -631,6 +632,7 @@ const fireProjectile = (
   radius: number,
   targetId?: string,
   sourceUnitIndex?: number,
+  blastRadius = 0,
 ): void => {
   const aim = normalize(target.x - source.x, target.y - source.y);
   state.projectiles.push(
@@ -644,7 +646,8 @@ const fireProjectile = (
       vy: aim.y * speed,
       damage,
       radius,
-      life: kind === "missile" ? 2.9 : 1.55,
+      blastRadius,
+      life: kind === "missile" ? 2.9 : kind === "rocket" || kind === "grenade" ? 2.05 : 1.55,
       color,
       targetId,
       sourceUnitIndex,
@@ -662,7 +665,86 @@ const fireProjectile = (
       size: 16,
     }),
   );
-  state.soundEvents.push(kind === "missile" ? "missile" : "shoot");
+  state.soundEvents.push(kind === "missile" || kind === "rocket" || kind === "grenade" ? "missile" : "shoot");
+};
+
+const projectileProfile = (
+  kind: WeaponKind,
+  resource: WeaponResource,
+): {
+  projectileKind: Projectile["kind"];
+  speed: number;
+  color: string;
+  radius: number;
+  damageScale: number;
+  homing: boolean;
+} => {
+  switch (kind) {
+    case "sniperRifle":
+      return {
+        projectileKind: resource === "energy" ? "pulse" : "bullet",
+        speed: resource === "energy" ? 820 : 880,
+        color: resource === "energy" ? "#8ce5ff" : "#ffe0a6",
+        radius: 4.1,
+        damageScale: 1.18,
+        homing: false,
+      };
+    case "machineGun":
+      return {
+        projectileKind: resource === "energy" ? "pulse" : "bullet",
+        speed: resource === "energy" ? 560 : 640,
+        color: resource === "energy" ? "#54f4a7" : "#ffb15a",
+        radius: 3.5,
+        damageScale: 0.82,
+        homing: false,
+      };
+    case "rocket":
+      return {
+        projectileKind: "rocket",
+        speed: 315,
+        color: "#ff9d42",
+        radius: 6.4,
+        damageScale: 1.08,
+        homing: false,
+      };
+    case "grenade":
+      return {
+        projectileKind: "grenade",
+        speed: 255,
+        color: "#ffc45f",
+        radius: 7.2,
+        damageScale: 1.0,
+        homing: false,
+      };
+    case "missile":
+      return {
+        projectileKind: "missile",
+        speed: 225,
+        color: "#ff9c35",
+        radius: 5.9,
+        damageScale: 1.0,
+        homing: true,
+      };
+    case "pulse":
+      return {
+        projectileKind: "pulse",
+        speed: 510,
+        color: "#63cfff",
+        radius: 4.8,
+        damageScale: 1.0,
+        homing: false,
+      };
+    case "rifle":
+    default:
+      return {
+        projectileKind: resource === "energy" ? "pulse" : "bullet",
+        speed: resource === "energy" ? 585 : 650,
+        color: resource === "energy" ? "#63cfff" : "#ffb15a",
+        radius: 4.4,
+        damageScale: 1.0,
+        homing: false,
+      };
+  }
 };
 
 const performBladeAttack = (
@@ -737,44 +819,89 @@ const spendEnergy = (actor: CombatActor, amount: number): boolean => {
   return true;
 };
 
-const canPayWeapon = (
+const weaponByHardpoint = (
   unit: PlayerCombatUnit,
-  side: "right" | "left",
-): boolean => {
-  if (side === "right") {
-    return unit.rightResource === "ballistic"
-      ? unit.rightAmmo > 0
-      : unit.actor.en >= unit.rightEnergyCost;
-  }
+  hardpoint: WeaponHardpoint,
+): PlayerWeaponState | undefined =>
+  unit.weapons.find((weapon) => weapon.hardpoint === hardpoint);
 
-  return unit.leftResource === "ballistic"
-    ? unit.leftAmmo > 0
-    : unit.actor.en >= unit.leftEnergyCost;
+const firstReadyShoulderWeapon = (unit: PlayerCombatUnit): PlayerWeaponState | undefined =>
+  unit.weapons.find((weapon) =>
+    weapon.hardpoint.includes("Shoulder") &&
+    weapon.cooldownRemaining <= 0 &&
+    canPayWeapon(unit, weapon),
+  );
+
+const canPayWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefined): boolean => {
+  if (!weapon) {
+    return false;
+  }
+  return weapon.resource === "ballistic"
+    ? weapon.ammo > 0
+    : unit.actor.en >= weapon.energyCost;
 };
 
 const consumeWeapon = (
   unit: PlayerCombatUnit,
-  side: "right" | "left",
+  weapon: PlayerWeaponState,
 ): boolean => {
-  if (side === "right") {
-    if (unit.rightResource === "ballistic") {
-      if (unit.rightAmmo <= 0) {
-        return false;
-      }
-      unit.rightAmmo -= 1;
-      return true;
-    }
-    return spendEnergy(unit.actor, unit.rightEnergyCost);
-  }
-
-  if (unit.leftResource === "ballistic") {
-    if (unit.leftAmmo <= 0) {
+  if (weapon.resource === "ballistic") {
+    if (weapon.ammo <= 0) {
       return false;
     }
-    unit.leftAmmo -= 1;
+    weapon.ammo -= 1;
     return true;
   }
-  return spendEnergy(unit.actor, unit.leftEnergyCost);
+  return spendEnergy(unit.actor, weapon.energyCost);
+};
+
+const firePlayerWeapon = (
+  state: CombatState,
+  unit: PlayerCombatUnit,
+  weapon: PlayerWeaponState | undefined,
+  target: CombatActor,
+): boolean => {
+  if (!weapon || weapon.cooldownRemaining > 0) {
+    return false;
+  }
+
+  const player = unit.actor;
+  const toTarget = normalize(target.x - player.x, target.y - player.y);
+
+  if (weapon.weaponKind === "blade") {
+    const bladeReach = player.radius + target.radius + 118;
+    if (toTarget.distance > bladeReach) {
+      return false;
+    }
+    if (!consumeWeapon(unit, weapon)) {
+      return false;
+    }
+    player.vx += toTarget.x * player.moveSpeed * 0.88;
+    player.vy += toTarget.y * player.moveSpeed * 0.88;
+    performBladeAttack(state, player, target, weapon.attack * 1.55, bladeReach);
+    weapon.cooldownRemaining = weapon.cooldownMax;
+    return true;
+  }
+
+  if (!consumeWeapon(unit, weapon)) {
+    return false;
+  }
+  const profile = projectileProfile(weapon.weaponKind, weapon.resource);
+  fireProjectile(
+    state,
+    player,
+    target,
+    weapon.attack * profile.damageScale,
+    profile.speed,
+    profile.projectileKind,
+    profile.color,
+    profile.radius,
+    profile.homing ? target.id : undefined,
+    unit.unitIndex,
+    weapon.blastRadius,
+  );
+  weapon.cooldownRemaining = weapon.cooldownMax;
+  return true;
 };
 
 const applyPlayerAction = (
@@ -784,7 +911,6 @@ const applyPlayerAction = (
   target: CombatActor | undefined,
 ): void => {
   const player = unit.actor;
-  const stats = unit.stats;
   if (!target) {
     return;
   }
@@ -826,25 +952,11 @@ const applyPlayerAction = (
     }
     case "shootRight":
       combatDrift();
-      if (unit.rightCooldown <= 0 && consumeWeapon(unit, "right")) {
-        const ballistic = unit.rightResource === "ballistic";
-        fireProjectile(
-          state,
-          player,
-          target,
-          stats.rightAttack,
-          ballistic ? 640 : 585,
-          ballistic ? "bullet" : "pulse",
-          ballistic ? "#ff9d42" : "#63cfff",
-          ballistic ? 4.6 : 4.2,
-          undefined,
-          unit.unitIndex,
-        );
-        unit.rightCooldown = stats.rightCooldown;
-      }
+      firePlayerWeapon(state, unit, weaponByHardpoint(unit, "rightArm"), target);
       break;
-    case "shootLeft":
-      if (stats.leftWeaponKind === "blade") {
+    case "shootLeft": {
+      const leftWeapon = weaponByHardpoint(unit, "leftArm");
+      if (leftWeapon?.weaponKind === "blade") {
         const bladeReach = player.radius + target.radius + 118;
         if (toTarget.distance > bladeReach) {
           applyThrust(player, toTarget.x, toTarget.y, 1.15);
@@ -852,40 +964,30 @@ const applyPlayerAction = (
         }
 
         applyThrust(player, toTarget.x, toTarget.y, 0.58);
-        if (unit.leftCooldown <= 0 && consumeWeapon(unit, "left")) {
-          player.vx += toTarget.x * player.moveSpeed * 0.88;
-          player.vy += toTarget.y * player.moveSpeed * 0.88;
-          performBladeAttack(state, player, target, stats.leftAttack * 1.55, bladeReach);
-          unit.leftCooldown = stats.leftCooldown;
-        }
+        firePlayerWeapon(state, unit, leftWeapon, target);
         break;
       }
 
       combatDrift();
-      if (unit.leftCooldown <= 0 && consumeWeapon(unit, "left")) {
-        const ballistic = unit.leftResource === "ballistic";
-        const kind = stats.leftWeaponKind === "missile" ? "missile" : ballistic ? "bullet" : "pulse";
-        fireProjectile(
-          state,
-          player,
-          target,
-          stats.leftAttack,
-          kind === "missile" ? 245 : ballistic ? 610 : 465,
-          kind,
-          kind === "missile" ? "#ff9c35" : ballistic ? "#ffb15a" : "#54f4a7",
-          kind === "missile" ? 6 : ballistic ? 4.5 : 4.8,
-          kind === "missile" ? target.id : undefined,
-          unit.unitIndex,
-        );
-        unit.leftCooldown = stats.leftCooldown;
-      }
+      firePlayerWeapon(state, unit, leftWeapon, target);
       break;
+    }
+    case "fireLeftShoulder":
+      combatDrift();
+      firePlayerWeapon(state, unit, weaponByHardpoint(unit, "leftShoulder"), target);
+      break;
+    case "fireRightShoulder":
+      combatDrift();
+      firePlayerWeapon(state, unit, weaponByHardpoint(unit, "rightShoulder"), target);
+      break;
+    case "fireBothShoulders":
+      combatDrift();
+      firePlayerWeapon(state, unit, weaponByHardpoint(unit, "bothShoulders"), target);
+      break;
+    case "fireShoulder":
     case "fireMissile":
       combatDrift();
-      if (unit.missileCooldown <= 0 && spendEnergy(player, unit.missileEnergyCost)) {
-        fireProjectile(state, player, target, stats.missileAttack, 220, "missile", "#ffb13b", 5.8, target.id, unit.unitIndex);
-        unit.missileCooldown = stats.missileCooldown;
-      }
+      firePlayerWeapon(state, unit, firstReadyShoulderWeapon(unit), target);
       break;
     case "guard":
       player.guard = true;
@@ -1106,11 +1208,26 @@ const updateHits = (state: CombatState, dt: number): void => {
     );
 
     if (hitTarget) {
-      const damage = damageAfterDefense(projectile.damage, hitTarget);
-      hitTarget.hp = Math.max(0, hitTarget.hp - damage);
-      if (projectile.owner === "player" && projectile.sourceUnitIndex !== undefined) {
-        state.report.damageByUnit[projectile.sourceUnitIndex] =
-          (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;
+      const blastRadius = projectile.blastRadius ?? 0;
+      const impactedTargets = blastRadius > 0
+        ? targets.filter(
+            (target) =>
+              target.hp > 0 &&
+              Math.hypot(projectile.x - target.x, projectile.y - target.y) <= blastRadius + target.radius,
+          )
+        : [hitTarget];
+
+      for (const target of impactedTargets) {
+        const distance = Math.hypot(projectile.x - target.x, projectile.y - target.y);
+        const falloff = blastRadius > 0
+          ? clamp(1 - distance / Math.max(1, blastRadius), 0.34, 1)
+          : 1;
+        const damage = damageAfterDefense(projectile.damage * falloff, target);
+        target.hp = Math.max(0, target.hp - damage);
+        if (projectile.owner === "player" && projectile.sourceUnitIndex !== undefined) {
+          state.report.damageByUnit[projectile.sourceUnitIndex] =
+            (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;
+        }
       }
       state.soundEvents.push("hit");
       state.effects.push(
@@ -1119,10 +1236,10 @@ const updateHits = (state: CombatState, dt: number): void => {
           kind: "explosion",
           x: projectile.x,
           y: projectile.y,
-          life: projectile.kind === "missile" ? 0.36 : 0.18,
-          maxLife: projectile.kind === "missile" ? 0.36 : 0.18,
+          life: projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade" ? 0.36 : 0.18,
+          maxLife: projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade" ? 0.36 : 0.18,
           color: projectile.color,
-          size: projectile.kind === "missile" ? 30 : 18,
+          size: blastRadius > 0 ? Math.max(30, blastRadius * 0.72) : projectile.kind === "missile" ? 30 : 18,
         }),
       );
       continue;
@@ -1173,9 +1290,9 @@ export const stepCombat = (
     }
 
     player.en = Math.min(player.maxEn, player.en + player.enRegen * dt);
-    unit.rightCooldown = Math.max(0, unit.rightCooldown - dt);
-    unit.leftCooldown = Math.max(0, unit.leftCooldown - dt);
-    unit.missileCooldown = Math.max(0, unit.missileCooldown - dt);
+    for (const weapon of unit.weapons) {
+      weapon.cooldownRemaining = Math.max(0, weapon.cooldownRemaining - dt);
+    }
     unit.boostCooldown = Math.max(0, unit.boostCooldown - dt);
 
     const target = selectEnemyTarget(state, player, targetPrioritiesByUnit[unit.unitIndex] ?? "nearest");
@@ -1184,16 +1301,26 @@ export const stepCombat = (
       : Number.POSITIVE_INFINITY;
     const threatDistance = nearestEnemyDistance(state, player);
     const rules = rulesByUnit[unit.unitIndex] ?? rulesByUnit[0] ?? [];
+    const rightWeapon = weaponByHardpoint(unit, "rightArm");
+    const leftWeapon = weaponByHardpoint(unit, "leftArm");
+    const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
+    const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
+    const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
     const decision = evaluateAiRules(rules, {
       en: player.en,
       hpPercent: player.hp / player.maxHp,
       enPercent: player.en / player.maxEn,
       nearestEnemyDistance: threatDistance,
-      rightCooldown: unit.rightCooldown,
-      leftCooldown: unit.leftCooldown,
-      missileCooldown: unit.missileCooldown,
-      rightCanPay: canPayWeapon(unit, "right"),
-      leftCanPay: canPayWeapon(unit, "left"),
+      rightCooldown: rightWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+      leftCooldown: leftWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+      leftShoulderCooldown: leftShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+      rightShoulderCooldown: rightShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+      bothShoulderCooldown: bothShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
+      rightCanPay: canPayWeapon(unit, rightWeapon),
+      leftCanPay: canPayWeapon(unit, leftWeapon),
+      leftShoulderCanPay: canPayWeapon(unit, leftShoulderWeapon),
+      rightShoulderCanPay: canPayWeapon(unit, rightShoulderWeapon),
+      bothShoulderCanPay: canPayWeapon(unit, bothShoulderWeapon),
       enemyProjectileDistance: nearestEnemyProjectileDistance(state, player),
     });
 
@@ -1203,8 +1330,8 @@ export const stepCombat = (
     );
     if (
       target &&
-      unit.stats.leftWeaponKind === "blade" &&
-      unit.leftCooldown <= 0 &&
+      leftWeapon?.weaponKind === "blade" &&
+      leftWeapon.cooldownRemaining <= 0 &&
       targetDistance <= bladeEngageDistance &&
       !hasDefensiveDecision
     ) {

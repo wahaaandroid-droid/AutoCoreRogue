@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
+import { getWeaponKindLabel } from "../data/parts";
 import { getStagePlan } from "../data/stages";
-import { CombatActor, CombatReport, CombatState, PlayerCombatUnit, createCombatState, stepCombat } from "../game/combat";
+import {
+  CombatActor,
+  CombatReport,
+  CombatState,
+  PlayerCombatUnit,
+  PlayerWeaponState,
+  createCombatState,
+  stepCombat,
+} from "../game/combat";
 import { Effect, Projectile } from "../game/projectiles";
 import { playCombatSoundEvents } from "../game/sound";
 import { AiRule, DerivedStats, LegType, TargetPriorityId } from "../types";
@@ -243,19 +252,19 @@ const drawMech = (
     actor.radius *
     (isPlayer
       ? actor.frameId === "tank"
-        ? 7.3
+        ? 5.9
         : actor.frameId === "quad"
-          ? 7.1
+          ? 5.7
           : actor.frameId === "heavy"
-            ? 6.7
-            : 6.2
+            ? 5.4
+            : 5.0
       : actor.rank === "boss"
-        ? 7.5
+        ? 6.1
         : actor.rank === "elite"
-          ? 6.7
+          ? 5.4
           : actor.enemyRole === "sniper"
-            ? 6.2
-            : 5.8);
+            ? 5.0
+            : 4.7);
   if (drawDirectionalSprite(ctx, directionalImage, directionalRows, directionalRow, direction, directionalSize)) {
     ctx.restore();
     drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
@@ -265,7 +274,7 @@ const drawMech = (
     return;
   }
   const spriteIndex = isPlayer ? 0 : actor.rank === "boss" ? 3 : actor.rank === "elite" ? 2 : 1;
-  if (!isPlayer && drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 3.6 : actor.rank === "elite" ? 3.4 : 3.1))) {
+  if (!isPlayer && drawAtlasSprite(ctx, spriteIndex, actor.radius * (actor.rank === "boss" ? 2.9 : actor.rank === "elite" ? 2.7 : 2.5))) {
     ctx.restore();
     drawBar(ctx, actor.x - 24, actor.y - actor.radius - 15, 48, hpPercent(actor), isPlayer ? "#54f4a7" : "#ff6848");
     if (label) {
@@ -341,8 +350,9 @@ const drawProjectile = (ctx: CanvasRenderingContext2D, projectile: Projectile) =
   ctx.translate(projectile.x, projectile.y);
   const angle = Math.atan2(projectile.vy, projectile.vx) + Math.PI / 2;
   ctx.rotate(Number.isFinite(angle) ? angle : 0);
-  const spriteIndex = projectile.kind === "missile" ? 6 : projectile.color.toLowerCase().startsWith("#ff") ? 5 : 4;
-  if (drawAtlasSprite(ctx, spriteIndex, projectile.kind === "missile" ? 36 : 22)) {
+  const explosive = projectile.kind === "missile" || projectile.kind === "rocket" || projectile.kind === "grenade";
+  const spriteIndex = explosive ? 6 : projectile.color.toLowerCase().startsWith("#ff") ? 5 : 4;
+  if (drawAtlasSprite(ctx, spriteIndex, explosive ? 34 : 20)) {
     ctx.restore();
     return;
   }
@@ -351,7 +361,7 @@ const drawProjectile = (ctx: CanvasRenderingContext2D, projectile: Projectile) =
   ctx.fillStyle = projectile.color;
   ctx.shadowColor = projectile.color;
   ctx.shadowBlur = 16;
-  ctx.lineWidth = projectile.kind === "missile" ? 3 : 2;
+  ctx.lineWidth = explosive ? 3 : 2;
   ctx.beginPath();
   ctx.moveTo(projectile.x, projectile.y);
   ctx.lineTo(projectile.x - projectile.vx * 0.035, projectile.y - projectile.vy * 0.035);
@@ -428,8 +438,15 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   ctx.restore();
 };
 
-const resourceLabel = (resource: string, ammo: number, ammoMax: number, energyCost: number) =>
-  resource === "ballistic" ? `${ammo} / ${ammoMax}` : `EN ${energyCost}`;
+const resourceLabel = (weapon: PlayerWeaponState) =>
+  weapon.resource === "ballistic" ? `${weapon.ammo} / ${weapon.ammoMax}` : `EN ${weapon.energyCost}`;
+
+const coolbarClass = (weapon: PlayerWeaponState): string =>
+  weapon.hardpoint === "leftArm"
+    ? "coolbar green"
+    : weapon.hardpoint.includes("Shoulder")
+      ? "coolbar orange"
+      : "coolbar";
 
 const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState) => {
   drawGrid(ctx, state);
@@ -518,6 +535,7 @@ export default function CombatScreen({
           players: current.players.map((unit): PlayerCombatUnit => ({
             ...unit,
             actor: { ...unit.actor },
+            weapons: unit.weapons.map((weapon) => ({ ...weapon })),
           })),
           enemies: [...current.enemies],
           enemyQueue: [...current.enemyQueue],
@@ -605,33 +623,24 @@ export default function CombatScreen({
         </div>
         <div className="panel compact">
           <div className="section-title">WEAPON COOL</div>
-          <div className="cool-row">
-            <span>右腕</span>
-            <b>{activeUnit.rightCooldown.toFixed(1)} / {resourceLabel(activeUnit.rightResource, activeUnit.rightAmmo, activeUnit.rightAmmoMax, activeUnit.rightEnergyCost)}</b>
-          </div>
-          <div className="coolbar"><span style={{ width: `${cooldownPercent(activeUnit.rightCooldown, activeStats.rightCooldown) * 100}%` }} /></div>
-          {activeUnit.rightCooldown <= 0 && activeUnit.rightResource === "energy" && activeActor.en < activeUnit.rightEnergyCost && (
-            <div className="shortage-line">右腕 EN不足</div>
-          )}
-          {activeUnit.rightCooldown <= 0 && activeUnit.rightResource === "ballistic" && activeUnit.rightAmmo <= 0 && (
-            <div className="shortage-line">右腕 弾切れ</div>
-          )}
-          <div className="cool-row">
-            <span>左腕</span>
-            <b>{activeUnit.leftCooldown.toFixed(1)} / {resourceLabel(activeUnit.leftResource, activeUnit.leftAmmo, activeUnit.leftAmmoMax, activeUnit.leftEnergyCost)}</b>
-          </div>
-          <div className="coolbar green"><span style={{ width: `${cooldownPercent(activeUnit.leftCooldown, activeStats.leftCooldown) * 100}%` }} /></div>
-          {activeUnit.leftCooldown <= 0 && activeUnit.leftResource === "energy" && activeActor.en < activeUnit.leftEnergyCost && (
-            <div className="shortage-line">左腕 EN不足</div>
-          )}
-          {activeUnit.leftCooldown <= 0 && activeUnit.leftResource === "ballistic" && activeUnit.leftAmmo <= 0 && (
-            <div className="shortage-line">左腕 弾切れ</div>
-          )}
-          <div className="cool-row">
-            <span>ミサイル</span>
-            <b>{activeUnit.missileCooldown.toFixed(1)} / EN {activeUnit.missileEnergyCost}</b>
-          </div>
-          <div className="coolbar orange"><span style={{ width: `${cooldownPercent(activeUnit.missileCooldown, activeStats.missileCooldown) * 100}%` }} /></div>
+          {activeUnit.weapons.map((weapon) => (
+            <div className="weapon-cool-entry" key={weapon.hardpoint}>
+              <div className="cool-row">
+                <span>{weapon.label}</span>
+                <b>{weapon.cooldownRemaining.toFixed(1)} / {resourceLabel(weapon)}</b>
+              </div>
+              <small>{getWeaponKindLabel(weapon.weaponKind)}</small>
+              <div className={coolbarClass(weapon)}>
+                <span style={{ width: `${cooldownPercent(weapon.cooldownRemaining, weapon.cooldownMax) * 100}%` }} />
+              </div>
+              {weapon.cooldownRemaining <= 0 && weapon.resource === "energy" && activeActor.en < weapon.energyCost && (
+                <div className="shortage-line">{weapon.label} EN不足</div>
+              )}
+              {weapon.cooldownRemaining <= 0 && weapon.resource === "ballistic" && weapon.ammo <= 0 && (
+                <div className="shortage-line">{weapon.label} 弾切れ</div>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 

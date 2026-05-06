@@ -461,7 +461,7 @@ select {
 
 .tab-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -503,7 +503,10 @@ select {
 }
 
 .slot-larm,
-.slot-rarm {
+.slot-rarm,
+.slot-lshoulder,
+.slot-rshoulder,
+.slot-bshoulder {
   border-color: var(--orange);
 }
 
@@ -522,6 +525,31 @@ select {
 
 .equipped-line {
   color: var(--orange);
+}
+
+.weapon-status-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.weapon-status-list div {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid rgba(120, 210, 235, 0.14);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.weapon-status-list span,
+.weapon-status-list small,
+.weapon-cool-entry small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.weapon-status-list strong {
+  color: var(--green);
 }
 
 .frame-select-screen {
@@ -812,6 +840,10 @@ select {
   color: var(--orange);
   font-size: 12px;
   margin-top: 5px;
+}
+
+.weapon-cool-entry {
+  margin-top: 7px;
 }
 
 .active-action {

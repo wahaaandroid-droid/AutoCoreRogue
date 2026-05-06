@@ -11,6 +11,7 @@ import {
   baseUpgrades,
   calculateDerivedStats,
   createEmptyPartInventory,
+  createInitialLoadoutForFrame,
   equippedPartCounts,
   getPartById,
   grantStarterKit,
@@ -39,9 +40,9 @@ const createInitialLoadouts = (): Loadout[] =>
 const createInitialFrameIds = (): BaseFrameId[] =>
   Array.from({ length: SQUAD_SIZE }, () => initialFrameId);
 const createInitialAiSlotCounts = (): number[] =>
-  Array.from({ length: SQUAD_SIZE }, () => 5);
+  Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId).length);
 const createInitialAiRulesByUnit = (): AiRule[][] =>
-  Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules());
+  Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId));
 const createInitialTargetPriorities = (): TargetPriorityId[] =>
   Array.from({ length: SQUAD_SIZE }, () => "nearest");
 const createInitialUnitHp = (): number[] =>
@@ -251,15 +252,23 @@ export default function App() {
   const selectFrame = (frameId: BaseFrameId) => {
     const unitIndex = pendingUnitIndex;
     const frame = getBaseFrameById(frameId);
-    const unitStats = calculateDerivedStats(initialLoadout, upgrades, frameId);
+    const frameLoadout = createInitialLoadoutForFrame(frameId);
+    const frameRules = createInitialAiRules(frameId);
+    const unitStats = calculateDerivedStats(frameLoadout, upgrades, frameId);
 
     setLoadouts((current) =>
-      current.map((unitLoadout, index) => (index === unitIndex ? cloneLoadout() : unitLoadout)),
+      current.map((unitLoadout, index) => (index === unitIndex ? frameLoadout : unitLoadout)),
     );
     setUnitFrameIds((current) =>
       current.map((currentFrameId, index) => (index === unitIndex ? frameId : currentFrameId)),
     );
     setPartInventory((current) => grantStarterKit(current));
+    setAiRulesByUnit((current) =>
+      current.map((unitRules, index) => (index === unitIndex ? frameRules : unitRules)),
+    );
+    setAiSlotCounts((current) =>
+      current.map((slotCount, index) => (index === unitIndex ? frameRules.length : slotCount)),
+    );
     setUnlockedUnitCount((current) => Math.max(current, unitIndex + 1));
     setSortieEnabled((current) =>
       current.map((enabled, index) => (index === unitIndex ? true : enabled)),
