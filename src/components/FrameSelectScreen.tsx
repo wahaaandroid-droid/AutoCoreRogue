@@ -10,11 +10,13 @@ interface FrameSelectScreenProps {
   onSelectFrame: (frameId: BaseFrameId) => void;
 }
 
-const FRAME_PREVIEW_COLUMN = 2;
+const FRAME_PREVIEW_COLUMN = 1;
 
 const framePreviewRow = (frameId: BaseFrameId): number => {
   switch (frameId) {
     case "light":
+      return 0;
+    case "medium":
       return 1;
     case "heavy":
       return 2;
@@ -22,9 +24,8 @@ const framePreviewRow = (frameId: BaseFrameId): number => {
       return 3;
     case "tank":
       return 4;
-    case "medium":
     default:
-      return 0;
+      return 1;
   }
 };
 
