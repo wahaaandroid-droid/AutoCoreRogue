@@ -84,7 +84,21 @@ const staticRewards: RewardOption[] = [
   },
 ];
 
-const rewardIconSeed = ["新しい武器", "新しいコア", "試作パーツ"];
+const rewardPartTitle = (slot: string): string => {
+  if (slot === "HEAD") {
+    return "新しい頭部パーツ";
+  }
+  if (slot === "BODY") {
+    return "新しいコア";
+  }
+  if (slot.includes("ARM")) {
+    return "新しい腕部武器";
+  }
+  if (slot.includes("SHOULDER")) {
+    return "新しい肩武器";
+  }
+  return "新しいパーツ";
+};
 
 export const generateRewardOptions = (
   stage: number,
@@ -100,7 +114,7 @@ export const generateRewardOptions = (
     const owned = partInventory[part.id] ?? 0;
     return {
       id: `part-${part.id}`,
-      title: owned > 0 ? "追加パーツ" : rewardIconSeed[index % rewardIconSeed.length],
+      title: owned > 0 ? "追加パーツ" : rewardPartTitle(part.slot),
       subtitle: part.name,
       description: `${getSlotLabel(part.slot)} / ${part.rarity.toUpperCase()} を1個入手${owned > 0 ? `（所持 ${owned}）` : ""}`,
       accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : "blue",

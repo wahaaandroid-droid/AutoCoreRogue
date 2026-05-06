@@ -25,7 +25,7 @@
 
 body {
   margin: 0;
-  min-width: 1120px;
+  min-width: 0;
   min-height: 100vh;
   overflow: auto;
   background:
@@ -70,6 +70,11 @@ button.primary {
   box-shadow: 0 0 20px rgba(54, 207, 255, 0.16);
 }
 
+button.active {
+  border-color: var(--green);
+  color: var(--green);
+}
+
 select {
   width: 100%;
   color: var(--text);
@@ -80,17 +85,19 @@ select {
 }
 
 .app-shell {
-  height: 100vh;
+  min-height: 100vh;
   display: grid;
   grid-template-rows: 64px 1fr;
   gap: 12px;
   padding: 12px;
+  min-width: 0;
 }
 
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   border: 1px solid var(--line);
   background: rgba(3, 9, 12, 0.84);
   padding: 10px 14px;
@@ -102,6 +109,7 @@ select {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .app-header small {
@@ -143,6 +151,12 @@ select {
   padding: 12px;
 }
 
+.combat-hud .panel.compact > strong,
+.combat-hud .panel.compact > small {
+  display: block;
+  margin-top: 4px;
+}
+
 .section-title {
   color: #8ce5ff;
   font-size: 13px;
@@ -159,6 +173,13 @@ select {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.save-chip {
+  border: 1px solid rgba(84, 244, 167, 0.34);
+  color: var(--green) !important;
+  padding: 4px 7px;
+  background: rgba(8, 24, 20, 0.32);
 }
 
 .slot-panel,
@@ -328,6 +349,52 @@ select {
 
 .target-priority-panel small {
   grid-column: 1 / -1;
+}
+
+.ai-threshold-grid,
+.stage-brief-grid,
+.frame-brief-strip {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-threshold-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.ai-threshold-grid div,
+.stage-brief-grid div,
+.frame-brief-strip div {
+  border: 1px solid rgba(120, 210, 235, 0.16);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px;
+}
+
+.ai-threshold-grid span,
+.stage-brief-grid span,
+.frame-brief-strip span {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ai-threshold-grid strong,
+.stage-brief-grid strong,
+.frame-brief-strip strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.stage-brief-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stage-brief-grid small {
+  color: var(--muted);
+  display: block;
+  margin-top: 6px;
 }
 
 .ai-flow-card.target-card {
@@ -589,7 +656,7 @@ select {
 
 .frame-select-screen {
   display: grid;
-  grid-template-rows: minmax(260px, 42vh) auto;
+  grid-template-rows: minmax(260px, 42vh) auto auto;
   gap: 12px;
   min-height: 0;
 }
@@ -626,6 +693,10 @@ select {
 .frame-hero-overlay h1 {
   margin: 0;
   font-size: 34px;
+}
+
+.frame-brief-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .frame-card-grid {
@@ -881,6 +952,23 @@ select {
   margin-top: 7px;
 }
 
+.combat-control-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.speed-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.speed-row button,
+.combat-control-panel > button {
+  min-width: 0;
+  padding: 0 8px;
+}
+
 .active-action {
   color: var(--green);
 }
@@ -1110,6 +1198,165 @@ select {
 .map-node.boss.current,
 .legend-boss {
   color: var(--orange);
+}
+
+@media (max-width: 1120px) {
+  .app-shell {
+    grid-template-rows: auto 1fr;
+    height: auto;
+  }
+
+  .app-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .app-header > div {
+    flex-wrap: wrap;
+  }
+
+  .screen-grid,
+  .ai-screen,
+  .map-screen,
+  .combat-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  .parts-browser {
+    grid-column: auto;
+    overflow: visible;
+  }
+
+  .part-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
+    max-height: none;
+  }
+
+  .combat-canvas-wrap {
+    order: -1;
+  }
+
+  .combat-hud {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .combat-hud.left,
+  .combat-hud.right {
+    display: grid;
+  }
+
+  .reward-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .combat-report,
+  .frame-brief-strip,
+  .stage-brief-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 8px;
+  }
+
+  .app-header nav,
+  .screen-actions {
+    width: 100%;
+  }
+
+  .app-header nav button,
+  .screen-actions button {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+
+  .frame-hero {
+    min-height: 280px;
+  }
+
+  .frame-hero-overlay {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: auto;
+  }
+
+  .frame-hero-overlay h1 {
+    font-size: 28px;
+  }
+
+  .frame-card-grid,
+  .frame-brief-strip,
+  .part-card-grid,
+  .reward-grid,
+  .combat-report,
+  .stage-brief-grid,
+  .combat-hud,
+  .ai-threshold-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tab-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .unit-switcher,
+  .unit-switcher.compact-switcher {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .target-priority-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .ai-row.ai-head {
+    display: none;
+  }
+
+  .ai-row select,
+  .ai-row label {
+    grid-column: 2;
+  }
+
+  .ai-flow-card {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .flow-arrow {
+    display: none;
+  }
+
+  .map-track {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    min-height: auto;
+    padding: 16px;
+  }
+
+  .map-track::before {
+    bottom: 52px;
+    left: 50%;
+    right: auto;
+    top: 52px;
+    width: 2px;
+    height: auto;
+  }
+
+  .map-node {
+    width: 100%;
+    height: 62px;
+  }
 }
 
 .legend {

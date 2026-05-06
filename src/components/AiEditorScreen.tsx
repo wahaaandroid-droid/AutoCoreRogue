@@ -89,6 +89,24 @@ export default function AiEditorScreen({
             {targetPriorityDefinitions.find((priority) => priority.id === targetPriority)?.description}
           </small>
         </div>
+        <div className="ai-threshold-grid">
+          <div>
+            <span>近距離</span>
+            <strong>125以内</strong>
+          </div>
+          <div>
+            <span>中距離</span>
+            <strong>126-285</strong>
+          </div>
+          <div>
+            <span>遠距離</span>
+            <strong>286以上</strong>
+          </div>
+          <div>
+            <span>敵弾</span>
+            <strong>82以内</strong>
+          </div>
+        </div>
         <div className="ai-table">
           <div className="ai-row ai-head">
             <span>優先度</span>

@@ -219,7 +219,7 @@ export default function AssembleScreen({
                 className={`auto-toggle ${weaponAutoUse[weapon.hardpoint] ? "active" : ""}`}
                 onClick={() => onToggleWeaponAutoUse(weapon.hardpoint)}
               >
-                {weaponAutoUse[weapon.hardpoint] ? "AUTO" : "MANUAL"}
+                {weaponAutoUse[weapon.hardpoint] ? "使用許可" : "使用停止"}
               </button>
             </div>
           ))}
