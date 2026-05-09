@@ -160,7 +160,7 @@ run("rival boss spawns with player-style weapons and alert effect", () => {
   assert.ok(state.soundEvents.includes("alert"));
 });
 
-run("boss boost sounds stay full volume", () => {
+run("boss boost sounds use the standard boost event", () => {
   const state = createOneUnitState(5);
   state.enemyQueue = ["boss"];
   state.enemyTotal = 1;
