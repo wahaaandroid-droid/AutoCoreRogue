@@ -92,7 +92,10 @@ const partStatSummary = (part: Part): string => {
   } / RNG ${part.stats.range} / WT ${part.stats.weight}`;
 };
 
-const firePatternText = (pattern: Part["firePattern"]): string => {
+const firePatternText = (pattern: Part["firePattern"], weaponKind?: Part["weaponKind"]): string => {
+  if (weaponKind === "beamLaser") {
+    return "BEAM";
+  }
   switch (pattern) {
     case "burst":
       return "BURST";
@@ -270,7 +273,7 @@ export default function AssembleScreen({
               <span>{weapon.label}</span>
               <strong>{getWeaponKindLabel(weapon.weaponKind)}</strong>
               <small>
-                ATK {weapon.attack} / RNG {weapon.range} / CD {weapon.cooldown.toFixed(1)} / {firePatternText(weapon.firePattern)}
+                ATK {weapon.attack} / RNG {weapon.range} / CD {weapon.cooldown.toFixed(1)} / {firePatternText(weapon.firePattern, weapon.weaponKind)}
               </small>
               <small>
                 {weapon.resource === "ballistic"
@@ -339,7 +342,7 @@ export default function AssembleScreen({
                   <span className="part-stat-line">
                     TYPE {getWeaponKindLabel(part.weaponKind)}
                     {part.blastRadius ? ` / BLAST ${part.blastRadius}` : ""}
-                    {part.firePattern ? ` / ${firePatternText(part.firePattern)}` : ""}
+                    {part.firePattern ? ` / ${firePatternText(part.firePattern, part.weaponKind)}` : ""}
                   </span>
                 )}
                 {part.weaponResource && (

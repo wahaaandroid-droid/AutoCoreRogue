@@ -1,7 +1,13 @@
-export type StageType = "normal" | "elite" | "boss";
+export type StageType = "normal" | "elite" | "rest" | "shop" | "boss";
+
+export type CombatStageType = Extract<StageType, "normal" | "elite" | "boss">;
 
 export interface StagePlan {
+  id: string;
   stage: number;
+  world: number;
+  worldStage: number;
+  lane: number;
   label: string;
   type: StageType;
   threat: string;
@@ -9,64 +15,131 @@ export interface StagePlan {
   focus: string;
 }
 
-export const stagePlans: StagePlan[] = [
-  {
-    stage: 1,
-    label: "BASIC",
-    type: "normal",
-    threat: "Drone wave",
-    brief: "小型機中心の基礎戦闘。射程とクールダウンの挙動を確認しやすい。",
-    focus: "AIの常時行動と武器使用許可を整える",
-  },
-  {
-    stage: 2,
-    label: "SCOUT",
-    type: "normal",
-    threat: "Fast scouts",
-    brief: "高速機が距離を詰める。近距離条件やブースト回避が効きやすい。",
-    focus: "UNIT 2の加入準備",
-  },
-  {
-    stage: 3,
-    label: "SNIPER",
-    type: "normal",
-    threat: "Long range",
-    brief: "長射程の敵が混ざる。遠距離攻撃とターゲット優先が重要になる。",
-    focus: "長射程武器または強敵優先",
-  },
-  {
-    stage: 4,
-    label: "PRESSURE",
-    type: "normal",
-    threat: "Mixed pressure",
-    brief: "接近戦と中距離戦が重なる。防御と範囲火力のどちらかを厚くしたい。",
-    focus: "修理か火力強化の判断",
-  },
-  {
-    stage: 5,
-    label: "ELITE",
-    type: "elite",
-    threat: "Mirror Vesper",
-    brief: "自軍機と同じ武器スロットとAIロジックで戦う単騎ボスが出る節目。集中攻撃できるAI構成が有利。",
-    focus: "UNIT 3の加入準備",
-  },
-  {
-    stage: 6,
-    label: "MIXED",
-    type: "normal",
-    threat: "Role swarm",
-    brief: "敵の役割が増え、弾幕と回避が激しくなる。全機の出撃ON/OFFを見直したい。",
-    focus: "損傷機の温存と修理",
-  },
-  {
-    stage: 7,
-    label: "BOSS",
-    type: "boss",
-    threat: "Signal Tyrant",
-    brief: "全武装を使い分ける同型機構の単騎ボスが出る最終戦。強敵優先と一斉射撃を明確にする。",
-    focus: "一斉射撃と範囲火力",
-  },
-];
+export const STAGES_PER_WORLD = 7;
+export const WORLD_COUNT = 3;
+export const TOTAL_STAGES = STAGES_PER_WORLD * WORLD_COUNT;
 
-export const getStagePlan = (stage: number): StagePlan =>
-  stagePlans.find((plan) => plan.stage === stage) ?? stagePlans[stagePlans.length - 1];
+const typeLabels: Record<StageType, string> = {
+  normal: "BATTLE",
+  elite: "ELITE",
+  rest: "REST",
+  shop: "SHOP",
+  boss: "BOSS",
+};
+
+const worldNames = ["", "Outer Yard", "Iron Sprawl", "Core Depth"] as const;
+
+export const worldForStage = (stage: number): number =>
+  Math.min(WORLD_COUNT, Math.max(1, Math.ceil(stage / STAGES_PER_WORLD)));
+
+export const worldStageForStage = (stage: number): number =>
+  ((Math.max(1, stage) - 1) % STAGES_PER_WORLD) + 1;
+
+export const isCombatStageType = (type: StageType): type is CombatStageType =>
+  type === "normal" || type === "elite" || type === "boss";
+
+const stageId = (stage: number, lane: number, type: StageType): string =>
+  `w${worldForStage(stage)}-s${worldStageForStage(stage)}-${lane}-${type}`;
+
+const plan = (
+  stage: number,
+  lane: number,
+  type: StageType,
+  threat: string,
+  brief: string,
+  focus: string,
+  label = typeLabels[type],
+): StagePlan => ({
+  id: stageId(stage, lane, type),
+  stage,
+  world: worldForStage(stage),
+  worldStage: worldStageForStage(stage),
+  lane,
+  label,
+  type,
+  threat,
+  brief,
+  focus,
+});
+
+export const createStageChoices = (stage: number): StagePlan[] => {
+  const safeStage = Math.min(TOTAL_STAGES, Math.max(1, stage));
+  const world = worldForStage(safeStage);
+  const worldStage = worldStageForStage(safeStage);
+  const worldName = worldNames[world] ?? worldNames[1];
+  const pressure = world === 1 ? "基礎" : world === 2 ? "連携" : "総力";
+
+  if (worldStage === 7) {
+    return [
+      plan(
+        safeStage,
+        1,
+        "boss",
+        `World ${world} overlord`,
+        `${worldName} の最終防衛線。巨大ボスが単体で戦域を支配する。`,
+        world === 1 ? "被弾を抑えながら基本AIを確認" : world === 2 ? "2機の射程とターゲット優先を合わせる" : "3機の役割分担と一斉射撃を完成させる",
+      ),
+    ];
+  }
+
+  if (worldStage === 1) {
+    return [
+      plan(
+        safeStage,
+        1,
+        "normal",
+        `${worldName} entry patrol`,
+        world === 1
+          ? "最初の1機で戦闘手順を確認する低圧戦闘。"
+          : `新しいUNITを迎えた直後の${pressure}確認戦。`,
+        world === 1 ? "移動・射撃・AI条件の基礎" : "新加入機の装備と出撃ONを確認",
+        "ENTRY",
+      ),
+    ];
+  }
+
+  switch (worldStage) {
+    case 2:
+      return [
+        plan(safeStage, 0, "normal", "Scout screen", "高速機が散発的に接近する。", "近距離条件と回避行動"),
+        plan(safeStage, 2, "normal", "Ranged picket", "長射程機が混ざるが敵数は控えめ。", "射程とターゲット優先"),
+      ];
+    case 3:
+      return [
+        plan(safeStage, 0, "normal", "Mixed patrol", "標準的な混成小隊。安定した報酬を狙える。", "通常報酬で装備幅を広げる"),
+        plan(safeStage, 1, "elite", "Elite frame", "危険な強化機。勝てば報酬候補とクレジットが厚い。", "集中攻撃AIと火力確認"),
+        plan(safeStage, 2, "shop", "Field merchant", "戦闘を避け、クレジットで部品や修理を買える。", "必要なパーツを購入"),
+      ];
+    case 4:
+      return [
+        plan(safeStage, 0, "rest", "Repair point", "補給地点。全機のHPを回復して次へ進む。", "損傷機の復帰"),
+        plan(safeStage, 1, "normal", "Pressure route", "戦闘を継続して報酬を増やす。", "継戦力の確認"),
+        plan(safeStage, 2, "shop", "Arms broker", "クレジットを使って装備を整える。", "不足スロットの補強"),
+      ];
+    case 5:
+      return [
+        plan(safeStage, 0, "normal", "Assault lane", "敵数が増える通常戦闘。", "範囲火力と弾幕処理"),
+        plan(safeStage, 1, "elite", "Prize hunter", "報酬重視のエリート戦。消耗は大きい。", "強敵優先と一斉射撃"),
+        plan(safeStage, 2, "normal", "Defensive line", "耐久寄りの敵が多い通常戦闘。", "防御とクールダウン"),
+      ];
+    case 6:
+    default:
+      return [
+        plan(safeStage, 0, "rest", "Last repair", "ボス前の休憩地点。HPを戻せる。", "ボス前の立て直し"),
+        plan(safeStage, 1, "elite", "Gate elite", "ボス前の高リスク戦。報酬が最も厚い。", "完成したAI構成の確認"),
+        plan(safeStage, 2, "shop", "Last merchant", "ボス前の商人。クレジットを使い切る判断。", "最終調整"),
+      ];
+  }
+};
+
+export const getDefaultStagePlan = (stage: number): StagePlan => createStageChoices(stage)[0];
+
+export const getStagePlan = (stage: number, nodeId?: string): StagePlan => {
+  const choices = createStageChoices(stage);
+  return choices.find((choice) => choice.id === nodeId) ?? choices[0];
+};
+
+export const stagePlans: StagePlan[] = Array.from(
+  { length: TOTAL_STAGES },
+  (_, index) => getDefaultStagePlan(index + 1),
+);

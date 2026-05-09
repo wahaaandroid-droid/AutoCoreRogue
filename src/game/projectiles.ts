@@ -24,7 +24,7 @@ export interface Projectile {
 
 export interface Effect {
   id: string;
-  kind: "explosion" | "boost" | "muzzle" | "slash" | "alert";
+  kind: "explosion" | "boost" | "muzzle" | "slash" | "alert" | "beam";
   x: number;
   y: number;
   life: number;
@@ -33,6 +33,8 @@ export interface Effect {
   size: number;
   rotation?: number;
   label?: string;
+  endX?: number;
+  endY?: number;
 }
 
 export interface HomingTarget {

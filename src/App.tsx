@@ -31,7 +31,15 @@ import {
   isShoulderSlotBlocked,
   normalizeLoadout,
 } from "./data/parts";
-import { generateRewardOptions, RewardOption } from "./data/rewards";
+import { generateRewardOptions, generateShopOffers, RewardOption, ShopOffer } from "./data/rewards";
+import {
+  CombatStageType,
+  TOTAL_STAGES,
+  createStageChoices,
+  getStagePlan,
+  isCombatStageType,
+  worldForStage,
+} from "./data/stages";
 import { CombatReport } from "./game/combat";
 import { playUiSound, unlockCombatAudio } from "./game/sound";
 import {
@@ -85,6 +93,7 @@ const createInitialSortieEnabled = (): boolean[] =>
 interface SavedRunState {
   screen: ScreenId;
   stage: number;
+  selectedStageNodeId?: string;
   loadouts: Loadout[];
   unitFrameIds: BaseFrameId[];
   unlockedUnitCount: number;
@@ -100,6 +109,7 @@ interface SavedRunState {
   unitHpByUnit: number[];
   sortieEnabled: boolean[];
   repairKitStock: number;
+  credits: number;
   rewardOptions: RewardOption[];
   lastCombatReport?: CombatReport;
   lastOutcome?: string;
@@ -202,6 +212,9 @@ export default function App() {
     restoreScreen(savedRun?.screen, savedUnlockedUnitCount > 0),
   );
   const [stage, setStage] = useState(() => savedRun?.stage ?? 1);
+  const [selectedStageNodeId, setSelectedStageNodeId] = useState<string | undefined>(
+    () => savedRun?.selectedStageNodeId,
+  );
   const [loadouts, setLoadouts] = useState<Loadout[]>(() =>
     normalizeSavedLoadouts(savedRun?.loadouts),
   );
@@ -245,6 +258,7 @@ export default function App() {
     normalizeSavedArray(savedRun?.sortieEnabled, createInitialSortieEnabled()),
   );
   const [repairKitStock, setRepairKitStock] = useState(() => savedRun?.repairKitStock ?? 0);
+  const [credits, setCredits] = useState(() => savedRun?.credits ?? 0);
   const [rewardOptions, setRewardOptions] = useState<RewardOption[]>(() => savedRun?.rewardOptions ?? []);
   const [lastCombatReport, setLastCombatReport] = useState<CombatReport | undefined>(
     () => savedRun?.lastCombatReport,
@@ -276,6 +290,18 @@ export default function App() {
       ),
     [sortieEnabled, statsByUnit, unitHpByUnit, unlockedUnitCount],
   );
+  const stageChoices = useMemo(() => createStageChoices(stage), [stage]);
+  const currentStagePlan = useMemo(
+    () => getStagePlan(stage, selectedStageNodeId),
+    [stage, selectedStageNodeId],
+  );
+  const currentCombatStageType: CombatStageType = isCombatStageType(currentStagePlan.type)
+    ? currentStagePlan.type
+    : "normal";
+  const shopOffers = useMemo(
+    () => generateShopOffers(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5),
+    [activeUnitIndex, aiSlotCounts, partInventory, stage],
+  );
 
   useEffect(() => {
     setUnitHpByUnit((current) =>
@@ -293,6 +319,7 @@ export default function App() {
     saveRunState({
       screen,
       stage,
+      selectedStageNodeId,
       loadouts,
       unitFrameIds,
       unlockedUnitCount,
@@ -308,6 +335,7 @@ export default function App() {
       unitHpByUnit,
       sortieEnabled,
       repairKitStock,
+      credits,
       rewardOptions,
       lastCombatReport,
       lastOutcome,
@@ -317,6 +345,7 @@ export default function App() {
     aiPresetsByUnit,
     aiRulesByUnit,
     aiSlotCounts,
+    credits,
     lastCombatReport,
     lastOutcome,
     loadouts,
@@ -325,6 +354,7 @@ export default function App() {
     repairKitStock,
     rewardOptions,
     screen,
+    selectedStageNodeId,
     sortieEnabled,
     stage,
     targetPrioritiesByUnit,
@@ -513,6 +543,7 @@ export default function App() {
 
   const resetRun = () => {
     setStage(1);
+    setSelectedStageNodeId(undefined);
     setLoadouts(createInitialLoadouts());
     setUnitFrameIds(createInitialFrameIds());
     setUnlockedUnitCount(0);
@@ -528,6 +559,7 @@ export default function App() {
     setUnitHpByUnit(createInitialUnitHp());
     setSortieEnabled(createInitialSortieEnabled());
     setRepairKitStock(0);
+    setCredits(0);
     setRewardOptions([]);
     setLastCombatReport(undefined);
   };
@@ -583,16 +615,18 @@ export default function App() {
       current.map((hp, index) => remainingHpByUnit[index] ?? hp),
     );
     setLastCombatReport(report);
-    if (stage >= 7) {
+    if (stage >= TOTAL_STAGES) {
       playUiSound("runComplete");
       setRewardOptions([]);
-      setLastOutcome("RUN COMPLETE: 全ステージ制圧");
+      setLastOutcome("RUN COMPLETE: 3ワールド全ステージ制圧");
       setScreen("complete");
       return;
     }
     playUiSound("stageClear");
-    setRewardOptions(generateRewardOptions(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5));
-    setLastOutcome(`STAGE ${stage} CLEAR`);
+    setRewardOptions(
+      generateRewardOptions(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5, currentStagePlan.type),
+    );
+    setLastOutcome(`WORLD ${worldForStage(stage)} / STAGE ${stage} CLEAR`);
     setScreen("reward");
   };
 
@@ -602,10 +636,59 @@ export default function App() {
     setScreen("frameSelect");
   };
 
-  const applyReward = (reward: RewardOption) => {
-    playUiSound("reward");
-    const payload = reward.payload;
+  const unitUnlockIndexForStage = (nextStage: number): number | undefined => {
+    if (nextStage === 8) {
+      return 1;
+    }
+    if (nextStage === 15) {
+      return 2;
+    }
+    return undefined;
+  };
 
+  const advanceToNextStage = (outcome: string) => {
+    const nextStage = stage + 1;
+    setSelectedStageNodeId(undefined);
+    setRewardOptions([]);
+
+    if (nextStage > TOTAL_STAGES) {
+      setLastOutcome("RUN COMPLETE: 3ワールド全ステージ制圧");
+      setScreen("complete");
+      return;
+    }
+
+    setStage(nextStage);
+    const unlockIndex = unitUnlockIndexForStage(nextStage);
+    if (unlockIndex !== undefined && unlockedUnitCount < unlockIndex + 1) {
+      setPendingUnitIndex(unlockIndex);
+      setLastOutcome(`${outcome} / UNIT ${unlockIndex + 1} 配備選択`);
+      setScreen("frameSelect");
+      return;
+    }
+
+    setLastOutcome(outcome);
+    setScreen("map");
+  };
+
+  const healAllUnits = (percent: number) => {
+    setUnitHpByUnit((current) =>
+      current.map((hp, index) => {
+        if (index >= unlockedUnitCount) {
+          return hp;
+        }
+        const maxHp = statsByUnit[index]?.hpMax ?? hp;
+        const currentHp = Math.max(0, hp ?? maxHp);
+        return Math.min(maxHp, currentHp + maxHp * percent);
+      }),
+    );
+    setSortieEnabled((current) =>
+      current.map((enabled, index) =>
+        index < unlockedUnitCount ? true : enabled,
+      ),
+    );
+  };
+
+  const applyRewardPayload = (payload: RewardOption["payload"]) => {
     if (payload.kind === "part") {
       const part = getPartById(payload.partId);
       setPartInventory((current) => ({
@@ -650,38 +733,72 @@ export default function App() {
       setRepairKitStock((current) => current + payload.amount);
     }
 
-    if (stage >= 7) {
+    if (payload.kind === "credits") {
+      setCredits((current) => current + payload.amount);
+    }
+  };
+
+  const applyReward = (reward: RewardOption) => {
+    playUiSound("reward");
+    applyRewardPayload(reward.payload);
+
+    if (stage >= TOTAL_STAGES) {
       setRewardOptions([]);
-      setLastOutcome("RUN COMPLETE: 全ステージ制圧");
+      setLastOutcome("RUN COMPLETE: 3ワールド全ステージ制圧");
       setScreen("complete");
       return;
     }
 
-    const nextStage = stage + 1;
-    setStage(nextStage);
+    advanceToNextStage(`${reward.title} を獲得`);
+  };
 
-    if (stage === 2 && unlockedUnitCount < 2) {
-      setPendingUnitIndex(1);
-      setLastOutcome(`${reward.title} を獲得 / UNIT 2 配備選択`);
-      setScreen("frameSelect");
+  const selectStageNode = (nodeId: string) => {
+    playUiSound("select");
+    setSelectedStageNodeId(nodeId);
+  };
+
+  const resolveRestSite = () => {
+    playUiSound("repair");
+    healAllUnits(0.5);
+    advanceToNextStage(`休憩地点で全機HPを50%回復`);
+  };
+
+  const buyShopOffer = (offer: ShopOffer) => {
+    if (credits < offer.cost) {
+      playUiSound("error");
+      setLastOutcome(`${offer.title}: クレジット不足`);
       return;
     }
 
-    if (stage === 5 && unlockedUnitCount < 3) {
-      setPendingUnitIndex(2);
-      setLastOutcome(`${reward.title} を獲得 / UNIT 3 配備選択`);
-      setScreen("frameSelect");
-      return;
+    playUiSound("reward");
+    setCredits((current) => Math.max(0, current - offer.cost));
+    if (offer.payload.kind === "repairAll") {
+      healAllUnits(offer.payload.percent);
+    } else {
+      applyRewardPayload(offer.payload);
     }
+    setLastOutcome(`${offer.title} を購入`);
+  };
 
-    setLastOutcome(`${reward.title} を獲得`);
-    setScreen("map");
+  const leaveShop = () => {
+    playUiSound("confirm");
+    advanceToNextStage("商人ノードを通過");
   };
 
   const startCombat = () => {
     if (runComplete) {
       playUiSound("error");
       setLastOutcome("RUN COMPLETE: 新しいランを開始できます");
+      return;
+    }
+    if (currentStagePlan.type === "rest") {
+      resolveRestSite();
+      return;
+    }
+    if (currentStagePlan.type === "shop") {
+      playUiSound("select");
+      setLastOutcome("商人ノード: 購入または通過を選択");
+      setScreen("map");
       return;
     }
     if (!sortieReady) {
@@ -703,7 +820,7 @@ export default function App() {
   };
 
   const hasUnit = unlockedUnitCount > 0;
-  const runComplete = stage >= 7 && lastOutcome?.startsWith("RUN COMPLETE") === true;
+  const runComplete = stage >= TOTAL_STAGES && lastOutcome?.startsWith("RUN COMPLETE") === true;
   const selectActiveUnit = (index: number) => {
     playUiSound("select");
     setActiveUnitIndex(index);
@@ -734,8 +851,18 @@ export default function App() {
         <button className={screen === "map" ? "active" : ""} onClick={() => openScreen("map")} disabled={!hasUnit}>
           MAP
         </button>
-        <button className="primary" onClick={startCombat} disabled={!sortieReady || runComplete}>
-          {runComplete ? "RUN CLEAR" : `STAGE ${stage}`}
+        <button
+          className="primary"
+          onClick={startCombat}
+          disabled={runComplete || (!sortieReady && isCombatStageType(currentStagePlan.type))}
+        >
+          {runComplete
+            ? "RUN CLEAR"
+            : currentStagePlan.type === "rest"
+              ? "REST"
+              : currentStagePlan.type === "shop"
+                ? "SHOP"
+                : `STAGE ${stage}`}
         </button>
         <button onClick={startNewRun} disabled={!hasUnit && stage === 1}>
           NEW RUN
@@ -801,6 +928,8 @@ export default function App() {
       {screen === "combat" && hasUnit && (
         <CombatScreen
           stage={stage}
+          stageNodeId={currentStagePlan.id}
+          stageType={currentCombatStageType}
           statsByUnit={statsByUnit}
           unitHpByUnit={unitHpByUnit}
           sortieEnabled={sortieEnabled}
@@ -819,6 +948,7 @@ export default function App() {
       {screen === "reward" && (
         <RewardScreen
           stage={stage}
+          credits={credits}
           rewards={rewardOptions}
           report={lastCombatReport}
           rulesByUnit={normalizedRulesByUnit}
@@ -837,8 +967,19 @@ export default function App() {
       {screen === "map" && hasUnit && (
         <StageMapScreen
           stage={stage}
+          selectedNodeId={currentStagePlan.id}
+          stageChoices={stageChoices}
           lastOutcome={lastOutcome}
           unlockedUnitCount={unlockedUnitCount}
+          unitHpByUnit={unitHpByUnit}
+          statsByUnit={statsByUnit}
+          credits={credits}
+          shopOffers={shopOffers}
+          canStartStage={sortieReady || !isCombatStageType(currentStagePlan.type)}
+          onSelectStageNode={selectStageNode}
+          onRest={resolveRestSite}
+          onBuyShopOffer={buyShopOffer}
+          onLeaveShop={leaveShop}
           onOpenAssemble={() => openScreen("assemble")}
           onOpenAi={() => openScreen("ai")}
           onStartCombat={startCombat}

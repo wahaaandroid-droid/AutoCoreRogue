@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
 import { getWeaponKindLabel } from "../data/parts";
-import { getStagePlan } from "../data/stages";
+import { CombatStageType, getStagePlan } from "../data/stages";
 import {
   CombatActor,
   CombatReport,
   CombatState,
   PlayerCombatUnit,
   PlayerWeaponState,
+  WorldBossArt,
   createCombatState,
   stepCombat,
 } from "../game/combat";
@@ -25,9 +26,12 @@ import movementBoostTrailUrl from "../assets/movement-boost-trail.png";
 import playerDirectionSpritesUrl from "../assets/player-direction-sprites.png";
 import enemyDirectionSpritesUrl from "../assets/enemy-direction-sprites.png";
 import projectileSpritesUrl from "../assets/projectile-sprites.png";
+import worldBossesUrl from "../assets/world-bosses.png";
 
 interface CombatScreenProps {
   stage: number;
+  stageNodeId?: string;
+  stageType: CombatStageType;
   statsByUnit: DerivedStats[];
   unitHpByUnit: number[];
   sortieEnabled: boolean[];
@@ -72,12 +76,16 @@ const enemyDirectionSpritesImage = new Image();
 enemyDirectionSpritesImage.src = enemyDirectionSpritesUrl;
 const projectileSpritesImage = new Image();
 projectileSpritesImage.src = projectileSpritesUrl;
+const worldBossesImage = new Image();
+worldBossesImage.src = worldBossesUrl;
 
 const DIRECTION_COLUMNS = 4;
 const PLAYER_SPRITE_ROWS = 5;
 const ENEMY_SPRITE_ROWS = 7;
 const PROJECTILE_SPRITE_COLUMNS = 5;
 const BLADE_SLASH_IMAGE_REVERSE_OFFSET = Math.PI;
+const WORLD_BOSS_SPRITE_COLUMNS = 4;
+const WORLD_BOSS_SPRITE_ROWS = 3;
 
 const spriteCell = (index: number) => ({
   column: index % 4,
@@ -178,6 +186,44 @@ const drawDirectionalSprite = (
     image,
     direction * cellWidth,
     row * cellHeight,
+    cellWidth,
+    cellHeight,
+    -size / 2,
+    -size / 2,
+    size,
+    size,
+  );
+  return true;
+};
+
+const worldBossRow = (bossArt: WorldBossArt): number => {
+  switch (bossArt) {
+    case "world2":
+      return 1;
+    case "world3":
+      return 2;
+    case "world1":
+    default:
+      return 0;
+  }
+};
+
+const drawWorldBossSprite = (
+  ctx: CanvasRenderingContext2D,
+  bossArt: WorldBossArt,
+  direction: number,
+  size: number,
+): boolean => {
+  if (!worldBossesImage.complete || worldBossesImage.naturalWidth === 0 || worldBossesImage.naturalHeight === 0) {
+    return false;
+  }
+
+  const cellWidth = worldBossesImage.naturalWidth / WORLD_BOSS_SPRITE_COLUMNS;
+  const cellHeight = worldBossesImage.naturalHeight / WORLD_BOSS_SPRITE_ROWS;
+  ctx.drawImage(
+    worldBossesImage,
+    direction * cellWidth,
+    worldBossRow(bossArt) * cellHeight,
     cellWidth,
     cellHeight,
     -size / 2,
@@ -330,6 +376,19 @@ const drawMech = (
   ctx.save();
   ctx.translate(actor.x, actor.y);
   const direction = directionIndexFor(actor);
+  if (!isPlayer && actor.bossArt) {
+    const bossSize = actor.radius * (actor.bossArt === "world3" ? 5.9 : actor.bossArt === "world2" ? 5.6 : 5.35);
+    ctx.shadowColor = actor.color;
+    ctx.shadowBlur = 28;
+    if (drawWorldBossSprite(ctx, actor.bossArt, direction, bossSize)) {
+      ctx.restore();
+      drawBar(ctx, actor.x - 42, actor.y - actor.radius - 31, 84, hpPercent(actor), "#ff6848");
+      if (label) {
+        drawUnitTag(ctx, actor, label);
+      }
+      return;
+    }
+  }
   const usesPlayerFrame = isPlayer || actor.enemyRole === "rival";
   const directionalImage = usesPlayerFrame ? playerDirectionSpritesImage : enemyDirectionSpritesImage;
   const directionalRows = usesPlayerFrame ? PLAYER_SPRITE_ROWS : ENEMY_SPRITE_ROWS;
@@ -554,6 +613,34 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
     ctx.restore();
     return;
   }
+  if (effect.kind === "beam") {
+    const endX = effect.endX ?? effect.x;
+    const endY = effect.endY ?? effect.y;
+    ctx.translate(-effect.x, -effect.y);
+    const fade = Math.max(0, 1 - progress * 0.72);
+    const beamGradient = ctx.createLinearGradient(effect.x, effect.y, endX, endY);
+    beamGradient.addColorStop(0, "rgba(255, 255, 255, 0.96)");
+    beamGradient.addColorStop(0.4, effect.color);
+    beamGradient.addColorStop(1, "rgba(120, 243, 255, 0.34)");
+    ctx.globalAlpha = fade;
+    ctx.lineCap = "round";
+    ctx.shadowColor = effect.color;
+    ctx.shadowBlur = 24;
+    ctx.strokeStyle = beamGradient;
+    ctx.lineWidth = effect.size;
+    ctx.beginPath();
+    ctx.moveTo(effect.x, effect.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.globalAlpha = fade * 0.42;
+    ctx.lineWidth = effect.size * 2.6;
+    ctx.beginPath();
+    ctx.moveTo(effect.x, effect.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
   if (effect.kind === "explosion" && explosionBurstImage.complete && explosionBurstImage.naturalWidth > 0) {
     const size = effect.size * (1.05 + progress * 0.85);
     ctx.drawImage(
@@ -636,7 +723,9 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
 };
 
 const firePatternLabel = (weapon: PlayerWeaponState): string =>
-  weapon.firePattern === "burst" ? "BURST" : weapon.firePattern === "sustain" ? "GATLING" : "SINGLE";
+  weapon.weaponKind === "beamLaser"
+    ? "BEAM"
+    : weapon.firePattern === "burst" ? "BURST" : weapon.firePattern === "sustain" ? "GATLING" : "SINGLE";
 
 const resourceLabel = (weapon: PlayerWeaponState) => {
   if (weapon.resource === "ballistic") {
@@ -708,6 +797,8 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
 
 export default function CombatScreen({
   stage,
+  stageNodeId,
+  stageType,
   statsByUnit,
   unitHpByUnit,
   sortieEnabled,
@@ -724,7 +815,7 @@ export default function CombatScreen({
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef<CombatState>(
-    createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit),
+    createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit, stageType),
   );
   const resolvedRef = useRef(false);
   const resolveTimeoutRef = useRef<number | undefined>(undefined);
@@ -735,7 +826,7 @@ export default function CombatScreen({
   const selectedUnitIndex = activeUnit?.unitIndex ?? 0;
   const activeStats = statsByUnit[selectedUnitIndex] ?? statsByUnit[0];
   const activeRules = rulesByUnit[selectedUnitIndex] ?? rulesByUnit[0] ?? [];
-  const stagePlan = getStagePlan(stage);
+  const stagePlan = getStagePlan(stage, stageNodeId);
   const rulesById = useMemo(() => new Map(activeRules.map((rule) => [rule.id, rule])), [activeRules]);
   const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
@@ -744,11 +835,11 @@ export default function CombatScreen({
       window.clearTimeout(resolveTimeoutRef.current);
       resolveTimeoutRef.current = undefined;
     }
-    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit);
+    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit, stageType);
     resolvedRef.current = false;
     setPaused(false);
     setSnapshot(stateRef.current);
-  }, [stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit]);
+  }, [stage, stageType, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

@@ -30,6 +30,7 @@ export type WeaponKind =
   | "rifle"
   | "sniperRifle"
   | "machineGun"
+  | "beamLaser"
   | "rocket"
   | "grenade"
   | "missile"

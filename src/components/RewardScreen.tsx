@@ -12,6 +12,7 @@ import rewardCategoryStatUrl from "../assets/reward-category-stat.png";
 
 interface RewardScreenProps {
   stage: number;
+  credits: number;
   rewards: RewardOption[];
   report?: CombatReport;
   rulesByUnit: AiRule[][];
@@ -31,6 +32,9 @@ const rewardGlyph = (reward: RewardOption): string => {
   if (reward.payload.kind === "repairKit") {
     return "KIT";
   }
+  if (reward.payload.kind === "credits") {
+    return "CR";
+  }
   return reward.payload.stat.toUpperCase();
 };
 
@@ -46,6 +50,8 @@ const rewardImageUrl = (reward: RewardOption): string => {
       return rewardCategoryCooldownUrl;
     case "repairKit":
       return rewardCategoryRepairUrl;
+    case "credits":
+      return rewardCategoryCooldownUrl;
     case "stat":
     default:
       return rewardCategoryStatUrl;
@@ -62,7 +68,7 @@ const topRuleLine = (report: CombatReport | undefined, rules: AiRule[], unitInde
   return `${getConditionLabel(rule.condition)} -> ${getActionLabel(rule.action)} x${count}`;
 };
 
-export default function RewardScreen({ stage, rewards, report, rulesByUnit, onPickReward }: RewardScreenProps) {
+export default function RewardScreen({ stage, credits, rewards, report, rulesByUnit, onPickReward }: RewardScreenProps) {
   const reportUnits = report
     ? report.damageByUnit
         .map((damage, unitIndex) => ({ damage, unitIndex }))
@@ -74,6 +80,7 @@ export default function RewardScreen({ stage, rewards, report, rulesByUnit, onPi
       <section className="panel reward-panel">
         <div className="section-title">STAGE {stage} CLEAR</div>
         <h1>報酬選択</h1>
+        <div className="credits-line">CREDITS {credits}</div>
         {reportUnits.length > 0 && (
           <div className="combat-report">
             {reportUnits.map(({ damage, unitIndex }) => (

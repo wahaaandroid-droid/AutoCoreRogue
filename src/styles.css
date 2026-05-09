@@ -1166,6 +1166,18 @@ select {
   color: var(--muted);
 }
 
+.credits-line {
+  display: inline-grid;
+  place-items: center;
+  min-height: 32px;
+  margin: -8px 0 14px;
+  padding: 0 12px;
+  border: 1px solid rgba(54, 207, 255, 0.32);
+  color: var(--blue);
+  background: rgba(7, 18, 24, 0.48);
+  font-weight: 900;
+}
+
 .reward-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1245,6 +1257,51 @@ select {
   height: 100%;
 }
 
+.world-map-grid {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.world-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 12px;
+  align-items: center;
+  min-height: 54px;
+  padding: 9px;
+  border: 1px solid rgba(120, 210, 235, 0.14);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.world-row.active {
+  border-color: rgba(54, 207, 255, 0.42);
+  background: rgba(54, 207, 255, 0.06);
+}
+
+.world-row > strong {
+  color: var(--blue);
+  font-size: 12px;
+}
+
+.world-node-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(28px, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.world-node-row .map-node {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.world-node-row .map-node b {
+  font-size: 14px;
+}
+
 .map-track {
   display: flex;
   align-items: center;
@@ -1302,9 +1359,113 @@ select {
   color: var(--purple);
 }
 
+.map-node.rest.current,
+.legend-rest {
+  color: var(--green);
+}
+
+.map-node.shop.current,
+.legend-shop {
+  color: var(--blue);
+}
+
 .map-node.boss.current,
 .legend-boss {
   color: var(--orange);
+}
+
+.route-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.route-choice {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  min-height: 116px;
+  padding: 12px;
+  text-align: left;
+}
+
+.route-choice span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.route-choice small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.route-choice.elite.active {
+  border-color: var(--purple);
+  color: var(--purple);
+}
+
+.route-choice.rest.active {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.route-choice.shop.active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.route-choice.boss.active {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+
+.map-event-panel {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(120, 210, 235, 0.18);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.map-event-panel small {
+  color: var(--muted);
+}
+
+.map-event-visual {
+  width: 100%;
+  aspect-ratio: 1.55 / 1;
+  border: 1px solid rgba(120, 210, 235, 0.18);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-color: rgba(0, 0, 0, 0.22);
+}
+
+.shop-offer-list {
+  display: grid;
+  gap: 7px;
+}
+
+.shop-offer {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 2px 8px;
+  min-height: 58px;
+  padding: 8px;
+  text-align: left;
+}
+
+.shop-offer span {
+  grid-row: 1 / 3;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.shop-offer small {
+  color: var(--muted);
 }
 
 @media (hover: none) and (pointer: coarse) {

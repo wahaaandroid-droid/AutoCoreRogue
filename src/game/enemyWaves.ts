@@ -1,3 +1,4 @@
+import { CombatStageType, worldForStage, worldStageForStage } from "../data/stages";
 import type { CombatActor, CombatState } from "./combat";
 
 export type EnemyRank = CombatActor["rank"];
@@ -5,31 +6,53 @@ export type EnemyRank = CombatActor["rank"];
 const normals = (count: number): EnemyRank[] =>
   Array.from({ length: count }, () => "normal" as const);
 
-export const createEnemyRanks = (stage: number, playerCount: number): EnemyRank[] => {
-  if (stage === 7) {
-    return [
-      ...normals(playerCount >= 3 ? 14 : 10),
-      "boss",
-    ];
-  }
-  if (stage === 5) {
-    return [
-      ...normals(playerCount >= 3 ? 12 : 10),
-      "boss",
-    ];
-  }
-
-  const normalCountByStage = [0, 6, 8, 11, 13, 13, 16, 16];
-  const normalCount = normalCountByStage[stage] ?? 26;
-  const eliteCount = stage >= 6 ? Math.min(3, Math.max(1, playerCount)) : 0;
-  return [
-    ...normals(normalCount),
-    ...Array.from({ length: eliteCount }, () => "elite" as const),
-  ];
+const worldNormalCount = (stage: number, playerCount: number, stageType: CombatStageType): number => {
+  const world = worldForStage(stage);
+  const worldStage = worldStageForStage(stage);
+  const playerScale = Math.max(0, playerCount - 1);
+  const tutorialTrim = world === 1 ? -2 : 0;
+  const base = world === 1 ? 3 : world === 2 ? 6 : 8;
+  const ramp = worldStage + playerScale * (world === 3 ? 2 : 1);
+  const typeBonus = stageType === "elite" ? 2 + world : stageType === "boss" ? world + 1 : 0;
+  return Math.max(world === 1 ? 3 : 5, base + ramp + typeBonus + tutorialTrim);
 };
 
-export const activeEnemyCap = (stage: number, playerCount: number): number =>
-  Math.min(stage >= 7 ? 10 : stage >= 5 ? 9 : stage >= 3 ? 7 : 5, Math.max(5, playerCount * 4));
+export const createEnemyRanks = (
+  stage: number,
+  playerCount: number,
+  stageType: CombatStageType = "normal",
+): EnemyRank[] => {
+  if (stageType === "boss") {
+    const world = worldForStage(stage);
+    const escortCount = world === 1 ? 2 : world === 2 ? 5 : 7;
+    return [
+      ...normals(escortCount),
+      "boss",
+    ];
+  }
+
+  if (stageType === "elite") {
+    const world = worldForStage(stage);
+    const eliteCount = world === 1 ? 1 : world === 2 ? 1 : 2;
+    return [
+      ...normals(worldNormalCount(stage, playerCount, stageType)),
+      ...Array.from({ length: eliteCount }, () => "elite" as const),
+    ];
+  }
+
+  return normals(worldNormalCount(stage, playerCount, stageType));
+};
+
+export const activeEnemyCap = (
+  stage: number,
+  playerCount: number,
+  stageType: CombatStageType = "normal",
+): number => {
+  const world = worldForStage(stage);
+  const base = world === 1 ? 3 : world === 2 ? 5 : 7;
+  const typeBonus = stageType === "boss" ? 1 : stageType === "elite" ? 1 : 0;
+  return Math.min(base + typeBonus + playerCount, Math.max(3, playerCount * (world + 2)));
+};
 
 const countFrontRanks = (
   ranks: EnemyRank[],
@@ -56,16 +79,17 @@ export const nextEnemyBatchSize = (state: CombatState, capacity: number): number
   }
 
   const normalSpan = countFrontRanks(state.enemyQueue, (rank) => rank === "normal");
+  const world = worldForStage(state.stage);
   const progress = state.enemyTotal > 0 ? state.spawnedEnemyCount / state.enemyTotal : 0;
   const opening = state.spawnedEnemyCount === 0;
   const midBattleSurge = progress >= 0.42 && progress <= 0.64;
   const livingCount = state.enemies.filter((enemy) => enemy.hp > 0).length;
   const quietBonus = livingCount <= Math.max(1, state.players.length) ? 1 : 0;
   const baseSize = opening
-    ? state.stage >= 5 ? 3 : 2
+    ? world === 1 ? 2 : world === 2 ? 3 : 4
     : midBattleSurge
-      ? state.stage >= 3 ? 4 : 3
-      : state.stage >= 6 ? 2 : 1;
+      ? world === 1 ? 2 : world === 2 ? 3 : 4
+      : world === 1 ? 1 : 2;
 
   return Math.max(1, Math.min(capacity, normalSpan, baseSize + quietBonus));
 };
@@ -74,11 +98,12 @@ export const enemySpawnDelayFor = (
   state: CombatState,
   incoming: EnemyRank[],
 ): number => {
+  const world = worldForStage(state.stage);
   if (incoming.some((rank) => rank !== "normal")) {
-    return 1.35;
+    return world === 1 ? 1.45 : 1.25;
   }
   if (incoming.length >= 3) {
-    return state.stage >= 5 ? 1.75 : 1.95;
+    return world === 1 ? 2.1 : world === 2 ? 1.75 : 1.45;
   }
-  return state.stage >= 5 ? 1.05 : 1.25;
+  return world === 1 ? 1.35 : world === 2 ? 1.05 : 0.9;
 };

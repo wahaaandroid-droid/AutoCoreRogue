@@ -163,13 +163,13 @@ run("normal enemy boost sounds are quiet", () => {
   assert.ok(!state.soundEvents.includes("boost"));
 });
 
-run("elite and boss stage special enemies are single rival bosses queued last", () => {
-  const eliteRanks = createEnemyRanks(5, 3);
+run("elite route queues elite enemies and boss route queues a single giant boss last", () => {
+  const eliteRanks = createEnemyRanks(5, 3, "elite");
   const firstEliteSpecialIndex = eliteRanks.findIndex((rank) => rank !== "normal");
   assert.ok(firstEliteSpecialIndex > 0);
-  assert.deepEqual(eliteRanks.slice(firstEliteSpecialIndex), ["boss"]);
+  assert.ok(eliteRanks.slice(firstEliteSpecialIndex).every((rank) => rank === "elite"));
 
-  const ranks = createEnemyRanks(7, 3);
+  const ranks = createEnemyRanks(7, 3, "boss");
   const firstSpecialIndex = ranks.findIndex((rank) => rank !== "normal");
   assert.ok(firstSpecialIndex > 0);
   assert.deepEqual(ranks.slice(firstSpecialIndex), ["boss"]);
@@ -188,8 +188,9 @@ run("rival boss spawns with player-style weapons and alert effect", () => {
   assert.ok(boss.rivalAi);
   assert.deepEqual(
     boss.rivalAi.weapons.map((weapon) => weapon.hardpoint),
-    ["rightArm", "leftArm", "leftShoulder", "rightShoulder"],
+    ["rightArm", "leftArm", "rightShoulder"],
   );
+  assert.equal(boss.bossArt, "world1");
   assert.ok(state.effects.some((effect) => effect.kind === "alert" && effect.label === boss.name));
   assert.ok(state.soundEvents.includes("alert"));
 });
@@ -370,6 +371,44 @@ run("energy weapons overheat and recover after cooling", () => {
   stepCombat(state, 0.1, [[{ id: "heat-idle", condition: "always", action: "idle", enabled: true }]]);
   assert.equal(playerWeapon.overheated, false);
   assert.ok(playerWeapon.heat < playerWeapon.heatLimit);
+});
+
+run("beam laser weapons deal direct sustained damage and draw a beam effect", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-beam",
+    label: "Test Beam",
+    resource: "energy",
+    weaponKind: "beamLaser",
+    firePattern: "sustain",
+    energyCost: 0,
+    cooldown: 0.1,
+    heatPerShot: 1,
+    heatLimit: 100,
+    coolingRate: 20,
+    burstInterval: 0.01,
+    spinUpTime: 0,
+    sustainTime: 0.05,
+    range: 500,
+    attack: 80,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+  enemy.x = 620;
+  enemy.y = 300;
+  state.players[0].actor.x = 300;
+  state.players[0].actor.y = 300;
+  state.players[0].weapons[0].cooldownRemaining = 0;
+
+  stepCombat(state, 0.016, [[{ id: "beam-start", condition: "always", action: "shootRight", enabled: true }]]);
+  stepCombat(state, 0.02, [[{ id: "beam-idle", condition: "always", action: "idle", enabled: true }]]);
+
+  assert.ok(enemy.hp < enemy.maxHp);
+  assert.ok(state.effects.some((effect) => effect.kind === "beam"));
 });
 
 run("missiles can be intercepted by hostile projectiles and explode in the air", () => {

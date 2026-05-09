@@ -1,12 +1,14 @@
 import { PartInventory } from "../types";
 import { getSlotLabel, playableParts } from "./parts";
+import { StageType } from "./stages";
 
 export type RewardPayload =
   | { kind: "part"; partId: string }
   | { kind: "stat"; stat: "hp" | "enCapacity" | "enRegen" | "attack" | "defense"; amount: number }
   | { kind: "cooldown"; multiplier: number }
   | { kind: "aiSlot"; amount: number }
-  | { kind: "repairKit"; amount: number };
+  | { kind: "repairKit"; amount: number }
+  | { kind: "credits"; amount: number };
 
 export interface RewardOption {
   id: string;
@@ -15,6 +17,16 @@ export interface RewardOption {
   description: string;
   accent: "blue" | "green" | "orange" | "purple";
   payload: RewardPayload;
+}
+
+export interface ShopOffer {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  cost: number;
+  accent: "blue" | "green" | "orange" | "purple";
+  payload: RewardPayload | { kind: "repairAll"; percent: number };
 }
 
 const staticRewards: RewardOption[] = [
@@ -103,16 +115,73 @@ const rewardPartTitle = (slot: string): string => {
   return "新しいパーツ";
 };
 
+const rarityScore = (rarity: string): number =>
+  rarity === "elite" ? 3 : rarity === "rare" ? 2 : 1;
+
+const creditRewardFor = (stage: number, stageType: StageType): RewardOption => {
+  const world = Math.ceil(stage / 7);
+  const amount = stageType === "elite" ? 150 + world * 55 : stageType === "boss" ? 210 + world * 70 : 80 + world * 35;
+  return {
+    id: `credits-${stageType}-${stage}`,
+    title: "クレジット",
+    subtitle: "作戦資金",
+    description: `${amount} CR を獲得。商人ノードでパーツ購入や全体修理に使える。`,
+    accent: "blue",
+    payload: { kind: "credits", amount },
+  };
+};
+
+const scaledStaticReward = (reward: RewardOption, stageType: StageType): RewardOption => {
+  if (stageType !== "elite") {
+    return reward;
+  }
+  const payload = reward.payload;
+  if (payload.kind === "stat") {
+    const amount = Math.ceil(payload.amount * 1.35);
+    return {
+      ...reward,
+      id: `${reward.id}-elite`,
+      title: `${reward.title}+`,
+      description: `${reward.description}（エリート強化: +${amount}）`,
+      payload: { ...payload, amount },
+    };
+  }
+  if (payload.kind === "cooldown") {
+    return {
+      ...reward,
+      id: `${reward.id}-elite`,
+      title: `${reward.title}+`,
+      description: "武器クールダウン 14%短縮",
+      payload: { kind: "cooldown", multiplier: 0.86 },
+    };
+  }
+  if (payload.kind === "repairKit") {
+    return {
+      ...reward,
+      id: `${reward.id}-elite`,
+      title: "リペアキット x2",
+      description: "リペアキットを2個ストック。ASSEMBLEで選択中ユニットを全回復できる。",
+      payload: { kind: "repairKit", amount: 2 },
+    };
+  }
+  return reward;
+};
+
 export const generateRewardOptions = (
   stage: number,
   partInventory: PartInventory,
   aiSlotCount: number,
+  stageType: StageType = "normal",
 ): RewardOption[] => {
   const parts = playableParts();
-  const lockedParts = parts.filter((part) => (partInventory[part.id] ?? 0) === 0);
-  const duplicateParts = parts.filter((part) => (partInventory[part.id] ?? 0) > 0 && !part.initial);
+  const partPool = stageType === "elite"
+    ? [...parts].sort((a, b) => rarityScore(b.rarity) - rarityScore(a.rarity))
+    : parts;
+  const lockedParts = partPool.filter((part) => (partInventory[part.id] ?? 0) === 0);
+  const duplicateParts = partPool.filter((part) => (partInventory[part.id] ?? 0) > 0 && !part.initial);
   const rotatedDuplicates = duplicateParts.slice(stage % Math.max(1, duplicateParts.length));
-  const partCandidates = [...lockedParts, ...rotatedDuplicates, ...duplicateParts].slice(0, 3);
+  const partCandidateCount = stageType === "elite" || stageType === "boss" ? 4 : 3;
+  const partCandidates = [...lockedParts, ...rotatedDuplicates, ...duplicateParts].slice(0, partCandidateCount);
   const partRewards = partCandidates.map<RewardOption>((part, index) => {
     const owned = partInventory[part.id] ?? 0;
     return {
@@ -130,10 +199,18 @@ export const generateRewardOptions = (
       ? staticRewards.find((reward) => reward.id === "ai-slot")
       : staticRewards.find((reward) => reward.id === "cooldown-boost");
   const rotating = staticRewards.filter((reward) => reward.id !== "ai-slot");
-  const first = rotating[(stage + 1) % rotating.length];
-  const second = rotating[(stage + 3) % rotating.length];
+  const first = scaledStaticReward(rotating[(stage + 1) % rotating.length], stageType);
+  const second = scaledStaticReward(rotating[(stage + 3) % rotating.length], stageType);
   const repairReward = staticRewards.find((reward) => reward.id === "repair-kit");
-  const pool = [repairReward, ...partRewards, first, second, aiReward].filter(Boolean) as RewardOption[];
+  const pool = [
+    creditRewardFor(stage, stageType),
+    stageType === "elite" ? undefined : repairReward,
+    ...partRewards,
+    first,
+    second,
+    aiReward ? scaledStaticReward(aiReward, stageType) : undefined,
+    stageType === "boss" ? creditRewardFor(stage, stageType) : undefined,
+  ].filter(Boolean) as RewardOption[];
   const unique = new Map<string, RewardOption>();
 
   for (const reward of pool) {
@@ -141,4 +218,56 @@ export const generateRewardOptions = (
   }
 
   return [...unique.values()].slice(0, 4);
+};
+
+export const generateShopOffers = (
+  stage: number,
+  partInventory: PartInventory,
+  aiSlotCount: number,
+): ShopOffer[] => {
+  const parts = playableParts();
+  const lockedParts = parts.filter((part) => (partInventory[part.id] ?? 0) === 0);
+  const duplicateParts = parts.filter((part) => (partInventory[part.id] ?? 0) > 0 && !part.initial);
+  const stock = [...lockedParts, ...duplicateParts].slice(stage % 3, stage % 3 + 3);
+  const partOffers = stock.map<ShopOffer>((part, index) => ({
+    id: `shop-part-${part.id}`,
+    title: part.name,
+    subtitle: `${getSlotLabel(part.slot)} / ${part.rarity.toUpperCase()}`,
+    description: `${part.description} 所持 ${partInventory[part.id] ?? 0}`,
+    cost: 95 + rarityScore(part.rarity) * 65 + index * 20 + Math.ceil(stage / 7) * 25,
+    accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
+    payload: { kind: "part", partId: part.id },
+  }));
+
+  const utilityOffers: ShopOffer[] = [
+    {
+      id: "shop-repair-all",
+      title: "全体修理",
+      subtitle: "メンテナンスベイ",
+      description: "全配備UNITのHPを最大値の45%ぶん回復する。",
+      cost: 120 + Math.ceil(stage / 7) * 45,
+      accent: "green",
+      payload: { kind: "repairAll", percent: 0.45 },
+    },
+    {
+      id: "shop-repair-kit",
+      title: "リペアキット",
+      subtitle: "携行修理資材",
+      description: "ASSEMBLEで使えるリペアキットを1個購入。",
+      cost: 85 + Math.ceil(stage / 7) * 25,
+      accent: "green",
+      payload: { kind: "repairKit", amount: 1 },
+    },
+    {
+      id: "shop-ai-slot",
+      title: aiSlotCount < 8 ? "AIスロット追加" : "冷却チューニング",
+      subtitle: aiSlotCount < 8 ? "判断キュー拡張" : "武器同期調整",
+      description: aiSlotCount < 8 ? "選択中UNITのAIルール上限 +1。" : "武器クールダウンを8%短縮。",
+      cost: 160 + Math.ceil(stage / 7) * 55,
+      accent: "purple",
+      payload: aiSlotCount < 8 ? { kind: "aiSlot", amount: 1 } : { kind: "cooldown", multiplier: 0.92 },
+    },
+  ];
+
+  return [...partOffers, ...utilityOffers].slice(0, 5);
 };

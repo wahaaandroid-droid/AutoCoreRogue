@@ -62,6 +62,7 @@ const weaponKindLabels: Record<WeaponKind, string> = {
   rifle: "ライフル",
   sniperRifle: "スナイパーライフル",
   machineGun: "マシンガン",
+  beamLaser: "照射レーザー",
   rocket: "ロケット",
   grenade: "グレネード",
   missile: "ミサイル",
@@ -84,6 +85,8 @@ const defaultMagazineSize = (kind: WeaponKind): number => {
   switch (kind) {
     case "machineGun":
       return 36;
+    case "beamLaser":
+      return 0;
     case "sniperRifle":
       return 5;
     case "rocket":
@@ -103,6 +106,8 @@ const defaultReloadTime = (kind: WeaponKind, hardpoint: WeaponHardpoint): number
   switch (kind) {
     case "machineGun":
       return 1.35 + shoulderLoad;
+    case "beamLaser":
+      return 0;
     case "sniperRifle":
       return 1.65 + shoulderLoad;
     case "rocket":
@@ -121,6 +126,8 @@ const defaultHeatPerShot = (kind: WeaponKind, energyCost: number): number => {
   switch (kind) {
     case "pulse":
       return Math.max(14, energyCost * 2.5);
+    case "beamLaser":
+      return Math.max(12, energyCost * 2.1);
     case "sniperRifle":
       return Math.max(25, energyCost * 2.3);
     case "blade":
@@ -134,9 +141,10 @@ const defaultHeatPerShot = (kind: WeaponKind, energyCost: number): number => {
 };
 
 const defaultCoolingRate = (kind: WeaponKind): number =>
-  kind === "sniperRifle" ? 24 : kind === "blade" ? 30 : kind === "pulse" ? 34 : 31;
+  kind === "sniperRifle" ? 24 : kind === "blade" ? 30 : kind === "pulse" ? 34 : kind === "beamLaser" ? 28 : 31;
 
 const defaultFirePattern = (kind: WeaponKind, resource: WeaponResource): WeaponFirePattern =>
+  resource === "energy" && kind === "beamLaser" ? "sustain" :
   resource === "ballistic" && kind === "machineGun" ? "sustain" : "single";
 
 export const EMPTY_LEFT_ARM_PART_ID = "empty-larm";
@@ -634,6 +642,36 @@ export const parts: Part[] = [
       range: 350,
       attack: 96,
       cooldown: 0.58,
+    }),
+  },
+  {
+    id: "rarm-lumen-laser",
+    slot: "R-ARM",
+    name: "LUMEN 照射レーザー",
+    manufacturer: "Mira Node",
+    description: "照準後に細い高熱ビームを照射し続けるEN兵装。動きの遅い強敵に強い。",
+    weaponResource: "energy",
+    weaponKind: "beamLaser",
+    energyCost: 6,
+    firePattern: "sustain",
+    heatPerShot: 13,
+    heatLimit: 128,
+    coolingRate: 27,
+    burstInterval: 0.08,
+    spinUpTime: 0.22,
+    sustainTime: 1.18,
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      hp: 86,
+      enCapacity: 95,
+      enRegen: -3,
+      defense: 8,
+      turnSpeed: -3,
+      weight: 720,
+      range: 390,
+      attack: 38,
+      cooldown: 1.34,
     }),
   },
   {

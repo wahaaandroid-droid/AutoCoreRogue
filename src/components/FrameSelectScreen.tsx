@@ -61,7 +61,7 @@ export default function FrameSelectScreen({
           </div>
           <div>
             <span>RUN</span>
-            <strong>STAGE 2 / 5 で小隊が拡張</strong>
+            <strong>WORLD 2 / 3 開始時に小隊が拡張</strong>
           </div>
         </section>
       )}
