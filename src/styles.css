@@ -1276,6 +1276,590 @@ select {
   color: var(--orange);
 }
 
+@media (hover: none) and (pointer: coarse) {
+  button {
+    touch-action: manipulation;
+  }
+
+  button:hover {
+    color: var(--text);
+    transform: none;
+  }
+
+  button.primary:hover {
+    color: white;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 540px), (max-width: 960px) and (max-height: 540px) {
+  body {
+    min-height: 100svh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  button,
+  select {
+    min-height: 30px;
+  }
+
+  button {
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  select {
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .app-shell {
+    height: 100svh;
+    min-height: 100svh;
+    grid-template-rows: 40px minmax(0, 1fr);
+    gap: 6px;
+    padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    overflow: hidden;
+  }
+
+  .app-header {
+    min-height: 0;
+    padding: 4px 6px;
+    gap: 6px;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .app-header > div {
+    flex: 0 0 auto;
+    gap: 6px;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .app-header strong {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .app-header small:not(.save-chip),
+  .save-chip {
+    display: none;
+  }
+
+  .app-header nav {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 4px;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-header nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-header nav button {
+    flex: 0 0 auto;
+    min-width: 46px;
+    min-height: 30px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .panel.compact,
+  .slot-panel,
+  .mech-preview-panel,
+  .status-panel,
+  .parts-browser,
+  .ai-table-panel,
+  .ai-flow-panel,
+  .reward-panel,
+  .map-panel,
+  .run-panel,
+  .run-complete-panel {
+    padding: 8px;
+  }
+
+  .section-title {
+    margin-bottom: 5px;
+    font-size: 10px;
+  }
+
+  .screen-grid,
+  .ai-screen,
+  .map-screen,
+  .combat-layout,
+  .frame-select-screen,
+  .reward-screen,
+  .run-complete-screen {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .combat-layout {
+    grid-template-columns: 138px minmax(0, 1fr) 138px;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .combat-canvas-wrap {
+    order: 0;
+    min-width: 0;
+    place-items: center;
+  }
+
+  .combat-canvas-wrap canvas {
+    width: min(100%, calc((100svh - 58px) * 1.719298));
+    max-width: 100%;
+    height: auto;
+    max-height: 100%;
+  }
+
+  .combat-hud {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .combat-hud .panel.compact > strong,
+  .combat-hud .panel.compact > small {
+    margin-top: 2px;
+  }
+
+  .combat-hud small,
+  .meter-label,
+  .cool-row {
+    font-size: 10px;
+  }
+
+  .stage-brief-panel small:nth-of-type(n + 3),
+  .current-action-panel,
+  .weapon-cool-panel,
+  .target-list-panel {
+    display: none;
+  }
+
+  .squad-status-list {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+
+  .squad-status-row {
+    min-height: 26px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .meter-label {
+    margin-top: 5px;
+  }
+
+  .meter,
+  .coolbar {
+    height: 6px;
+    margin-top: 3px;
+  }
+
+  .combat-control-panel {
+    gap: 5px;
+  }
+
+  .speed-row {
+    gap: 4px;
+  }
+
+  .radar {
+    height: 92px;
+    background-size: 18px 18px;
+  }
+
+  .combat-nav-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin-top: auto;
+  }
+
+  .combat-nav-actions button {
+    min-width: 0;
+    padding: 0 4px;
+    font-size: 10px;
+  }
+
+  .assemble-screen {
+    grid-template-columns: 188px minmax(0, 1fr) 172px;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .assemble-screen .slot-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .assemble-screen .mech-preview-panel {
+    display: none;
+  }
+
+  .assemble-screen .parts-browser {
+    grid-column: 2;
+    grid-row: 1;
+    overflow: hidden;
+  }
+
+  .assemble-screen .status-panel {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .slot-panel,
+  .status-panel {
+    overflow: auto;
+  }
+
+  .unit-switcher,
+  .unit-switcher.compact-switcher {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+
+  .unit-switcher button {
+    min-height: 42px;
+    padding: 5px 6px;
+  }
+
+  .unit-switcher small,
+  .slot-row small,
+  .part-card small,
+  .reward-card small,
+  .weapon-status-list span,
+  .weapon-status-list small,
+  .weapon-cool-entry small {
+    font-size: 10px;
+  }
+
+  .kit-panel {
+    gap: 5px;
+    margin-bottom: 6px;
+    padding: 6px;
+  }
+
+  .kit-panel > div:not(.screen-actions) {
+    font-size: 10px;
+  }
+
+  .slot-list {
+    gap: 5px;
+  }
+
+  .slot-row {
+    grid-template-columns: 46px 1fr;
+    gap: 6px;
+    min-height: 42px;
+    padding: 4px 6px;
+  }
+
+  .slot-token {
+    font-size: 10px;
+  }
+
+  .screen-actions {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .tab-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+
+  .tab-row button {
+    padding: 0 4px;
+    font-size: 10px;
+  }
+
+  .part-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    height: calc(100% - 36px);
+    overflow: auto;
+  }
+
+  .part-card {
+    min-height: 104px;
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .part-card small {
+    display: none;
+  }
+
+  .mini-part-icon {
+    width: 34px;
+    height: 22px;
+  }
+
+  .status-list {
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .status-list div {
+    gap: 8px;
+    padding-bottom: 5px;
+  }
+
+  .weapon-status-list {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .weapon-status-list div {
+    padding: 5px;
+  }
+
+  .auto-toggle {
+    min-height: 24px;
+    font-size: 10px;
+  }
+
+  .warning-line,
+  .outcome-line {
+    margin-top: 6px;
+    padding: 6px;
+    font-size: 11px;
+  }
+
+  .ai-screen {
+    grid-template-columns: minmax(0, 1fr) 214px;
+    gap: 6px;
+  }
+
+  .ai-table-panel,
+  .ai-flow-panel {
+    overflow: auto;
+  }
+
+  .target-priority-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(126px, 0.7fr);
+    gap: 6px;
+    margin: 6px 0;
+    padding: 7px;
+  }
+
+  .target-priority-panel small {
+    display: none;
+  }
+
+  .ai-threshold-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+
+  .ai-threshold-grid div,
+  .stage-brief-grid div,
+  .frame-brief-strip div {
+    padding: 6px;
+  }
+
+  .ai-row {
+    grid-template-columns: 42px minmax(0, 1fr) minmax(0, 1fr) 42px;
+    gap: 5px;
+    min-height: 38px;
+    padding: 5px;
+  }
+
+  .ai-row.ai-head {
+    display: grid;
+  }
+
+  .ai-row select,
+  .ai-row label {
+    grid-column: auto;
+  }
+
+  .ai-flow-card {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 5px;
+    min-height: 38px;
+    padding: 6px;
+    font-size: 11px;
+  }
+
+  .priority-dot {
+    width: 24px;
+    height: 24px;
+  }
+
+  .flow-arrow {
+    display: none;
+  }
+
+  .frame-select-screen {
+    grid-template-rows: 106px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .frame-hero-overlay {
+    left: 14px;
+    bottom: 10px;
+    width: min(380px, 56vw);
+  }
+
+  .frame-hero-overlay h1 {
+    font-size: 22px;
+  }
+
+  .frame-brief-strip {
+    display: none;
+  }
+
+  .frame-card-grid {
+    grid-template-columns: repeat(5, minmax(128px, 1fr));
+    gap: 6px;
+    overflow: auto;
+  }
+
+  .frame-card {
+    min-height: 0;
+    padding: 8px;
+    gap: 5px;
+  }
+
+  .frame-card-head {
+    grid-template-columns: 56px minmax(54px, 74px);
+    gap: 6px;
+  }
+
+  .frame-type {
+    width: 56px;
+    height: 32px;
+    font-size: 10px;
+  }
+
+  .frame-card-image {
+    max-width: 74px;
+  }
+
+  .frame-card p {
+    display: none;
+  }
+
+  .frame-card dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  .frame-card dl div {
+    padding-top: 3px;
+  }
+
+  .map-screen {
+    grid-template-columns: minmax(0, 1fr) 188px;
+    gap: 6px;
+  }
+
+  .map-track {
+    min-height: 112px;
+    padding: 12px 14px;
+  }
+
+  .map-track::before {
+    left: 38px;
+    right: 38px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+  }
+
+  .map-node {
+    width: 52px;
+    height: 52px;
+  }
+
+  .map-node span {
+    font-size: 18px;
+  }
+
+  .map-node small,
+  .legend,
+  .stage-brief-grid small {
+    font-size: 10px;
+  }
+
+  .stage-brief-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .legend {
+    gap: 5px;
+    margin-top: 10px;
+  }
+
+  .reward-panel,
+  .run-complete-panel {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+  }
+
+  .reward-panel h1,
+  .run-complete-panel h1 {
+    margin-bottom: 8px;
+    font-size: 20px;
+  }
+
+  .combat-report {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .combat-report div {
+    padding: 6px;
+  }
+
+  .reward-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .reward-card {
+    min-height: 0;
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .reward-card p {
+    display: none;
+  }
+
+  .reward-visual {
+    aspect-ratio: 1.45 / 1;
+  }
+}
+
 @media (max-width: 1120px) {
   .app-shell {
     grid-template-rows: auto 1fr;
@@ -1451,4 +2035,156 @@ select {
 
 .legend-boss {
   color: var(--orange);
+}
+
+@media (orientation: landscape) and (max-height: 540px), (max-width: 960px) and (max-height: 540px) {
+  .app-shell {
+    height: 100svh;
+    min-height: 100svh;
+    grid-template-rows: 40px minmax(0, 1fr);
+    gap: 6px;
+    padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    overflow: hidden;
+  }
+
+  .app-header {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .app-header nav,
+  .screen-actions {
+    width: auto;
+  }
+
+  .app-header nav {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .app-header nav button,
+  .screen-actions button {
+    flex: 0 0 auto;
+    min-width: 46px;
+  }
+
+  .screen-grid,
+  .ai-screen,
+  .map-screen,
+  .combat-layout {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .combat-layout {
+    grid-template-columns: 138px minmax(0, 1fr) 138px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .combat-canvas-wrap {
+    order: 0;
+  }
+
+  .combat-hud,
+  .combat-hud.left,
+  .combat-hud.right {
+    display: flex;
+    grid-template-columns: none;
+  }
+
+  .assemble-screen {
+    grid-template-columns: 188px minmax(0, 1fr) 172px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .assemble-screen .slot-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .assemble-screen .parts-browser {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .assemble-screen .status-panel {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .unit-switcher,
+  .unit-switcher.compact-switcher {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tab-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .part-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-screen {
+    grid-template-columns: minmax(0, 1fr) 214px;
+  }
+
+  .target-priority-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(126px, 0.7fr);
+  }
+
+  .ai-row,
+  .ai-row.ai-head {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) minmax(0, 1fr) 42px;
+  }
+
+  .ai-row select,
+  .ai-row label {
+    grid-column: auto;
+  }
+
+  .ai-flow-card {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .map-screen {
+    grid-template-columns: minmax(0, 1fr) 188px;
+  }
+
+  .map-track {
+    align-items: center;
+    flex-direction: row;
+    min-height: 112px;
+  }
+
+  .map-track::before {
+    left: 38px;
+    right: 38px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+  }
+
+  .map-node {
+    width: 52px;
+    height: 52px;
+  }
+
+  .reward-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .combat-report,
+  .frame-brief-strip,
+  .stage-brief-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-threshold-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }

@@ -826,14 +826,14 @@ export default function CombatScreen({
   return (
     <main className="combat-layout">
       <section className="combat-hud left">
-        <div className="panel compact">
+        <div className="panel compact stage-brief-panel">
           <div className="section-title">STAGE {stage}</div>
           <strong>{stagePlan.label}</strong>
           <small>{stagePlan.threat}</small>
           <small>撃破 {defeatedEnemyCount}/{snapshot.enemyTotal}</small>
           <small>交戦中 {livingEnemies.length} / 増援待ち {incomingEnemyCount}</small>
         </div>
-        <div className="panel compact">
+        <div className="panel compact combat-status-panel">
           <div className="section-title">STATUS</div>
           <div className="squad-status-list">
             {snapshot.players.map((unit, index) => (
@@ -862,12 +862,12 @@ export default function CombatScreen({
           </div>
           <div className="meter en"><span style={{ width: `${(activeActor.en / activeActor.maxEn) * 100}%` }} /></div>
         </div>
-        <div className="panel compact">
+        <div className="panel compact current-action-panel">
           <div className="section-title">CURRENT ACTION</div>
           <strong className="active-action">{getActionLabel(activeUnit.activeAction)}</strong>
           <small>{activeRule ? getConditionLabel(activeRule.condition) : "NO RULE"}</small>
         </div>
-        <div className="panel compact">
+        <div className="panel compact weapon-cool-panel">
           <div className="section-title">WEAPON COOL</div>
           {activeUnit.weapons.map((weapon) => (
             <div className="weapon-cool-entry" key={weapon.hardpoint}>
@@ -940,7 +940,7 @@ export default function CombatScreen({
             ))}
           </div>
         </div>
-        <div className="panel compact enemy-list">
+        <div className="panel compact enemy-list target-list-panel">
           <div className="section-title">TARGETS</div>
           {livingEnemies.map((enemy) => (
             <div className="enemy-row" key={enemy.id}>
@@ -949,7 +949,7 @@ export default function CombatScreen({
             </div>
           ))}
         </div>
-        <div className="screen-actions vertical">
+        <div className="screen-actions vertical combat-nav-actions">
           <button onClick={onOpenAssemble}>ASSEMBLE</button>
           <button onClick={onOpenAi}>AI EDIT</button>
         </div>
