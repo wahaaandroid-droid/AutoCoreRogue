@@ -388,6 +388,33 @@ select {
   margin-top: 4px;
 }
 
+.ai-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.ai-preset-grid button {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 9px;
+  text-align: left;
+  border: 1px solid rgba(120, 210, 235, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ai-preset-grid button.active {
+  border-color: var(--green);
+  background: rgba(84, 244, 167, 0.14);
+}
+
+.ai-preset-grid small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .stage-brief-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -968,6 +995,10 @@ select {
 
 .meter.en span {
   background: var(--blue);
+}
+
+.meter.heat span {
+  background: linear-gradient(90deg, #f6d65d, #ff7048);
 }
 
 .meter.mini {
@@ -1913,6 +1944,10 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ai-preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .combat-report,
   .frame-brief-strip,
   .stage-brief-grid {
@@ -1958,6 +1993,7 @@ select {
   .combat-report,
   .stage-brief-grid,
   .combat-hud,
+  .ai-preset-grid,
   .ai-threshold-grid {
     grid-template-columns: minmax(0, 1fr);
   }

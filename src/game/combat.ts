@@ -90,6 +90,15 @@ export interface PlayerWeaponState extends WeaponStats {
   cooldownRemaining: number;
   cooldownMax: number;
   ammo: number;
+  magazine: number;
+  reloadRemaining: number;
+  heat: number;
+  overheated: boolean;
+  burstShotsRemaining: number;
+  sequenceTimer: number;
+  sustainRemaining: number;
+  sequenceTargetId?: string;
+  sequenceWarmupRemaining: number;
   autoUse: boolean;
 }
 
@@ -113,6 +122,7 @@ export type CombatSoundEvent =
   | "blade"
   | "hit"
   | "hitExplosive"
+  | "intercept"
   | "explosion"
   | "defeat"
   | "alert";
@@ -225,6 +235,26 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   rank: "normal",
 });
 
+const createWeaponState = (
+  weapon: WeaponStats,
+  cooldownRemaining: number,
+  autoUse = true,
+): PlayerWeaponState => ({
+  ...weapon,
+  cooldownRemaining,
+  cooldownMax: weapon.cooldown,
+  ammo: weapon.magazineSize,
+  magazine: weapon.magazineSize,
+  reloadRemaining: 0,
+  heat: 0,
+  overheated: false,
+  burstShotsRemaining: 0,
+  sequenceTimer: 0,
+  sustainRemaining: 0,
+  sequenceWarmupRemaining: 0,
+  autoUse,
+});
+
 const createPlayerUnit = (
   stats: DerivedStats,
   unitIndex: number,
@@ -236,13 +266,13 @@ const createPlayerUnit = (
   actor.x = ARENA_WIDTH * (PLAYER_FORMATION[formationIndex]?.x ?? 0.5);
   actor.y = ARENA_HEIGHT * (PLAYER_FORMATION[formationIndex]?.y ?? 0.58);
   actor.hp = clamp(currentHp, 0, stats.hpMax);
-  const weapons = stats.weapons.map((weapon, weaponIndex): PlayerWeaponState => ({
-    ...weapon,
-    cooldownRemaining: 0.18 + formationIndex * 0.08 + weaponIndex * 0.12,
-    cooldownMax: weapon.cooldown,
-    ammo: weapon.ammoMax,
-    autoUse: weaponAutoUse?.[weapon.hardpoint] ?? true,
-  }));
+  const weapons = stats.weapons.map((weapon, weaponIndex): PlayerWeaponState =>
+    createWeaponState(
+      weapon,
+      0.18 + formationIndex * 0.08 + weaponIndex * 0.12,
+      weaponAutoUse?.[weapon.hardpoint] ?? true,
+    ),
+  );
 
   return {
     unitIndex,
@@ -274,6 +304,16 @@ const createRivalWeapon = (
     energyCost?: number;
     ammoMax?: number;
     blastRadius?: number;
+    firePattern?: WeaponStats["firePattern"];
+    magazineSize?: number;
+    reloadTime?: number;
+    heatPerShot?: number;
+    heatLimit?: number;
+    coolingRate?: number;
+    burstCount?: number;
+    burstInterval?: number;
+    spinUpTime?: number;
+    sustainTime?: number;
   },
 ): WeaponStats => ({
   hardpoint,
@@ -288,6 +328,16 @@ const createRivalWeapon = (
   energyCost: options.energyCost ?? 0,
   ammoMax: options.ammoMax ?? 0,
   blastRadius: options.blastRadius ?? 0,
+  firePattern: options.firePattern ?? "single",
+  magazineSize: options.magazineSize ?? options.ammoMax ?? 0,
+  reloadTime: options.reloadTime ?? (options.resource === "ballistic" ? 1.7 : 0),
+  heatPerShot: options.heatPerShot ?? (options.resource === "energy" ? Math.max(14, (options.energyCost ?? 0) * 2.1) : 0),
+  heatLimit: options.heatLimit ?? (options.resource === "energy" ? 100 : 0),
+  coolingRate: options.coolingRate ?? (options.resource === "energy" ? 32 : 0),
+  burstCount: options.firePattern === "burst" ? Math.max(2, options.burstCount ?? 3) : 1,
+  burstInterval: Math.max(0.05, options.burstInterval ?? 0.1),
+  spinUpTime: options.firePattern === "sustain" ? Math.max(0, options.spinUpTime ?? 0.35) : 0,
+  sustainTime: options.firePattern === "sustain" ? Math.max(0.25, options.sustainTime ?? 1.2) : 0,
 });
 
 const createRivalStats = (
@@ -353,13 +403,9 @@ const createRivalWeaponStates = (
   weapons: WeaponStats[],
   spawnIndex: number,
 ): PlayerWeaponState[] =>
-  weapons.map((weapon, weaponIndex) => ({
-    ...weapon,
-    cooldownRemaining: 0.5 + spawnIndex * 0.05 + weaponIndex * 0.16,
-    cooldownMax: weapon.cooldown,
-    ammo: weapon.ammoMax,
-    autoUse: true,
-  }));
+  weapons.map((weapon, weaponIndex) =>
+    createWeaponState(weapon, 0.5 + spawnIndex * 0.05 + weaponIndex * 0.16),
+  );
 
 const createStageFiveRivalBossSpec = (): RivalBossSpec => {
   const weapons = [
@@ -1007,6 +1053,9 @@ const fireProjectile = (
       color,
       targetId,
       sourceUnitIndex,
+      interceptable: kind === "missile",
+      interceptHp: kind === "missile" ? Math.max(16, damage * 0.18) : undefined,
+      interceptDamage: Math.max(4, damage * (kind === "pulse" ? 0.68 : kind === "bullet" ? 0.9 : 1.05)),
     }),
   );
   state.effects.push(
@@ -1209,6 +1258,7 @@ const firstReadyShoulderWeapon = (
     weapon.hardpoint.includes("Shoulder") &&
     weapon.autoUse &&
     weapon.cooldownRemaining <= 0 &&
+    !isWeaponSequenceActive(weapon) &&
     canPayWeapon(unit, weapon) &&
     isWeaponInRange(unit.actor, target, weapon),
   );
@@ -1218,12 +1268,12 @@ const canPayWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefi
     return false;
   }
   return weapon.resource === "ballistic"
-    ? weapon.ammo > 0
-    : unit.actor.en >= weapon.energyCost;
+    ? weapon.reloadRemaining <= 0 && weapon.magazine > 0
+    : !weapon.overheated && weapon.heat < weapon.heatLimit && unit.actor.en >= weapon.energyCost;
 };
 
 const canAutoUseWeapon = (unit: PlayerCombatUnit, weapon: PlayerWeaponState | undefined): boolean =>
-  Boolean(weapon?.autoUse) && canPayWeapon(unit, weapon);
+  Boolean(weapon?.autoUse) && Boolean(weapon && !isWeaponSequenceActive(weapon)) && canPayWeapon(unit, weapon);
 
 const isWeaponInRange = (
   actor: CombatActor,
@@ -1241,23 +1291,84 @@ const consumeWeapon = (
   weapon: PlayerWeaponState,
 ): boolean => {
   if (weapon.resource === "ballistic") {
-    if (weapon.ammo <= 0) {
+    if (weapon.reloadRemaining > 0 || weapon.magazine <= 0) {
       return false;
     }
-    weapon.ammo -= 1;
+    weapon.magazine -= 1;
+    weapon.ammo = weapon.magazine;
+    if (weapon.magazine <= 0) {
+      weapon.reloadRemaining = weapon.reloadTime;
+    }
     return true;
   }
-  return spendEnergy(unit.actor, weapon.energyCost);
+  if (weapon.overheated || weapon.heat >= weapon.heatLimit || !spendEnergy(unit.actor, weapon.energyCost)) {
+    return false;
+  }
+  weapon.heat = Math.min(weapon.heatLimit, weapon.heat + weapon.heatPerShot);
+  if (weapon.heat >= weapon.heatLimit) {
+    weapon.overheated = true;
+  }
+  return true;
 };
 
-const firePlayerWeapon = (
+const isWeaponSequenceActive = (weapon: PlayerWeaponState): boolean =>
+  weapon.burstShotsRemaining > 0 || weapon.sustainRemaining > 0 || weapon.sequenceWarmupRemaining > 0;
+
+const weaponSequenceTarget = (
+  state: CombatState,
+  weapon: PlayerWeaponState,
+  fallback: CombatActor | undefined,
+): CombatActor | undefined => {
+  const targetId = weapon.sequenceTargetId;
+  const target = targetId
+    ? [...state.enemies, ...livingPlayerUnits(state).map((unit) => unit.actor)].find((actor) => actor.id === targetId)
+    : undefined;
+  if (target && target.hp > 0) {
+    return target;
+  }
+  return fallback?.hp && fallback.hp > 0 ? fallback : undefined;
+};
+
+const updateWeaponRuntime = (weapon: PlayerWeaponState, dt: number): void => {
+  weapon.cooldownRemaining = Math.max(0, weapon.cooldownRemaining - dt);
+
+  if (weapon.resource === "ballistic") {
+    if (weapon.reloadRemaining > 0) {
+      weapon.reloadRemaining = Math.max(0, weapon.reloadRemaining - dt);
+      if (weapon.reloadRemaining <= 0 && weapon.magazine <= 0) {
+        weapon.magazine = weapon.magazineSize;
+        weapon.ammo = weapon.magazine;
+      }
+    } else if (weapon.magazine <= 0) {
+      weapon.reloadRemaining = weapon.reloadTime;
+    }
+  } else {
+    weapon.heat = Math.max(0, weapon.heat - weapon.coolingRate * dt);
+    if (weapon.overheated && weapon.heat <= weapon.heatLimit * 0.58) {
+      weapon.overheated = false;
+    }
+  }
+
+  if (weapon.sequenceWarmupRemaining > 0) {
+    weapon.sequenceWarmupRemaining = Math.max(0, weapon.sequenceWarmupRemaining - dt);
+  } else if (weapon.sustainRemaining > 0) {
+    weapon.sustainRemaining = Math.max(0, weapon.sustainRemaining - dt);
+  }
+  weapon.sequenceTimer = Math.max(0, weapon.sequenceTimer - dt);
+
+  if (!isWeaponSequenceActive(weapon)) {
+    weapon.sequenceTargetId = undefined;
+  }
+};
+
+const fireWeaponShot = (
   state: CombatState,
   unit: PlayerCombatUnit,
   weapon: PlayerWeaponState | undefined,
   target: CombatActor,
   requireRange = false,
 ): boolean => {
-  if (!weapon || !weapon.autoUse || weapon.cooldownRemaining > 0) {
+  if (!weapon || !weapon.autoUse) {
     return false;
   }
 
@@ -1300,8 +1411,112 @@ const firePlayerWeapon = (
     unit.unitIndex,
     weapon.blastRadius,
   );
-  weapon.cooldownRemaining = weapon.cooldownMax;
   return true;
+};
+
+const startWeaponSequence = (
+  weapon: PlayerWeaponState,
+  target: CombatActor,
+  firedImmediately: boolean,
+): void => {
+  weapon.sequenceTargetId = target.id;
+  if (weapon.firePattern === "burst") {
+    weapon.burstShotsRemaining = Math.max(0, weapon.burstCount - (firedImmediately ? 1 : 0));
+    weapon.sequenceTimer = weapon.burstInterval;
+    weapon.cooldownRemaining = weapon.cooldownMax;
+    return;
+  }
+
+  if (weapon.firePattern === "sustain") {
+    weapon.sequenceWarmupRemaining = weapon.spinUpTime;
+    weapon.sequenceTimer = weapon.spinUpTime;
+    weapon.sustainRemaining = weapon.sustainTime;
+    weapon.cooldownRemaining = weapon.cooldownMax + weapon.spinUpTime + weapon.sustainTime;
+    return;
+  }
+
+  weapon.cooldownRemaining = weapon.cooldownMax;
+};
+
+const firePlayerWeapon = (
+  state: CombatState,
+  unit: PlayerCombatUnit,
+  weapon: PlayerWeaponState | undefined,
+  target: CombatActor,
+  requireRange = false,
+): boolean => {
+  if (!weapon || !weapon.autoUse || weapon.cooldownRemaining > 0 || isWeaponSequenceActive(weapon)) {
+    return false;
+  }
+
+  if (requireRange && !isWeaponInRange(unit.actor, target, weapon)) {
+    return false;
+  }
+
+  if (weapon.firePattern === "sustain") {
+    if (!canPayWeapon(unit, weapon)) {
+      return false;
+    }
+    startWeaponSequence(weapon, target, false);
+    state.effects.push(
+      createEffect({
+        id: uid("effect"),
+        kind: "muzzle",
+        x: unit.actor.x + unit.actor.facingX * (unit.actor.radius + 12),
+        y: unit.actor.y + unit.actor.facingY * (unit.actor.radius + 12),
+        life: 0.2,
+        maxLife: 0.2,
+        color: "#ffcf66",
+        size: 18,
+      }),
+    );
+    return true;
+  }
+
+  const fired = fireWeaponShot(state, unit, weapon, target, requireRange);
+  if (!fired) {
+    return false;
+  }
+
+  startWeaponSequence(weapon, target, true);
+  return true;
+};
+
+const resolveWeaponSequences = (
+  state: CombatState,
+  unit: PlayerCombatUnit,
+  fallbackTarget: CombatActor | undefined,
+): void => {
+  for (const weapon of unit.weapons) {
+    if (!weapon.autoUse || weapon.sequenceTimer > 0 || weapon.sequenceWarmupRemaining > 0) {
+      continue;
+    }
+
+    const target = weaponSequenceTarget(state, weapon, fallbackTarget);
+    if (!target) {
+      weapon.burstShotsRemaining = 0;
+      weapon.sustainRemaining = 0;
+      weapon.sequenceTargetId = undefined;
+      continue;
+    }
+
+    if (weapon.burstShotsRemaining > 0) {
+      if (fireWeaponShot(state, unit, weapon, target, true)) {
+        weapon.burstShotsRemaining -= 1;
+        weapon.sequenceTimer = weapon.burstInterval;
+      } else {
+        weapon.burstShotsRemaining = 0;
+      }
+    }
+
+    if (weapon.sustainRemaining > 0 && weapon.sequenceTimer <= 0 && weapon.sequenceWarmupRemaining <= 0) {
+      if (fireWeaponShot(state, unit, weapon, target, true)) {
+        weapon.sequenceTimer = weapon.burstInterval;
+      } else {
+        weapon.sustainRemaining = 0;
+      }
+    }
+  }
 };
 
 type WeaponPlanMode = "suppressive" | "alpha" | "explosive" | "longRange";
@@ -1335,7 +1550,7 @@ const plannedWeaponCandidates = (
 ): PlayerWeaponState[] =>
   unit.weapons
     .filter((weapon) => {
-      if (!weapon.autoUse || weapon.cooldownRemaining > 0 || !canPayWeapon(unit, weapon)) {
+      if (!weapon.autoUse || weapon.cooldownRemaining > 0 || isWeaponSequenceActive(weapon) || !canPayWeapon(unit, weapon)) {
         return false;
       }
       if (!isWeaponInRange(unit.actor, target, weapon)) {
@@ -1525,7 +1740,7 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
 
   enemy.en = Math.min(enemy.maxEn, enemy.en + enemy.enRegen * dt);
   for (const weapon of rival.weapons) {
-    weapon.cooldownRemaining = Math.max(0, weapon.cooldownRemaining - dt);
+    updateWeaponRuntime(weapon, dt);
   }
   rival.boostCooldown = Math.max(0, rival.boostCooldown - dt);
 
@@ -1548,6 +1763,7 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
   const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
   const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
   const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
+  resolveWeaponSequences(state, unit, target);
   const decision = evaluateAiRules(rival.rules, {
     en: enemy.en,
     hpPercent: enemy.hp / enemy.maxHp,
@@ -1736,7 +1952,7 @@ export const stepCombat = (
 
     player.en = Math.min(player.maxEn, player.en + player.enRegen * dt);
     for (const weapon of unit.weapons) {
-      weapon.cooldownRemaining = Math.max(0, weapon.cooldownRemaining - dt);
+      updateWeaponRuntime(weapon, dt);
     }
     unit.boostCooldown = Math.max(0, unit.boostCooldown - dt);
 
@@ -1751,6 +1967,7 @@ export const stepCombat = (
     const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
     const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
     const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
+    resolveWeaponSequences(state, unit, target);
     const decision = evaluateAiRules(rules, {
       en: player.en,
       hpPercent: player.hp / player.maxHp,

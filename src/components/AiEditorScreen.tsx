@@ -1,13 +1,15 @@
 import {
   actionDefinitions,
+  aiPresetDefinitions,
   conditionDefinitions,
   ensureAiRuleSlots,
   getActionLabel,
+  getAiPresetDefinition,
   getConditionLabel,
   getTargetPriorityLabel,
   targetPriorityDefinitions,
 } from "../data/aiRules";
-import { AiActionId, AiConditionId, AiRule, DerivedStats, TargetPriorityId } from "../types";
+import { AiActionId, AiConditionId, AiPresetId, AiRule, DerivedStats, TargetPriorityId } from "../types";
 
 interface AiEditorScreenProps {
   rules: AiRule[];
@@ -15,8 +17,10 @@ interface AiEditorScreenProps {
   activeUnitIndex: number;
   unlockedUnitCount: number;
   statsByUnit: DerivedStats[];
+  aiPreset: AiPresetId;
   targetPriority: TargetPriorityId;
   onSelectUnit: (index: number) => void;
+  onChangeAiPreset: (preset: AiPresetId) => void;
   onChangeRules: (rules: AiRule[]) => void;
   onChangeTargetPriority: (priority: TargetPriorityId) => void;
   onOpenAssemble: () => void;
@@ -30,8 +34,10 @@ export default function AiEditorScreen({
   activeUnitIndex,
   unlockedUnitCount,
   statsByUnit,
+  aiPreset,
   targetPriority,
   onSelectUnit,
+  onChangeAiPreset,
   onChangeRules,
   onChangeTargetPriority,
   onOpenAssemble,
@@ -39,6 +45,7 @@ export default function AiEditorScreen({
   onStartCombat,
 }: AiEditorScreenProps) {
   const normalizedRules = ensureAiRuleSlots(rules, slotCount);
+  const presetDefinition = getAiPresetDefinition(aiPreset);
 
   const updateRule = (index: number, patch: Partial<AiRule>) => {
     onChangeRules(
@@ -67,6 +74,35 @@ export default function AiEditorScreen({
             >
               <strong>UNIT {index + 1}</strong>
               <small>{index >= unlockedUnitCount ? "未配備" : `SPD ${unitStats.moveSpeed}`}</small>
+            </button>
+          ))}
+        </div>
+        <div className="target-priority-panel">
+          <div>
+            <span>AIプリセット</span>
+            <strong>{presetDefinition.label}</strong>
+          </div>
+          <select
+            value={aiPreset}
+            onChange={(event) => onChangeAiPreset(event.target.value as AiPresetId)}
+          >
+            {aiPresetDefinitions.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+          <small>{presetDefinition.description}</small>
+        </div>
+        <div className="ai-preset-grid">
+          {aiPresetDefinitions.filter((preset) => preset.id !== "custom").map((preset) => (
+            <button
+              key={preset.id}
+              className={aiPreset === preset.id ? "active" : ""}
+              onClick={() => onChangeAiPreset(preset.id)}
+            >
+              <strong>{preset.label}</strong>
+              <small>{preset.description}</small>
             </button>
           ))}
         </div>

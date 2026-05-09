@@ -8,7 +8,7 @@ import {
   calculateDerivedStats,
   initialLoadout,
 } from "../src/data/parts";
-import type { AiRule, DerivedStats } from "../src/types";
+import type { AiRule, DerivedStats, WeaponStats } from "../src/types";
 
 const rules: AiRule[][] = [[]];
 
@@ -51,6 +51,28 @@ const testStats: DerivedStats = {
 const createOneUnitState = (stage: number) =>
   createCombatState(stage, [testStats], [testStats.hpMax], [true], 1, []);
 
+const testWeapon = (patch: Partial<WeaponStats> & Pick<WeaponStats, "hardpoint" | "slot" | "partId" | "label">): WeaponStats => ({
+  range: 360,
+  attack: 60,
+  cooldown: 0.08,
+  resource: "energy",
+  weaponKind: "rifle",
+  energyCost: 0,
+  ammoMax: 0,
+  blastRadius: 0,
+  firePattern: "single",
+  magazineSize: 0,
+  reloadTime: 0,
+  heatPerShot: 10,
+  heatLimit: 100,
+  coolingRate: 36,
+  burstCount: 1,
+  burstInterval: 0.08,
+  spinUpTime: 0,
+  sustainTime: 0,
+  ...patch,
+});
+
 const bladeStats: DerivedStats = {
   ...testStats,
   leftRange: 86,
@@ -59,7 +81,7 @@ const bladeStats: DerivedStats = {
   leftWeaponKind: "blade",
   leftEnergyCost: 0,
   weapons: [
-    {
+    testWeapon({
       hardpoint: "leftArm",
       slot: "L-ARM",
       partId: "test-blade",
@@ -72,9 +94,21 @@ const bladeStats: DerivedStats = {
       energyCost: 0,
       ammoMax: 0,
       blastRadius: 0,
-    },
+    }),
   ],
 };
+
+const statsWithWeapon = (weapon: WeaponStats): DerivedStats => ({
+  ...testStats,
+  rightRange: weapon.hardpoint === "rightArm" ? weapon.range : testStats.rightRange,
+  rightAttack: weapon.hardpoint === "rightArm" ? weapon.attack : testStats.rightAttack,
+  rightCooldown: weapon.hardpoint === "rightArm" ? weapon.cooldown : testStats.rightCooldown,
+  rightResource: weapon.hardpoint === "rightArm" ? weapon.resource : testStats.rightResource,
+  rightWeaponKind: weapon.hardpoint === "rightArm" ? weapon.weaponKind : testStats.rightWeaponKind,
+  rightEnergyCost: weapon.hardpoint === "rightArm" ? weapon.energyCost : testStats.rightEnergyCost,
+  rightAmmoMax: weapon.hardpoint === "rightArm" ? weapon.magazineSize : testStats.rightAmmoMax,
+  weapons: [weapon],
+});
 
 const run = (name: string, test: () => void) => {
   try {
@@ -275,6 +309,216 @@ run("blade slash effect records the attack direction", () => {
   const slash = state.effects.find((effect) => effect.kind === "slash");
   assert.ok(slash);
   assert.ok(Math.abs((slash.rotation ?? 0) + Math.PI / 2) < 0.001);
+});
+
+run("ballistic weapons reload their magazine instead of exhausting stage ammo", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-ballistic",
+    label: "Test Ballistic",
+    resource: "ballistic",
+    weaponKind: "rifle",
+    ammoMax: 2,
+    magazineSize: 2,
+    reloadTime: 0.08,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+  const playerWeapon = state.players[0].weapons[0];
+  playerWeapon.cooldownRemaining = 0;
+  playerWeapon.magazine = 1;
+  playerWeapon.ammo = 1;
+
+  stepCombat(state, 0.016, [[{ id: "reload-shot", condition: "always", action: "shootRight", enabled: true }]]);
+  assert.equal(playerWeapon.magazine, 0);
+  assert.ok(playerWeapon.reloadRemaining > 0);
+
+  stepCombat(state, 0.12, [[{ id: "reload-idle", condition: "always", action: "idle", enabled: true }]]);
+  assert.equal(playerWeapon.magazine, playerWeapon.magazineSize);
+  assert.equal(playerWeapon.reloadRemaining, 0);
+});
+
+run("energy weapons overheat and recover after cooling", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-heat",
+    label: "Test Heat",
+    resource: "energy",
+    weaponKind: "pulse",
+    energyCost: 0,
+    cooldown: 0.01,
+    heatPerShot: 12,
+    heatLimit: 20,
+    coolingRate: 100,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+  const playerWeapon = state.players[0].weapons[0];
+  playerWeapon.cooldownRemaining = 0;
+
+  stepCombat(state, 0.016, [[{ id: "heat-shot", condition: "always", action: "shootRight", enabled: true }]]);
+  playerWeapon.cooldownRemaining = 0;
+  stepCombat(state, 0.016, [[{ id: "heat-shot-2", condition: "always", action: "shootRight", enabled: true }]]);
+  assert.equal(playerWeapon.overheated, true);
+
+  stepCombat(state, 0.1, [[{ id: "heat-idle", condition: "always", action: "idle", enabled: true }]]);
+  assert.equal(playerWeapon.overheated, false);
+  assert.ok(playerWeapon.heat < playerWeapon.heatLimit);
+});
+
+run("missiles can be intercepted by hostile projectiles and explode in the air", () => {
+  const state = createOneUnitState(1);
+  const player = state.players[0].actor;
+  player.x = 450;
+  player.y = 300;
+  state.enemyQueue = [];
+  state.projectiles.push(
+    {
+      id: "intercept-missile",
+      owner: "enemy",
+      kind: "missile",
+      x: player.x,
+      y: player.y,
+      vx: 0,
+      vy: 0,
+      damage: 70,
+      radius: 6,
+      blastRadius: 34,
+      life: 1,
+      color: "#ff9c35",
+      interceptable: true,
+      interceptHp: 4,
+      interceptDamage: 12,
+    },
+    {
+      id: "intercept-bullet",
+      owner: "player",
+      kind: "bullet",
+      x: player.x,
+      y: player.y,
+      vx: 0,
+      vy: 0,
+      damage: 10,
+      radius: 4,
+      life: 1,
+      color: "#ffb15a",
+      sourceUnitIndex: 0,
+      interceptDamage: 10,
+    },
+  );
+
+  stepCombat(state, 0.016, [[{ id: "intercept-idle", condition: "always", action: "idle", enabled: true }]]);
+  assert.ok(!state.projectiles.some((projectile) => projectile.id === "intercept-missile"));
+  assert.ok(state.effects.some((effect) => effect.kind === "explosion"));
+  assert.ok(state.soundEvents.includes("intercept"));
+  assert.ok(player.hp < player.maxHp);
+});
+
+run("burst weapons fire queued follow-up shots", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-burst",
+    label: "Test Burst",
+    resource: "ballistic",
+    weaponKind: "rifle",
+    firePattern: "burst",
+    magazineSize: 5,
+    ammoMax: 5,
+    reloadTime: 1,
+    burstCount: 3,
+    burstInterval: 0.02,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+  enemy.x = 620;
+  enemy.y = 300;
+  state.players[0].actor.x = 300;
+  state.players[0].actor.y = 300;
+  state.players[0].weapons[0].cooldownRemaining = 0;
+
+  stepCombat(state, 0.016, [[{ id: "burst-start", condition: "always", action: "shootRight", enabled: true }]]);
+  stepCombat(state, 0.03, [[{ id: "burst-idle", condition: "always", action: "idle", enabled: true }]]);
+  stepCombat(state, 0.03, [[{ id: "burst-idle-2", condition: "always", action: "idle", enabled: true }]]);
+
+  assert.ok(state.projectiles.filter((projectile) => projectile.owner === "player").length >= 3);
+  assert.equal(state.players[0].weapons[0].magazine, 2);
+});
+
+run("gatling weapons spin up before sustained fire", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-gatling",
+    label: "Test Gatling",
+    resource: "ballistic",
+    weaponKind: "machineGun",
+    firePattern: "sustain",
+    magazineSize: 10,
+    ammoMax: 10,
+    reloadTime: 1,
+    burstInterval: 0.03,
+    spinUpTime: 0.04,
+    sustainTime: 0.12,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+  enemy.x = 620;
+  enemy.y = 300;
+  state.players[0].actor.x = 300;
+  state.players[0].actor.y = 300;
+  state.players[0].weapons[0].cooldownRemaining = 0;
+
+  stepCombat(state, 0.016, [[{ id: "gatling-start", condition: "always", action: "shootRight", enabled: true }]]);
+  assert.equal(state.projectiles.filter((projectile) => projectile.owner === "player").length, 0);
+  stepCombat(state, 0.05, [[{ id: "gatling-idle", condition: "always", action: "idle", enabled: true }]]);
+  stepCombat(state, 0.04, [[{ id: "gatling-idle-2", condition: "always", action: "idle", enabled: true }]]);
+
+  assert.ok(state.projectiles.filter((projectile) => projectile.owner === "player").length >= 2);
+});
+
+run("grenade blast radius damages clustered enemies", () => {
+  const state = createOneUnitState(1);
+  stepCombat(state, 0.016, rules);
+  const firstEnemy = state.enemies[0];
+  assert.ok(firstEnemy);
+  firstEnemy.x = 560;
+  firstEnemy.y = 300;
+  const secondEnemy = { ...firstEnemy, id: "grenade-secondary", hp: firstEnemy.maxHp, x: 635, y: 300 };
+  state.enemies.push(secondEnemy);
+  state.enemyQueue = [];
+  state.projectiles.push({
+    id: "test-grenade",
+    owner: "player",
+    kind: "grenade",
+    x: firstEnemy.x,
+    y: firstEnemy.y,
+    vx: 0,
+    vy: 0,
+    damage: 160,
+    radius: 8,
+    blastRadius: 120,
+    life: 1,
+    color: "#ffc45f",
+    sourceUnitIndex: 0,
+    interceptDamage: 120,
+  });
+
+  stepCombat(state, 0.016, [[{ id: "grenade-idle", condition: "always", action: "idle", enabled: true }]]);
+  assert.ok(firstEnemy.hp < firstEnemy.maxHp);
+  assert.ok(secondEnemy.hp < secondEnemy.maxHp);
 });
 
 run("enemy defeat plays destruction before removal", () => {

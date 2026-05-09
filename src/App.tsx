@@ -6,7 +6,13 @@ import FrameSelectScreen from "./components/FrameSelectScreen";
 import RewardScreen from "./components/RewardScreen";
 import RunCompleteScreen from "./components/RunCompleteScreen";
 import StageMapScreen from "./components/StageMapScreen";
-import { createInitialAiRules, ensureAiRuleSlots } from "./data/aiRules";
+import {
+  createAiPresetRules,
+  createInitialAiRules,
+  defaultAiPresetForFrame,
+  ensureAiRuleSlots,
+  getAiPresetDefinition,
+} from "./data/aiRules";
 import { getBaseFrameById, initialFrameId } from "./data/frames";
 import {
   baseUpgrades,
@@ -30,6 +36,7 @@ import { CombatReport } from "./game/combat";
 import { playUiSound, unlockCombatAudio } from "./game/sound";
 import {
   AiRule,
+  AiPresetId,
   BaseFrameId,
   EQUIP_SLOTS,
   EquipSlot,
@@ -46,9 +53,9 @@ import {
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 const SAVE_KEY = `autocore-rogue-run-v${SAVE_VERSION}`;
-const LEGACY_SAVE_KEYS = ["autocore-rogue-run-v1"];
+const LEGACY_SAVE_KEYS = ["autocore-rogue-run-v2", "autocore-rogue-run-v1"];
 const createInitialLoadouts = (): Loadout[] =>
   Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
 const createInitialFrameIds = (): BaseFrameId[] =>
@@ -57,6 +64,8 @@ const createInitialAiSlotCounts = (): number[] =>
   Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId).length);
 const createInitialAiRulesByUnit = (): AiRule[][] =>
   Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId));
+const createInitialAiPresets = (): AiPresetId[] =>
+  Array.from({ length: SQUAD_SIZE }, () => defaultAiPresetForFrame(initialFrameId));
 const createInitialTargetPriorities = (): TargetPriorityId[] =>
   Array.from({ length: SQUAD_SIZE }, () => "nearest");
 const createWeaponAutoUse = (): WeaponAutoUse =>
@@ -85,6 +94,7 @@ interface SavedRunState {
   upgrades: PilotUpgrades;
   aiSlotCounts: number[];
   aiRulesByUnit: AiRule[][];
+  aiPresetsByUnit: AiPresetId[];
   targetPrioritiesByUnit: TargetPriorityId[];
   weaponAutoUseByUnit: WeaponAutoUse[];
   unitHpByUnit: number[];
@@ -214,6 +224,14 @@ export default function App() {
   const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() =>
     normalizeSavedArray(savedRun?.aiRulesByUnit, createInitialAiRulesByUnit()),
   );
+  const [aiPresetsByUnit, setAiPresetsByUnit] = useState<AiPresetId[]>(() =>
+    normalizeSavedArray(
+      savedRun?.aiPresetsByUnit,
+      savedRun?.aiRulesByUnit
+        ? Array.from({ length: SQUAD_SIZE }, () => "custom" as AiPresetId)
+        : createInitialAiPresets(),
+    ),
+  );
   const [targetPrioritiesByUnit, setTargetPrioritiesByUnit] = useState<TargetPriorityId[]>(() =>
     normalizeSavedArray(savedRun?.targetPrioritiesByUnit, createInitialTargetPriorities()),
   );
@@ -284,6 +302,7 @@ export default function App() {
       upgrades,
       aiSlotCounts,
       aiRulesByUnit,
+      aiPresetsByUnit,
       targetPrioritiesByUnit,
       weaponAutoUseByUnit,
       unitHpByUnit,
@@ -295,6 +314,7 @@ export default function App() {
     });
   }, [
     activeUnitIndex,
+    aiPresetsByUnit,
     aiRulesByUnit,
     aiSlotCounts,
     lastCombatReport,
@@ -380,13 +400,42 @@ export default function App() {
   };
 
   const changeActiveAiRules = (rules: AiRule[]) => {
+    setAiPresetsByUnit((current) =>
+      current.map((preset, index) => (index === activeUnitIndex ? "custom" : preset)),
+    );
     setAiRulesByUnit((current) =>
       current.map((unitRules, index) => (index === activeUnitIndex ? rules : unitRules)),
     );
   };
 
+  const changeActiveAiPreset = (preset: AiPresetId) => {
+    playUiSound("select");
+    setAiPresetsByUnit((current) =>
+      current.map((unitPreset, index) => (index === activeUnitIndex ? preset : unitPreset)),
+    );
+    if (preset === "custom") {
+      return;
+    }
+
+    const definition = getAiPresetDefinition(preset);
+    const slotCount = aiSlotCounts[activeUnitIndex] ?? definition.rules.length;
+    setAiRulesByUnit((current) =>
+      current.map((unitRules, index) =>
+        index === activeUnitIndex ? createAiPresetRules(preset, slotCount) : unitRules,
+      ),
+    );
+    setTargetPrioritiesByUnit((current) =>
+      current.map((unitPriority, index) =>
+        index === activeUnitIndex ? definition.targetPriority : unitPriority,
+      ),
+    );
+  };
+
   const changeActiveTargetPriority = (priority: TargetPriorityId) => {
     playUiSound("select");
+    setAiPresetsByUnit((current) =>
+      current.map((preset, index) => (index === activeUnitIndex ? "custom" : preset)),
+    );
     setTargetPrioritiesByUnit((current) =>
       current.map((unitPriority, index) => (index === activeUnitIndex ? priority : unitPriority)),
     );
@@ -473,6 +522,7 @@ export default function App() {
     setUpgrades(cloneUpgrades());
     setAiSlotCounts(createInitialAiSlotCounts());
     setAiRulesByUnit(createInitialAiRulesByUnit());
+    setAiPresetsByUnit(createInitialAiPresets());
     setTargetPrioritiesByUnit(createInitialTargetPriorities());
     setWeaponAutoUseByUnit(createInitialWeaponAutoUseByUnit());
     setUnitHpByUnit(createInitialUnitHp());
@@ -487,7 +537,9 @@ export default function App() {
     const unitIndex = pendingUnitIndex;
     const frame = getBaseFrameById(frameId);
     const frameLoadout = createInitialLoadoutForFrame(frameId);
-    const frameRules = createInitialAiRules(frameId);
+    const framePreset = defaultAiPresetForFrame(frameId);
+    const frameRules = createAiPresetRules(framePreset);
+    const framePresetDefinition = getAiPresetDefinition(framePreset);
     const unitStats = calculateDerivedStats(frameLoadout, upgrades, frameId);
 
     setLoadouts((current) =>
@@ -499,6 +551,14 @@ export default function App() {
     setPartInventory((current) => grantStarterKit(current));
     setAiRulesByUnit((current) =>
       current.map((unitRules, index) => (index === unitIndex ? frameRules : unitRules)),
+    );
+    setAiPresetsByUnit((current) =>
+      current.map((unitPreset, index) => (index === unitIndex ? framePreset : unitPreset)),
+    );
+    setTargetPrioritiesByUnit((current) =>
+      current.map((unitPriority, index) =>
+        index === unitIndex ? framePresetDefinition.targetPriority : unitPriority,
+      ),
     );
     setAiSlotCounts((current) =>
       current.map((slotCount, index) => (index === unitIndex ? frameRules.length : slotCount)),
@@ -727,8 +787,10 @@ export default function App() {
           activeUnitIndex={activeUnitIndex}
           unlockedUnitCount={unlockedUnitCount}
           statsByUnit={statsByUnit}
+          aiPreset={aiPresetsByUnit[activeUnitIndex] ?? "custom"}
           targetPriority={targetPrioritiesByUnit[activeUnitIndex] ?? "nearest"}
           onSelectUnit={selectActiveUnit}
+          onChangeAiPreset={changeActiveAiPreset}
           onChangeRules={changeActiveAiRules}
           onChangeTargetPriority={changeActiveTargetPriority}
           onOpenAssemble={() => openScreen("assemble")}

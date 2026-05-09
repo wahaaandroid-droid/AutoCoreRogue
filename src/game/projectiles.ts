@@ -17,6 +17,9 @@ export interface Projectile {
   color: string;
   targetId?: string;
   sourceUnitIndex?: number;
+  interceptable?: boolean;
+  interceptHp?: number;
+  interceptDamage?: number;
 }
 
 export interface Effect {

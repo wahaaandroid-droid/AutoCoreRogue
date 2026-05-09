@@ -97,6 +97,12 @@ const combatSamples: Record<CombatSoundEvent, SampleConfig> = {
     gain: 0.26,
     pitchJitter: 0.04,
   },
+  intercept: {
+    urls: [hitTwoUrl, explosionTwoUrl],
+    gain: 0.24,
+    pitch: 1.18,
+    pitchJitter: 0.05,
+  },
   explosion: {
     urls: [explosionOneUrl, explosionTwoUrl],
     gain: 0.34,
@@ -335,6 +341,11 @@ const playSynthEvent = (context: AudioContext, event: CombatSoundEvent): void =>
       playTone(context, "sawtooth", 116, 58, 0.18, 0.05);
       playNoise(context, 0.18, 0.06, 210, 0.8);
       break;
+    case "intercept":
+      playTone(context, "square", 940, 320, 0.09, 0.034);
+      playTone(context, "sawtooth", 180, 72, 0.16, 0.04);
+      playNoise(context, 0.15, 0.055, 620, 1.2);
+      break;
     case "explosion":
       playTone(context, "sawtooth", 96, 38, 0.32, 0.074);
       playTone(context, "triangle", 58, 32, 0.36, 0.046);
@@ -371,7 +382,7 @@ export const playCombatSoundEvents = (events: CombatSoundEvent[]): void => {
   for (const event of [...new Set(events)]) {
     const previous = lastPlayedAt.get(event) ?? 0;
     const cooldown =
-      event === "hit" || event === "hitExplosive"
+      event === "hit" || event === "hitExplosive" || event === "intercept"
         ? 55
         : event === "shoot" || event === "shootEnergy" || event === "shootBallistic"
           ? 45

@@ -11,8 +11,10 @@ import {
   PartSlot,
   PartStats,
   PilotUpgrades,
+  WeaponFirePattern,
   WeaponHardpoint,
   WeaponKind,
+  WeaponResource,
   WeaponStats,
 } from "../types";
 import { getBaseFrameById, initialFrameId } from "./frames";
@@ -77,6 +79,65 @@ const weaponHardpoints: Record<EquipSlot, WeaponHardpoint | undefined> = {
   "R-SHOULDER": "rightShoulder",
   "B-SHOULDER": "bothShoulders",
 };
+
+const defaultMagazineSize = (kind: WeaponKind): number => {
+  switch (kind) {
+    case "machineGun":
+      return 36;
+    case "sniperRifle":
+      return 5;
+    case "rocket":
+      return 4;
+    case "grenade":
+      return 2;
+    case "missile":
+      return 4;
+    case "rifle":
+    default:
+      return 10;
+  }
+};
+
+const defaultReloadTime = (kind: WeaponKind, hardpoint: WeaponHardpoint): number => {
+  const shoulderLoad = hardpoint.includes("Shoulder") ? 0.22 : 0;
+  switch (kind) {
+    case "machineGun":
+      return 1.35 + shoulderLoad;
+    case "sniperRifle":
+      return 1.65 + shoulderLoad;
+    case "rocket":
+      return 1.9 + shoulderLoad;
+    case "grenade":
+      return 2.45 + shoulderLoad;
+    case "missile":
+      return 1.65 + shoulderLoad;
+    case "rifle":
+    default:
+      return 1.08 + shoulderLoad;
+  }
+};
+
+const defaultHeatPerShot = (kind: WeaponKind, energyCost: number): number => {
+  switch (kind) {
+    case "pulse":
+      return Math.max(14, energyCost * 2.5);
+    case "sniperRifle":
+      return Math.max(25, energyCost * 2.3);
+    case "blade":
+      return Math.max(28, energyCost * 2.2);
+    case "machineGun":
+      return Math.max(10, energyCost * 2);
+    case "rifle":
+    default:
+      return Math.max(16, energyCost * 2.2);
+  }
+};
+
+const defaultCoolingRate = (kind: WeaponKind): number =>
+  kind === "sniperRifle" ? 24 : kind === "blade" ? 30 : kind === "pulse" ? 34 : 31;
+
+const defaultFirePattern = (kind: WeaponKind, resource: WeaponResource): WeaponFirePattern =>
+  resource === "ballistic" && kind === "machineGun" ? "sustain" : "single";
 
 export const EMPTY_LEFT_ARM_PART_ID = "empty-larm";
 export const EMPTY_RIGHT_ARM_PART_ID = "empty-rarm";
@@ -334,6 +395,9 @@ export const parts: Part[] = [
     weaponResource: "energy",
     weaponKind: "pulse",
     energyCost: 5,
+    heatPerShot: 14,
+    heatLimit: 96,
+    coolingRate: 38,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -355,6 +419,11 @@ export const parts: Part[] = [
     weaponResource: "ballistic",
     weaponKind: "machineGun",
     ammoCapacity: 72,
+    firePattern: "burst",
+    magazineSize: 18,
+    reloadTime: 1.15,
+    burstCount: 3,
+    burstInterval: 0.075,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -375,6 +444,8 @@ export const parts: Part[] = [
     weaponResource: "ballistic",
     weaponKind: "missile",
     ammoCapacity: 12,
+    magazineSize: 4,
+    reloadTime: 1.65,
     rarity: "rare",
     initial: true,
     stats: stats({
@@ -396,6 +467,9 @@ export const parts: Part[] = [
     weaponResource: "energy",
     weaponKind: "blade",
     energyCost: 8,
+    heatPerShot: 26,
+    heatLimit: 110,
+    coolingRate: 36,
     rarity: "rare",
     initial: true,
     stats: stats({
@@ -446,6 +520,9 @@ export const parts: Part[] = [
     weaponResource: "energy",
     weaponKind: "rifle",
     energyCost: 6,
+    heatPerShot: 17,
+    heatLimit: 100,
+    coolingRate: 34,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -467,6 +544,11 @@ export const parts: Part[] = [
     weaponResource: "ballistic",
     weaponKind: "rifle",
     ammoCapacity: 48,
+    firePattern: "burst",
+    magazineSize: 12,
+    reloadTime: 1.05,
+    burstCount: 3,
+    burstInterval: 0.085,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -487,6 +569,8 @@ export const parts: Part[] = [
     weaponResource: "ballistic",
     weaponKind: "sniperRifle",
     ammoCapacity: 22,
+    magazineSize: 4,
+    reloadTime: 1.55,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -509,6 +593,11 @@ export const parts: Part[] = [
     weaponKind: "rocket",
     blastRadius: 36,
     ammoCapacity: 18,
+    firePattern: "burst",
+    magazineSize: 6,
+    reloadTime: 1.9,
+    burstCount: 2,
+    burstInterval: 0.14,
     rarity: "rare",
     initial: true,
     stats: stats({
@@ -531,6 +620,9 @@ export const parts: Part[] = [
     weaponResource: "energy",
     weaponKind: "pulse",
     energyCost: 9,
+    heatPerShot: 22,
+    heatLimit: 112,
+    coolingRate: 36,
     rarity: "elite",
     initial: false,
     stats: stats({
@@ -564,6 +656,8 @@ export const parts: Part[] = [
     weaponKind: "rocket",
     blastRadius: 42,
     ammoCapacity: 14,
+    magazineSize: 4,
+    reloadTime: 1.85,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -585,6 +679,9 @@ export const parts: Part[] = [
     weaponResource: "energy",
     weaponKind: "sniperRifle",
     energyCost: 14,
+    heatPerShot: 35,
+    heatLimit: 96,
+    coolingRate: 24,
     rarity: "rare",
     initial: false,
     stats: stats({
@@ -617,6 +714,12 @@ export const parts: Part[] = [
     weaponResource: "ballistic",
     weaponKind: "machineGun",
     ammoCapacity: 120,
+    firePattern: "sustain",
+    magazineSize: 48,
+    reloadTime: 1.45,
+    burstInterval: 0.09,
+    spinUpTime: 0.42,
+    sustainTime: 1.45,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -637,6 +740,8 @@ export const parts: Part[] = [
     weaponResource: "ballistic",
     weaponKind: "missile",
     ammoCapacity: 16,
+    magazineSize: 4,
+    reloadTime: 1.55,
     rarity: "rare",
     initial: false,
     stats: stats({
@@ -667,8 +772,10 @@ export const parts: Part[] = [
     description: "両肩で反動を受け止め、着弾点を範囲爆破する重グレネード。",
     weaponResource: "ballistic",
     weaponKind: "grenade",
-    blastRadius: 76,
+    blastRadius: 108,
     ammoCapacity: 8,
+    magazineSize: 2,
+    reloadTime: 2.45,
     rarity: "common",
     initial: true,
     stats: stats({
@@ -692,6 +799,8 @@ export const parts: Part[] = [
     weaponKind: "rocket",
     blastRadius: 52,
     ammoCapacity: 10,
+    magazineSize: 5,
+    reloadTime: 2.05,
     rarity: "elite",
     initial: false,
     stats: stats({
@@ -1060,6 +1169,17 @@ export const calculateDerivedStats = (
   const leftHasWeapon = !isFreePart(left.id) && Boolean(left.weaponKind);
   const weaponFor = (slot: EquipSlot, part: Part, hardpoint: WeaponHardpoint): WeaponStats => {
     const attackMultiplier = hardpoint === "bothShoulders" ? 2 : 1;
+    const weaponKind = part.weaponKind ?? "rifle";
+    const resource = part.weaponResource ?? "energy";
+    const energyCost = part.energyCost ?? (hardpoint.includes("Shoulder") ? 10 : 6);
+    const firePattern = part.firePattern ?? defaultFirePattern(weaponKind, resource);
+    const magazineSize = resource === "ballistic"
+      ? Math.max(1, part.magazineSize ?? defaultMagazineSize(weaponKind))
+      : 0;
+    const reloadTime = resource === "ballistic"
+      ? part.reloadTime ?? defaultReloadTime(weaponKind, hardpoint)
+      : 0;
+    const heatLimit = resource === "energy" ? part.heatLimit ?? 100 : 0;
     return {
       hardpoint,
       slot,
@@ -1071,11 +1191,21 @@ export const calculateDerivedStats = (
         hardpoint === "bothShoulders" ? 0.85 : hardpoint.includes("Shoulder") ? 0.4 : 0.18,
         part.stats.cooldown * upgrades.cooldownMultiplier * cooldownPenalty,
       ),
-      resource: part.weaponResource ?? "energy",
-      weaponKind: part.weaponKind ?? "rifle",
-      energyCost: part.energyCost ?? (hardpoint.includes("Shoulder") ? 10 : 6),
-      ammoMax: part.weaponResource === "ballistic" ? part.ammoCapacity ?? 24 : 0,
-      blastRadius: part.blastRadius ?? (part.weaponKind === "grenade" ? 70 : part.weaponKind === "rocket" ? 42 : 0),
+      resource,
+      weaponKind,
+      energyCost,
+      ammoMax: magazineSize,
+      blastRadius: part.blastRadius ?? (weaponKind === "grenade" ? 96 : weaponKind === "rocket" ? 42 : 0),
+      firePattern,
+      magazineSize,
+      reloadTime,
+      heatPerShot: resource === "energy" ? part.heatPerShot ?? defaultHeatPerShot(weaponKind, energyCost) : 0,
+      heatLimit,
+      coolingRate: resource === "energy" ? part.coolingRate ?? defaultCoolingRate(weaponKind) : 0,
+      burstCount: firePattern === "burst" ? Math.max(2, part.burstCount ?? 3) : 1,
+      burstInterval: Math.max(0.05, part.burstInterval ?? (firePattern === "sustain" ? 0.1 : 0.08)),
+      spinUpTime: firePattern === "sustain" ? Math.max(0, part.spinUpTime ?? 0.38) : 0,
+      sustainTime: firePattern === "sustain" ? Math.max(0.25, part.sustainTime ?? 1.2) : 0,
     };
   };
   const weapons = weaponEntries.map((entry) => weaponFor(entry.slot, entry.part, entry.hardpoint));
@@ -1116,8 +1246,12 @@ export const calculateDerivedStats = (
     leftWeaponKind: left.weaponKind ?? "rifle",
     rightEnergyCost: rightHasWeapon ? right.energyCost ?? 6 : 0,
     leftEnergyCost: leftHasWeapon ? left.energyCost ?? 5 : 0,
-    rightAmmoMax: rightHasWeapon && right.weaponResource === "ballistic" ? right.ammoCapacity ?? 32 : 0,
-    leftAmmoMax: leftHasWeapon && left.weaponResource === "ballistic" ? left.ammoCapacity ?? 32 : 0,
+    rightAmmoMax: rightHasWeapon && right.weaponResource === "ballistic"
+      ? right.magazineSize ?? defaultMagazineSize(right.weaponKind ?? "rifle")
+      : 0,
+    leftAmmoMax: leftHasWeapon && left.weaponResource === "ballistic"
+      ? left.magazineSize ?? defaultMagazineSize(left.weaponKind ?? "rifle")
+      : 0,
     canGuard: selected.some((part) => part.guardEnabled),
     weapons,
   };

@@ -92,6 +92,18 @@ const partStatSummary = (part: Part): string => {
   } / RNG ${part.stats.range} / WT ${part.stats.weight}`;
 };
 
+const firePatternText = (pattern: Part["firePattern"]): string => {
+  switch (pattern) {
+    case "burst":
+      return "BURST";
+    case "sustain":
+      return "GATLING";
+    case "single":
+    default:
+      return "SINGLE";
+  }
+};
+
 export default function AssembleScreen({
   loadouts,
   unitFrameIds,
@@ -257,7 +269,14 @@ export default function AssembleScreen({
             <div key={weapon.hardpoint}>
               <span>{weapon.label}</span>
               <strong>{getWeaponKindLabel(weapon.weaponKind)}</strong>
-              <small>ATK {weapon.attack} / RNG {weapon.range} / CD {weapon.cooldown.toFixed(1)}</small>
+              <small>
+                ATK {weapon.attack} / RNG {weapon.range} / CD {weapon.cooldown.toFixed(1)} / {firePatternText(weapon.firePattern)}
+              </small>
+              <small>
+                {weapon.resource === "ballistic"
+                  ? `MAG ${weapon.magazineSize} / REL ${weapon.reloadTime.toFixed(1)}`
+                  : `HEAT ${weapon.heatPerShot} / COOL ${weapon.coolingRate}`}
+              </small>
               <button
                 className={`auto-toggle ${weaponAutoUse[weapon.hardpoint] ? "active" : ""}`}
                 onClick={() => onToggleWeaponAutoUse(weapon.hardpoint)}
@@ -320,13 +339,14 @@ export default function AssembleScreen({
                   <span className="part-stat-line">
                     TYPE {getWeaponKindLabel(part.weaponKind)}
                     {part.blastRadius ? ` / BLAST ${part.blastRadius}` : ""}
+                    {part.firePattern ? ` / ${firePatternText(part.firePattern)}` : ""}
                   </span>
                 )}
                 {part.weaponResource && (
                   <span className="part-stat-line">
                     {part.weaponResource === "ballistic"
-                      ? `AMMO ${part.ammoCapacity ?? 0}`
-                      : `EN COST ${part.energyCost ?? 0}`}
+                      ? `MAG ${part.magazineSize ?? part.ammoCapacity ?? 0}${part.reloadTime ? ` / REL ${part.reloadTime}` : ""}`
+                      : `EN ${part.energyCost ?? 0}${part.heatPerShot ? ` / HEAT ${part.heatPerShot}` : ""}`}
                   </span>
                 )}
               </button>

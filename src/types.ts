@@ -24,6 +24,8 @@ export type Rarity = "common" | "rare" | "elite";
 
 export type WeaponResource = "energy" | "ballistic";
 
+export type WeaponFirePattern = "single" | "burst" | "sustain";
+
 export type WeaponKind =
   | "rifle"
   | "sniperRifle"
@@ -89,6 +91,16 @@ export interface Part {
   blastRadius?: number;
   energyCost?: number;
   ammoCapacity?: number;
+  firePattern?: WeaponFirePattern;
+  magazineSize?: number;
+  reloadTime?: number;
+  heatPerShot?: number;
+  heatLimit?: number;
+  coolingRate?: number;
+  burstCount?: number;
+  burstInterval?: number;
+  spinUpTime?: number;
+  sustainTime?: number;
   rarity: Rarity;
   initial: boolean;
   stats: PartStats;
@@ -115,6 +127,16 @@ export interface WeaponStats {
   energyCost: number;
   ammoMax: number;
   blastRadius: number;
+  firePattern: WeaponFirePattern;
+  magazineSize: number;
+  reloadTime: number;
+  heatPerShot: number;
+  heatLimit: number;
+  coolingRate: number;
+  burstCount: number;
+  burstInterval: number;
+  spinUpTime: number;
+  sustainTime: number;
 }
 
 export interface PilotUpgrades {
@@ -202,6 +224,15 @@ export type TargetPriorityId =
   | "lowestHp"
   | "lowestHpPercent"
   | "eliteFirst";
+
+export type AiPresetId =
+  | "assault"
+  | "skirmisher"
+  | "fireSupport"
+  | "bombard"
+  | "missileSupport"
+  | "defender"
+  | "custom";
 
 export interface AiRule {
   id: string;

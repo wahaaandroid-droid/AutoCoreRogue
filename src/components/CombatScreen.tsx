@@ -635,8 +635,18 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
   ctx.restore();
 };
 
-const resourceLabel = (weapon: PlayerWeaponState) =>
-  weapon.resource === "ballistic" ? `${weapon.ammo} / ${weapon.ammoMax}` : `EN ${weapon.energyCost}`;
+const firePatternLabel = (weapon: PlayerWeaponState): string =>
+  weapon.firePattern === "burst" ? "BURST" : weapon.firePattern === "sustain" ? "GATLING" : "SINGLE";
+
+const resourceLabel = (weapon: PlayerWeaponState) => {
+  if (weapon.resource === "ballistic") {
+    return weapon.reloadRemaining > 0
+      ? `RELOAD ${weapon.reloadRemaining.toFixed(1)}`
+      : `MAG ${weapon.magazine} / ${weapon.magazineSize}`;
+  }
+  const heat = weapon.heatLimit > 0 ? Math.round((weapon.heat / weapon.heatLimit) * 100) : 0;
+  return `${weapon.overheated ? "OVERHEAT" : `HEAT ${heat}%`} / EN ${weapon.energyCost}`;
+};
 
 const coolbarClass = (weapon: PlayerWeaponState): string =>
   weapon.hardpoint === "leftArm"
@@ -875,15 +885,23 @@ export default function CombatScreen({
                 <span>{weapon.label}</span>
                 <b>{weapon.cooldownRemaining.toFixed(1)} / {resourceLabel(weapon)}</b>
               </div>
-              <small>{getWeaponKindLabel(weapon.weaponKind)} / {weapon.autoUse ? "使用許可" : "使用停止"}</small>
+              <small>{getWeaponKindLabel(weapon.weaponKind)} / {firePatternLabel(weapon)} / {weapon.autoUse ? "使用許可" : "使用停止"}</small>
               <div className={coolbarClass(weapon)}>
                 <span style={{ width: `${cooldownPercent(weapon.cooldownRemaining, weapon.cooldownMax) * 100}%` }} />
               </div>
+              {weapon.resource === "energy" && (
+                <div className="meter heat">
+                  <span style={{ width: `${Math.min(100, weapon.heatLimit > 0 ? (weapon.heat / weapon.heatLimit) * 100 : 0)}%` }} />
+                </div>
+              )}
               {weapon.cooldownRemaining <= 0 && weapon.resource === "energy" && activeActor.en < weapon.energyCost && (
                 <div className="shortage-line">{weapon.label} EN不足</div>
               )}
-              {weapon.cooldownRemaining <= 0 && weapon.resource === "ballistic" && weapon.ammo <= 0 && (
-                <div className="shortage-line">{weapon.label} 弾切れ</div>
+              {weapon.resource === "energy" && weapon.overheated && (
+                <div className="shortage-line">{weapon.label} 過熱冷却中</div>
+              )}
+              {weapon.resource === "ballistic" && weapon.reloadRemaining > 0 && (
+                <div className="shortage-line">{weapon.label} リロード中</div>
               )}
             </div>
           ))}
