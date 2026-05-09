@@ -78,6 +78,10 @@ const combatSamples: Record<CombatSoundEvent, SampleConfig> = {
     urls: [quickBoostCustomUrl],
     gain: 0.22,
   },
+  boostQuiet: {
+    urls: [quickBoostCustomUrl],
+    gain: 0.022,
+  },
   blade: {
     urls: [bladeCustomUrl],
     gain: 0.23,
@@ -312,10 +316,13 @@ const playSynthEvent = (context: AudioContext, event: CombatSoundEvent): void =>
       playTone(context, "sawtooth", 190, 92, 0.22, 0.045);
       break;
     case "boost":
-      playTone(context, "sawtooth", 820, 95, 0.21, 0.062);
-      playTone(context, "triangle", 1480, 420, 0.11, 0.026);
-      playNoise(context, 0.22, 0.058, 1450, 0.74);
+    case "boostQuiet": {
+      const gainScale = event === "boostQuiet" ? 0.1 : 1;
+      playTone(context, "sawtooth", 820, 95, 0.21, 0.062 * gainScale);
+      playTone(context, "triangle", 1480, 420, 0.11, 0.026 * gainScale);
+      playNoise(context, 0.22, 0.058 * gainScale, 1450, 0.74);
       break;
+    }
     case "blade":
       playTone(context, "sawtooth", 1180, 260, 0.16, 0.048);
       playTone(context, "triangle", 520, 940, 0.09, 0.032);

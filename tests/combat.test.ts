@@ -100,6 +100,35 @@ run("enemy waves spawn in staggered batches", () => {
   assert.ok(state.enemyQueue.length > 0);
 });
 
+run("normal enemy boost sounds are quiet", () => {
+  const state = createOneUnitState(1);
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies.find((item) => item.rank === "normal");
+  assert.ok(enemy);
+
+  enemy.entryBoostTime = 0;
+  enemy.entryBoostSoundPlayed = true;
+  enemy.boostCooldown = 0;
+  state.projectiles.push({
+    id: "test-threat",
+    owner: "player",
+    kind: "bullet",
+    x: enemy.x + 70,
+    y: enemy.y,
+    vx: -120,
+    vy: 0,
+    damage: 1,
+    radius: 1,
+    life: 1,
+    color: "#8ad8ff",
+    sourceUnitIndex: 0,
+  });
+
+  stepCombat(state, 0.016, rules);
+  assert.ok(state.soundEvents.includes("boostQuiet"));
+  assert.ok(!state.soundEvents.includes("boost"));
+});
+
 run("elite and boss stage special enemies are single rival bosses queued last", () => {
   const eliteRanks = createEnemyRanks(5, 3);
   const firstEliteSpecialIndex = eliteRanks.findIndex((rank) => rank !== "normal");
@@ -129,6 +158,44 @@ run("rival boss spawns with player-style weapons and alert effect", () => {
   );
   assert.ok(state.effects.some((effect) => effect.kind === "alert" && effect.label === boss.name));
   assert.ok(state.soundEvents.includes("alert"));
+});
+
+run("boss boost sounds stay full volume", () => {
+  const state = createOneUnitState(5);
+  state.enemyQueue = ["boss"];
+  state.enemyTotal = 1;
+  stepCombat(state, 0.016, rules);
+
+  const boss = state.enemies[0];
+  assert.ok(boss);
+  assert.equal(boss.rank, "boss");
+  assert.ok(boss.rivalAi);
+
+  boss.x = 520;
+  boss.y = 300;
+  boss.entryBoostTime = 0;
+  boss.entryBoostSoundPlayed = true;
+  boss.boostCooldown = 0;
+  boss.rivalAi.boostCooldown = 0;
+  boss.en = boss.maxEn;
+  state.projectiles.push({
+    id: "boss-test-threat",
+    owner: "player",
+    kind: "bullet",
+    x: boss.x + 70,
+    y: boss.y,
+    vx: -120,
+    vy: 0,
+    damage: 1,
+    radius: 1,
+    life: 1,
+    color: "#8ad8ff",
+    sourceUnitIndex: 0,
+  });
+
+  stepCombat(state, 0.016, rules);
+  assert.ok(state.soundEvents.includes("boost"));
+  assert.ok(!state.soundEvents.includes("boostQuiet"));
 });
 
 run("guard action requires shield capability", () => {

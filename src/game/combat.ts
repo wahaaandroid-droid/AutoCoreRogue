@@ -109,6 +109,7 @@ export type CombatSoundEvent =
   | "shootBallistic"
   | "missile"
   | "boost"
+  | "boostQuiet"
   | "blade"
   | "hit"
   | "hitExplosive"
@@ -150,6 +151,9 @@ const BLADE_ENGAGE_BUFFER = 146;
 let nextId = 1;
 
 const uid = (prefix: string): string => `${prefix}-${nextId++}`;
+
+const boostSoundForActor = (actor: CombatActor): CombatSoundEvent =>
+  actor.team === "enemy" && actor.rank === "normal" ? "boostQuiet" : "boost";
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -1431,7 +1435,7 @@ const applyPlayerAction = (
         pushBoostBurst(state, player, perpendicular, player.team === "enemy" ? player.color : "#21e0ff");
         breakIncomingMissileLocks(state, player);
         unit.boostCooldown = unit.stats.quickBoostCooldown;
-        state.soundEvents.push("boost");
+        state.soundEvents.push(boostSoundForActor(player));
       } else {
         applyThrust(player, perpendicular.x * 0.35 + toTarget.x * rangeBias, perpendicular.y * 0.35 + toTarget.y * rangeBias, 0.32);
       }
@@ -1617,7 +1621,7 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
     enemy.entryBoostTime = Math.max(0, (enemy.entryBoostTime ?? 0) - dt);
     if (!enemy.entryBoostSoundPlayed) {
       enemy.entryBoostSoundPlayed = true;
-      state.soundEvents.push("boost");
+      state.soundEvents.push(boostSoundForActor(enemy));
     }
 
     const entryAnchor = {
@@ -1656,7 +1660,7 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
     enemy.quickBoostTime = enemy.quickBoostDuration;
     applyThrust(enemy, dodge.x, dodge.y, clamp(thrust / Math.max(1, enemy.moveSpeed * 3.2), 0.45, 1.05));
     pushBoostBurst(state, enemy, dodge, enemy.rank === "elite" ? "#d889ff" : "#ff9d42");
-    state.soundEvents.push("boost");
+    state.soundEvents.push(boostSoundForActor(enemy));
     enemy.boostCooldown = enemy.rank === "boss" ? 1.05 : enemy.rank === "elite" ? 0.85 : 1.25;
   }
 
