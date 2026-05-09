@@ -1,6 +1,13 @@
 import { strict as assert } from "node:assert";
 import { createCombatState, stepCombat } from "../src/game/combat";
+import { damageAfterDefense } from "../src/game/combatDamage";
 import { createEnemyRanks } from "../src/game/enemyWaves";
+import {
+  createAiPresetRules,
+  getAvailableActionDefinitions,
+  getAvailableConditionDefinitions,
+} from "../src/data/aiRules";
+import { getAiUnlockState, normalizeRulesForCombat } from "../src/data/aiUnlocks";
 import {
   EMPTY_LEFT_ARM_PART_ID,
   EMPTY_RIGHT_ARM_PART_ID,
@@ -8,6 +15,7 @@ import {
   calculateDerivedStats,
   initialLoadout,
 } from "../src/data/parts";
+import { generateRewardOptions, generateShopOffers } from "../src/data/rewards";
 import type { AiRule, DerivedStats, WeaponStats } from "../src/types";
 
 const rules: AiRule[][] = [[]];
@@ -45,6 +53,7 @@ const testStats: DerivedStats = {
   rightAmmoMax: 0,
   leftAmmoMax: 0,
   canGuard: false,
+  guardProfile: "balanced",
   weapons: [],
 };
 
@@ -120,6 +129,55 @@ const run = (name: string, test: () => void) => {
   }
 };
 
+run("starter AI hides advanced actions until AI chips unlock them", () => {
+  const starterActions = getAvailableActionDefinitions().map((item) => item.id);
+  assert.ok(!starterActions.includes("boostDodge"));
+  assert.ok(!starterActions.includes("alphaStrike"));
+  assert.ok(!starterActions.includes("fireBothShoulders"));
+  assert.ok(!starterActions.includes("interceptMissile"));
+
+  const unlockedActions = getAvailableActionDefinitions(["w1-boost-dodge"]).map((item) => item.id);
+  const unlockedConditions = getAvailableConditionDefinitions(["w1-boost-dodge"]).map((item) => item.id);
+  assert.ok(unlockedActions.includes("boostDodge"));
+  assert.ok(unlockedConditions.includes("enemyProjectileNear"));
+});
+
+run("locked AI rules are preserved for editing but become idle in combat", () => {
+  const lockedRules: AiRule[] = [
+    { id: "locked-alpha", condition: "enemyMid", action: "alphaStrike", enabled: true },
+  ];
+  const combatRules = normalizeRulesForCombat(lockedRules, getAiUnlockState());
+  assert.equal(combatRules[0].condition, "enemyMid");
+  assert.equal(combatRules[0].action, "idle");
+});
+
+run("AI blueprints only apply unlocked rules", () => {
+  const starterPreset = createAiPresetRules("assault", 6);
+  assert.ok(!starterPreset.some((rule) => rule.action === "boostDodge"));
+  assert.ok(!starterPreset.some((rule) => rule.action === "alphaStrike"));
+
+  const dodgePreset = createAiPresetRules("assault", 6, ["w1-boost-dodge"]);
+  assert.ok(dodgePreset.some((rule) => rule.action === "boostDodge"));
+  assert.ok(!dodgePreset.some((rule) => rule.action === "alphaStrike"));
+});
+
+run("AI chip rewards and shop offers skip already unlocked packages", () => {
+  const rewardOptions = generateRewardOptions(2, {}, 4, "normal", ["w1-boost-dodge"]);
+  assert.ok(
+    !rewardOptions.some(
+      (reward) => reward.payload.kind === "aiUnlock" && reward.payload.packageId === "w1-boost-dodge",
+    ),
+  );
+  assert.ok(rewardOptions.some((reward) => reward.payload.kind === "aiUnlock"));
+
+  const shopOffers = generateShopOffers(3, {}, 4, ["w1-boost-dodge"]);
+  assert.ok(
+    !shopOffers.some(
+      (offer) => offer.payload.kind === "aiUnlock" && offer.payload.packageId === "w1-boost-dodge",
+    ),
+  );
+});
+
 run("initial enemies wait outside the active arena", () => {
   const state = createOneUnitState(1);
   assert.equal(state.enemies.length, 0);
@@ -152,6 +210,7 @@ run("normal enemy boost sounds are quiet", () => {
     vx: -120,
     vy: 0,
     damage: 1,
+    damageKind: "ballistic",
     radius: 1,
     life: 1,
     color: "#8ad8ff",
@@ -222,6 +281,7 @@ run("boss boost sounds use the standard boost event", () => {
     vx: -120,
     vy: 0,
     damage: 1,
+    damageKind: "ballistic",
     radius: 1,
     life: 1,
     color: "#8ad8ff",
@@ -411,6 +471,70 @@ run("beam laser weapons deal direct sustained damage and draw a beam effect", ()
   assert.ok(state.effects.some((effect) => effect.kind === "beam"));
 });
 
+run("beam laser warns before damage and misses targets that dodge off the locked line", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-beam-dodge",
+    label: "Test Beam Dodge",
+    resource: "energy",
+    weaponKind: "beamLaser",
+    firePattern: "sustain",
+    energyCost: 0,
+    cooldown: 0.1,
+    heatPerShot: 1,
+    heatLimit: 100,
+    coolingRate: 20,
+    burstInterval: 0.03,
+    spinUpTime: 0.08,
+    sustainTime: 0.08,
+    range: 500,
+    attack: 90,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+  enemy.x = 620;
+  enemy.y = 300;
+  enemy.cooldown = 999;
+  state.enemyQueue = [];
+  state.players[0].actor.x = 300;
+  state.players[0].actor.y = 300;
+  state.players[0].weapons[0].cooldownRemaining = 0;
+
+  stepCombat(state, 0.016, [[{ id: "beam-warn-start", condition: "always", action: "shootRight", enabled: true }]]);
+  const hpBeforeWarning = enemy.hp;
+  stepCombat(state, 0.03, [[{ id: "beam-warn-idle", condition: "always", action: "idle", enabled: true }]]);
+
+  assert.equal(enemy.hp, hpBeforeWarning);
+  assert.ok(state.effects.some((effect) => effect.kind === "beamWarning"));
+
+  enemy.y = 390;
+  stepCombat(state, 0.06, [[{ id: "beam-dodge-idle", condition: "always", action: "idle", enabled: true }]]);
+
+  assert.equal(enemy.hp, hpBeforeWarning);
+  assert.ok(state.effects.some((effect) => effect.kind === "beam"));
+});
+
+run("guard profiles clearly counter different damage kinds", () => {
+  const state = createOneUnitState(1);
+  const target = state.players[0].actor;
+  target.guard = true;
+
+  target.guardProfile = "kinetic";
+  const kineticVsBallistic = damageAfterDefense(100, target, "ballistic");
+  const kineticVsEnergy = damageAfterDefense(100, target, "energy");
+
+  target.guardProfile = "energy";
+  const energyVsBallistic = damageAfterDefense(100, target, "ballistic");
+  const energyVsEnergy = damageAfterDefense(100, target, "energy");
+
+  assert.ok(kineticVsBallistic < energyVsBallistic);
+  assert.ok(energyVsEnergy < kineticVsEnergy);
+});
+
 run("missiles can be intercepted by hostile projectiles and explode in the air", () => {
   const state = createOneUnitState(1);
   const player = state.players[0].actor;
@@ -427,6 +551,7 @@ run("missiles can be intercepted by hostile projectiles and explode in the air",
       vx: 0,
       vy: 0,
       damage: 70,
+      damageKind: "missile",
       radius: 6,
       blastRadius: 34,
       life: 1,
@@ -444,6 +569,7 @@ run("missiles can be intercepted by hostile projectiles and explode in the air",
       vx: 0,
       vy: 0,
       damage: 10,
+      damageKind: "ballistic",
       radius: 4,
       life: 1,
       color: "#ffb15a",
@@ -457,6 +583,54 @@ run("missiles can be intercepted by hostile projectiles and explode in the air",
   assert.ok(state.effects.some((effect) => effect.kind === "explosion"));
   assert.ok(state.soundEvents.includes("intercept"));
   assert.ok(player.hp < player.maxHp);
+});
+
+run("incoming missile AI can fire an intercept shot", () => {
+  const weapon = testWeapon({
+    hardpoint: "rightArm",
+    slot: "R-ARM",
+    partId: "test-interceptor-rifle",
+    label: "Test Interceptor Rifle",
+    resource: "ballistic",
+    weaponKind: "rifle",
+    firePattern: "single",
+    magazineSize: 8,
+    ammoMax: 8,
+    reloadTime: 1,
+    range: 360,
+    attack: 80,
+  });
+  const stats = statsWithWeapon(weapon);
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, []);
+  const player = state.players[0].actor;
+  player.x = 450;
+  player.y = 300;
+  state.enemyQueue = [];
+  state.enemyTotal = 0;
+  state.players[0].weapons[0].cooldownRemaining = 0;
+  state.projectiles.push({
+    id: "ai-intercept-missile",
+    owner: "enemy",
+    kind: "missile",
+    x: player.x + 80,
+    y: player.y,
+    vx: 0,
+    vy: 0,
+    damage: 70,
+    damageKind: "missile",
+    radius: 6,
+    blastRadius: 34,
+    life: 1,
+    color: "#ff9c35",
+    interceptable: true,
+    interceptHp: 4,
+    interceptDamage: 12,
+  });
+
+  stepCombat(state, 0.08, [[{ id: "ai-intercept", condition: "incomingMissile", action: "interceptMissile", enabled: true }]]);
+
+  assert.ok(!state.projectiles.some((projectile) => projectile.id === "ai-intercept-missile"));
+  assert.ok(state.soundEvents.includes("intercept"));
 });
 
 run("burst weapons fire queued follow-up shots", () => {
@@ -547,6 +721,7 @@ run("grenade blast radius damages clustered enemies", () => {
     vx: 0,
     vy: 0,
     damage: 160,
+    damageKind: "explosive",
     radius: 8,
     blastRadius: 120,
     life: 1,

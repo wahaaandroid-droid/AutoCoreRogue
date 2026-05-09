@@ -26,6 +26,8 @@ export type WeaponResource = "energy" | "ballistic";
 
 export type WeaponFirePattern = "single" | "burst" | "sustain";
 
+export type GuardProfile = "kinetic" | "energy" | "balanced";
+
 export type WeaponKind =
   | "rifle"
   | "sniperRifle"
@@ -89,6 +91,7 @@ export interface Part {
   weaponResource?: WeaponResource;
   weaponKind?: WeaponKind;
   guardEnabled?: boolean;
+  guardProfile?: GuardProfile;
   blastRadius?: number;
   energyCost?: number;
   ammoCapacity?: number;
@@ -182,6 +185,7 @@ export interface DerivedStats {
   rightAmmoMax: number;
   leftAmmoMax: number;
   canGuard: boolean;
+  guardProfile: GuardProfile;
   weapons: WeaponStats[];
 }
 
@@ -199,6 +203,10 @@ export type AiConditionId =
   | "bothShoulderReady"
   | "shoulderReady"
   | "enemyProjectileNear"
+  | "incomingBallistic"
+  | "incomingEnergy"
+  | "incomingMissile"
+  | "incomingBeamLock"
   | "always";
 
 export type AiActionId =
@@ -217,6 +225,7 @@ export type AiActionId =
   | "fireBothShoulders"
   | "fireShoulder"
   | "fireMissile"
+  | "interceptMissile"
   | "guard"
   | "idle";
 
@@ -225,6 +234,43 @@ export type TargetPriorityId =
   | "lowestHp"
   | "lowestHpPercent"
   | "eliteFirst";
+
+export type AiDefinitionTier = "starter" | "tactical" | "advanced" | "expert";
+
+export type AiDefinitionCategory =
+  | "movement"
+  | "weapon"
+  | "defense"
+  | "targeting"
+  | "utility";
+
+export type AiUnlockPackageId =
+  | "w1-boost-dodge"
+  | "w1-guard-logic"
+  | "w1-shoulder-basic"
+  | "w1-suppressive-fire"
+  | "w2-long-range"
+  | "w2-explosive"
+  | "w2-missile"
+  | "w2-damage-defense"
+  | "w2-focus-fire"
+  | "w3-alpha-strike"
+  | "w3-dual-shoulder"
+  | "w3-missile-intercept"
+  | "w3-beam-counter"
+  | "w3-elite-hunter";
+
+export interface AiUnlockPackage {
+  id: AiUnlockPackageId;
+  name: string;
+  world: number;
+  rarity: Rarity;
+  actions: AiActionId[];
+  conditions: AiConditionId[];
+  targetPriorities: TargetPriorityId[];
+  recommendedRules: AiRule[];
+  description: string;
+}
 
 export type AiPresetId =
   | "assault"
@@ -242,4 +288,13 @@ export interface AiRule {
   enabled: boolean;
 }
 
-export type ScreenId = "frameSelect" | "assemble" | "ai" | "combat" | "reward" | "map" | "complete";
+export type ScreenId =
+  | "frameSelect"
+  | "assemble"
+  | "ai"
+  | "combat"
+  | "reward"
+  | "map"
+  | "shop"
+  | "rest"
+  | "complete";

@@ -4,7 +4,9 @@ import AiEditorScreen from "./components/AiEditorScreen";
 import CombatScreen from "./components/CombatScreen";
 import FrameSelectScreen from "./components/FrameSelectScreen";
 import RewardScreen from "./components/RewardScreen";
+import RestScreen from "./components/RestScreen";
 import RunCompleteScreen from "./components/RunCompleteScreen";
+import ShopScreen from "./components/ShopScreen";
 import StageMapScreen from "./components/StageMapScreen";
 import {
   createAiPresetRules,
@@ -13,6 +15,16 @@ import {
   ensureAiRuleSlots,
   getAiPresetDefinition,
 } from "./data/aiRules";
+import {
+  STARTER_AI_SLOT_COUNT,
+  aiUnlockPackages,
+  createInitialUnlockedAiPackageIds,
+  getAiUnlockPackage,
+  getAiUnlockState,
+  isAiRuleUnlocked,
+  normalizeAiUnlockPackageIds,
+  normalizeRulesForCombat,
+} from "./data/aiUnlocks";
 import { getBaseFrameById, initialFrameId } from "./data/frames";
 import {
   baseUpgrades,
@@ -44,6 +56,7 @@ import { CombatReport } from "./game/combat";
 import { playUiSound, unlockCombatAudio } from "./game/sound";
 import {
   AiRule,
+  AiUnlockPackageId,
   AiPresetId,
   BaseFrameId,
   EQUIP_SLOTS,
@@ -61,9 +74,9 @@ import {
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 const SAVE_KEY = `autocore-rogue-run-v${SAVE_VERSION}`;
-const LEGACY_SAVE_KEYS = ["autocore-rogue-run-v2", "autocore-rogue-run-v1"];
+const LEGACY_SAVE_KEYS = ["autocore-rogue-run-v3", "autocore-rogue-run-v2", "autocore-rogue-run-v1"];
 const createInitialLoadouts = (): Loadout[] =>
   Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
 const createInitialFrameIds = (): BaseFrameId[] =>
@@ -104,6 +117,7 @@ interface SavedRunState {
   aiSlotCounts: number[];
   aiRulesByUnit: AiRule[][];
   aiPresetsByUnit: AiPresetId[];
+  unlockedAiPackageIds: AiUnlockPackageId[];
   targetPrioritiesByUnit: TargetPriorityId[];
   weaponAutoUseByUnit: WeaponAutoUse[];
   unitHpByUnit: number[];
@@ -245,6 +259,9 @@ export default function App() {
         : createInitialAiPresets(),
     ),
   );
+  const [unlockedAiPackageIds, setUnlockedAiPackageIds] = useState<AiUnlockPackageId[]>(() =>
+    normalizeAiUnlockPackageIds(savedRun?.unlockedAiPackageIds),
+  );
   const [targetPrioritiesByUnit, setTargetPrioritiesByUnit] = useState<TargetPriorityId[]>(() =>
     normalizeSavedArray(savedRun?.targetPrioritiesByUnit, createInitialTargetPriorities()),
   );
@@ -272,6 +289,10 @@ export default function App() {
       ),
     [loadouts, upgrades, unitFrameIds],
   );
+  const aiUnlockState = useMemo(
+    () => getAiUnlockState(unlockedAiPackageIds),
+    [unlockedAiPackageIds],
+  );
   const equippedCounts = useMemo(
     () => equippedPartCounts(loadouts, unlockedUnitCount),
     [loadouts, unlockedUnitCount],
@@ -279,9 +300,20 @@ export default function App() {
   const normalizedRulesByUnit = useMemo(
     () =>
       aiRulesByUnit.map((rules, index) =>
-        ensureAiRuleSlots(rules, aiSlotCounts[index] ?? 5),
+        ensureAiRuleSlots(rules, aiSlotCounts[index] ?? STARTER_AI_SLOT_COUNT),
       ),
     [aiRulesByUnit, aiSlotCounts],
+  );
+  const combatRulesByUnit = useMemo(
+    () => normalizedRulesByUnit.map((rules) => normalizeRulesForCombat(rules, aiUnlockState)),
+    [aiUnlockState, normalizedRulesByUnit],
+  );
+  const combatTargetPrioritiesByUnit = useMemo(
+    () =>
+      targetPrioritiesByUnit.map((priority) =>
+        aiUnlockState.targetPriorities.has(priority) ? priority : "nearest",
+      ),
+    [aiUnlockState, targetPrioritiesByUnit],
   );
   const sortieReady = useMemo(
     () =>
@@ -299,8 +331,14 @@ export default function App() {
     ? currentStagePlan.type
     : "normal";
   const shopOffers = useMemo(
-    () => generateShopOffers(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5),
-    [activeUnitIndex, aiSlotCounts, partInventory, stage],
+    () =>
+      generateShopOffers(
+        stage,
+        partInventory,
+        aiSlotCounts[activeUnitIndex] ?? STARTER_AI_SLOT_COUNT,
+        unlockedAiPackageIds,
+      ),
+    [activeUnitIndex, aiSlotCounts, partInventory, stage, unlockedAiPackageIds],
   );
 
   useEffect(() => {
@@ -330,6 +368,7 @@ export default function App() {
       aiSlotCounts,
       aiRulesByUnit,
       aiPresetsByUnit,
+      unlockedAiPackageIds,
       targetPrioritiesByUnit,
       weaponAutoUseByUnit,
       unitHpByUnit,
@@ -361,6 +400,7 @@ export default function App() {
     unitFrameIds,
     unitHpByUnit,
     unlockedUnitCount,
+    unlockedAiPackageIds,
     upgrades,
     weaponAutoUseByUnit,
   ]);
@@ -451,17 +491,24 @@ export default function App() {
     const slotCount = aiSlotCounts[activeUnitIndex] ?? definition.rules.length;
     setAiRulesByUnit((current) =>
       current.map((unitRules, index) =>
-        index === activeUnitIndex ? createAiPresetRules(preset, slotCount) : unitRules,
+        index === activeUnitIndex ? createAiPresetRules(preset, slotCount, unlockedAiPackageIds) : unitRules,
       ),
     );
     setTargetPrioritiesByUnit((current) =>
       current.map((unitPriority, index) =>
-        index === activeUnitIndex ? definition.targetPriority : unitPriority,
+        index === activeUnitIndex && aiUnlockState.targetPriorities.has(definition.targetPriority)
+          ? definition.targetPriority
+          : unitPriority,
       ),
     );
   };
 
   const changeActiveTargetPriority = (priority: TargetPriorityId) => {
+    if (!aiUnlockState.targetPriorities.has(priority)) {
+      playUiSound("error");
+      setLastOutcome(`${priority} は未解放のターゲット優先です`);
+      return;
+    }
     playUiSound("select");
     setAiPresetsByUnit((current) =>
       current.map((preset, index) => (index === activeUnitIndex ? "custom" : preset)),
@@ -554,6 +601,7 @@ export default function App() {
     setAiSlotCounts(createInitialAiSlotCounts());
     setAiRulesByUnit(createInitialAiRulesByUnit());
     setAiPresetsByUnit(createInitialAiPresets());
+    setUnlockedAiPackageIds(createInitialUnlockedAiPackageIds());
     setTargetPrioritiesByUnit(createInitialTargetPriorities());
     setWeaponAutoUseByUnit(createInitialWeaponAutoUseByUnit());
     setUnitHpByUnit(createInitialUnitHp());
@@ -570,7 +618,7 @@ export default function App() {
     const frame = getBaseFrameById(frameId);
     const frameLoadout = createInitialLoadoutForFrame(frameId);
     const framePreset = defaultAiPresetForFrame(frameId);
-    const frameRules = createAiPresetRules(framePreset);
+    const frameRules = createAiPresetRules(framePreset, STARTER_AI_SLOT_COUNT, unlockedAiPackageIds);
     const framePresetDefinition = getAiPresetDefinition(framePreset);
     const unitStats = calculateDerivedStats(frameLoadout, upgrades, frameId);
 
@@ -589,7 +637,9 @@ export default function App() {
     );
     setTargetPrioritiesByUnit((current) =>
       current.map((unitPriority, index) =>
-        index === unitIndex ? framePresetDefinition.targetPriority : unitPriority,
+        index === unitIndex && aiUnlockState.targetPriorities.has(framePresetDefinition.targetPriority)
+          ? framePresetDefinition.targetPriority
+          : unitPriority,
       ),
     );
     setAiSlotCounts((current) =>
@@ -624,7 +674,13 @@ export default function App() {
     }
     playUiSound("stageClear");
     setRewardOptions(
-      generateRewardOptions(stage, partInventory, aiSlotCounts[activeUnitIndex] ?? 5, currentStagePlan.type),
+      generateRewardOptions(
+        stage,
+        partInventory,
+        aiSlotCounts[activeUnitIndex] ?? STARTER_AI_SLOT_COUNT,
+        currentStagePlan.type,
+        unlockedAiPackageIds,
+      ),
     );
     setLastOutcome(`WORLD ${worldForStage(stage)} / STAGE ${stage} CLEAR`);
     setScreen("reward");
@@ -688,6 +744,50 @@ export default function App() {
     );
   };
 
+  const unlockAiPackage = (packageId: AiUnlockPackageId) => {
+    if (unlockedAiPackageIds.includes(packageId)) {
+      return;
+    }
+
+    const item = getAiUnlockPackage(packageId);
+    const nextUnlockedPackageIds = [...unlockedAiPackageIds, packageId];
+    const nextUnlockState = getAiUnlockState(nextUnlockedPackageIds);
+    setUnlockedAiPackageIds(nextUnlockedPackageIds);
+    setAiRulesByUnit((current) =>
+      current.map((rules, unitIndex) => {
+        if (unitIndex >= unlockedUnitCount || item.recommendedRules.length === 0) {
+          return rules;
+        }
+        const slotCount = aiSlotCounts[unitIndex] ?? STARTER_AI_SLOT_COUNT;
+        const normalized = ensureAiRuleSlots(rules, slotCount);
+        const nextRules = [...normalized];
+        for (const recommendedRule of item.recommendedRules) {
+          if (!isAiRuleUnlocked(recommendedRule, nextUnlockState)) {
+            continue;
+          }
+          const duplicate = nextRules.some(
+            (rule) =>
+              rule.condition === recommendedRule.condition &&
+              rule.action === recommendedRule.action,
+          );
+          if (duplicate) {
+            continue;
+          }
+          const insertIndex = nextRules.findIndex((rule) => rule.action === "idle" || !rule.enabled);
+          if (insertIndex < 0) {
+            continue;
+          }
+          nextRules[insertIndex] = {
+            ...recommendedRule,
+            id: `${recommendedRule.id}-u${unitIndex + 1}`,
+          };
+        }
+        return nextRules;
+      }),
+    );
+    setLastOutcome(`${item.name} をAIチップとして解放`);
+  };
+
   const applyRewardPayload = (payload: RewardOption["payload"]) => {
     if (payload.kind === "part") {
       const part = getPartById(payload.partId);
@@ -727,6 +827,10 @@ export default function App() {
           index === activeUnitIndex ? Math.min(8, slotCount + payload.amount) : slotCount,
         ),
       );
+    }
+
+    if (payload.kind === "aiUnlock") {
+      unlockAiPackage(payload.packageId);
     }
 
     if (payload.kind === "repairKit") {
@@ -792,13 +896,14 @@ export default function App() {
       return;
     }
     if (currentStagePlan.type === "rest") {
-      resolveRestSite();
+      playUiSound("select");
+      setScreen("rest");
       return;
     }
     if (currentStagePlan.type === "shop") {
       playUiSound("select");
       setLastOutcome("商人ノード: 購入または通過を選択");
-      setScreen("map");
+      setScreen("shop");
       return;
     }
     if (!sortieReady) {
@@ -829,51 +934,25 @@ export default function App() {
     playUiSound("select");
     setScreen(nextScreen);
   };
-  const topNav = (
-    <header className="app-header">
+  const topBar = (
+    <header className="app-header mode-header">
       <div>
         <span className="brand-mark">ACR</span>
         <strong>AutoCore Rogue</strong>
-        <small>browser prototype</small>
+        <small>WORLD {worldForStage(stage)} / STAGE {stage}</small>
         <small className="save-chip">AUTO SAVE</small>
       </div>
-      <nav>
-        <button
-          className={screen === "assemble" ? "active" : ""}
-          onClick={() => openScreen("assemble")}
-          disabled={!hasUnit}
-        >
-          ASSEMBLE
-        </button>
-        <button className={screen === "ai" ? "active" : ""} onClick={() => openScreen("ai")} disabled={!hasUnit}>
-          AI
-        </button>
-        <button className={screen === "map" ? "active" : ""} onClick={() => openScreen("map")} disabled={!hasUnit}>
-          MAP
-        </button>
-        <button
-          className="primary"
-          onClick={startCombat}
-          disabled={runComplete || (!sortieReady && isCombatStageType(currentStagePlan.type))}
-        >
-          {runComplete
-            ? "RUN CLEAR"
-            : currentStagePlan.type === "rest"
-              ? "REST"
-              : currentStagePlan.type === "shop"
-                ? "SHOP"
-                : `STAGE ${stage}`}
-        </button>
-        <button onClick={startNewRun} disabled={!hasUnit && stage === 1}>
-          NEW RUN
-        </button>
-      </nav>
+      <div className="mode-stat-strip">
+        <span>{screen.toUpperCase()}</span>
+        <span>{credits} CR</span>
+        <span>AI {unlockedAiPackageIds.length}/{aiUnlockPackages.length}</span>
+      </div>
     </header>
   );
 
   return (
     <div className="app-shell">
-      {topNav}
+      {topBar}
       {screen === "frameSelect" && (
         <FrameSelectScreen
           unitIndex={pendingUnitIndex}
@@ -910,12 +989,13 @@ export default function App() {
       {screen === "ai" && hasUnit && (
         <AiEditorScreen
           rules={normalizedRulesByUnit[activeUnitIndex]}
-          slotCount={aiSlotCounts[activeUnitIndex] ?? 5}
+          slotCount={aiSlotCounts[activeUnitIndex] ?? STARTER_AI_SLOT_COUNT}
           activeUnitIndex={activeUnitIndex}
           unlockedUnitCount={unlockedUnitCount}
           statsByUnit={statsByUnit}
           aiPreset={aiPresetsByUnit[activeUnitIndex] ?? "custom"}
           targetPriority={targetPrioritiesByUnit[activeUnitIndex] ?? "nearest"}
+          unlockedAiPackageIds={unlockedAiPackageIds}
           onSelectUnit={selectActiveUnit}
           onChangeAiPreset={changeActiveAiPreset}
           onChangeRules={changeActiveAiRules}
@@ -934,15 +1014,13 @@ export default function App() {
           unitHpByUnit={unitHpByUnit}
           sortieEnabled={sortieEnabled}
           unlockedUnitCount={unlockedUnitCount}
-          rulesByUnit={normalizedRulesByUnit}
-          targetPrioritiesByUnit={targetPrioritiesByUnit}
+          rulesByUnit={combatRulesByUnit}
+          targetPrioritiesByUnit={combatTargetPrioritiesByUnit}
           weaponAutoUseByUnit={weaponAutoUseByUnit}
           activeUnitIndex={activeUnitIndex}
           onSelectUnit={selectActiveUnit}
           onVictory={handleVictory}
           onDefeat={handleDefeat}
-          onOpenAssemble={() => openScreen("assemble")}
-          onOpenAi={() => openScreen("ai")}
         />
       )}
       {screen === "reward" && (
@@ -951,7 +1029,7 @@ export default function App() {
           credits={credits}
           rewards={rewardOptions}
           report={lastCombatReport}
-          rulesByUnit={normalizedRulesByUnit}
+          rulesByUnit={combatRulesByUnit}
           onPickReward={applyReward}
         />
       )}
@@ -974,15 +1052,33 @@ export default function App() {
           unitHpByUnit={unitHpByUnit}
           statsByUnit={statsByUnit}
           credits={credits}
-          shopOffers={shopOffers}
           canStartStage={sortieReady || !isCombatStageType(currentStagePlan.type)}
           onSelectStageNode={selectStageNode}
-          onRest={resolveRestSite}
-          onBuyShopOffer={buyShopOffer}
-          onLeaveShop={leaveShop}
           onOpenAssemble={() => openScreen("assemble")}
           onOpenAi={() => openScreen("ai")}
           onStartCombat={startCombat}
+        />
+      )}
+      {screen === "shop" && hasUnit && (
+        <ShopScreen
+          stage={stage}
+          plan={currentStagePlan}
+          credits={credits}
+          shopOffers={shopOffers}
+          onBuyShopOffer={buyShopOffer}
+          onLeaveShop={leaveShop}
+          onBackMap={() => openScreen("map")}
+        />
+      )}
+      {screen === "rest" && hasUnit && (
+        <RestScreen
+          stage={stage}
+          plan={currentStagePlan}
+          unlockedUnitCount={unlockedUnitCount}
+          unitHpByUnit={unitHpByUnit}
+          statsByUnit={statsByUnit}
+          onRest={resolveRestSite}
+          onBackMap={() => openScreen("map")}
         />
       )}
     </div>

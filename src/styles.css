@@ -388,6 +388,286 @@ select {
   margin-top: 4px;
 }
 
+.mode-header {
+  min-width: 0;
+}
+
+.mode-stat-strip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mode-stat-strip span {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.mode-tab-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mode-tab-row button.active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.assemble-focused-screen,
+.ai-focused-screen,
+.focused-mode-screen {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+.assemble-mode-tabs {
+  grid-column: 1 / -1;
+}
+
+.assemble-focused-screen .panel,
+.ai-mode-panel,
+.focused-mode-panel {
+  min-height: 0;
+  overflow: auto;
+}
+
+.ai-mode-panel {
+  width: min(1100px, 100%);
+  justify-self: center;
+}
+
+.ai-view-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.blueprint-grid button {
+  display: grid;
+  gap: 4px;
+}
+
+.unlock-count,
+.locked-rule-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ai-row.locked-rule {
+  border-color: rgba(255, 196, 95, 0.36);
+  background: rgba(255, 196, 95, 0.06);
+}
+
+.locked-rule-note {
+  grid-column: 2 / 4;
+}
+
+.unlock-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.unlock-summary > div,
+.rest-unit-list > div {
+  border: 1px solid var(--line);
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.unlock-summary span,
+.rest-unit-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-unlock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.ai-unlock-card {
+  border: 1px solid var(--line);
+  padding: 10px;
+  display: grid;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ai-unlock-card.unlocked {
+  border-color: rgba(84, 244, 167, 0.38);
+}
+
+.ai-unlock-card.locked {
+  opacity: 0.78;
+}
+
+.ai-unlock-card span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.focused-mode-screen {
+  display: grid;
+  place-items: center;
+}
+
+.focused-mode-panel {
+  width: min(980px, 100%);
+}
+
+.focused-mode-hero {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.focused-mode-hero h1 {
+  margin: 2px 0 4px;
+  font-size: clamp(22px, 3vw, 34px);
+}
+
+.focused-mode-hero p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.focused-mode-hero span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.focused-shop-list {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.rest-unit-list {
+  display: grid;
+  gap: 8px;
+}
+
+@media (orientation: landscape) and (max-height: 540px), (max-width: 960px) and (max-height: 540px) {
+  .app-shell {
+    grid-template-rows: 36px minmax(0, 1fr);
+  }
+
+  .mode-header {
+    padding: 4px 6px;
+  }
+
+  .mode-header > div:first-child {
+    flex-wrap: nowrap;
+  }
+
+  .mode-stat-strip {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .mode-stat-strip span {
+    padding: 3px 6px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .assemble-focused-screen,
+  .ai-focused-screen,
+  .focused-mode-screen,
+  .map-screen,
+  .reward-screen,
+  .run-complete-screen {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .assemble-focused-screen,
+  .ai-focused-screen {
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .assemble-mode-tabs {
+    margin-bottom: 0;
+  }
+
+  .assemble-focused-screen .slot-panel,
+  .assemble-focused-screen .parts-browser,
+  .assemble-focused-screen .status-panel,
+  .assemble-focused-screen .mech-preview-panel,
+  .ai-mode-panel,
+  .focused-mode-panel {
+    grid-column: 1;
+    grid-row: 2;
+    height: 100%;
+    overflow: auto;
+  }
+
+  .assemble-focused-screen .mech-preview-panel {
+    display: none;
+  }
+
+  .mode-tab-row {
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+
+  .mode-tab-row button {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .ai-table {
+    gap: 5px;
+  }
+
+  .locked-rule-note {
+    display: none;
+  }
+
+  .ai-unlock-grid,
+  .focused-shop-list,
+  .part-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .focused-mode-hero {
+    grid-template-columns: 132px minmax(0, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .focused-mode-hero h1 {
+    font-size: 20px;
+  }
+
+  .focused-mode-hero p,
+  .focused-mode-hero small,
+  .shop-offer small:last-child {
+    display: none;
+  }
+
+  .combat-layout {
+    grid-template-columns: 112px minmax(0, 1fr) 112px;
+  }
+}
+
 .ai-preset-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2383,5 +2663,79 @@ select {
 
   .ai-threshold-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Final focused-mode overrides keep mobile landscape screens from becoming multi-panel dashboards. */
+.assemble-focused-screen {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.assemble-focused-screen .slot-panel,
+.assemble-focused-screen .parts-browser,
+.assemble-focused-screen .status-panel,
+.assemble-focused-screen .mech-preview-panel,
+.ai-mode-panel {
+  grid-column: 1;
+}
+
+.ai-focused-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ai-focused-screen .ai-mode-panel {
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (orientation: landscape) and (max-height: 540px), (max-width: 960px) and (max-height: 540px) {
+  .app-header nav {
+    display: none;
+  }
+
+  .app-shell {
+    grid-template-rows: 36px minmax(0, 1fr);
+  }
+
+  .mode-header {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .assemble-focused-screen,
+  .ai-focused-screen,
+  .focused-mode-screen,
+  .map-screen,
+  .reward-screen,
+  .run-complete-screen {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .assemble-focused-screen,
+  .ai-focused-screen {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .assemble-focused-screen .slot-panel,
+  .assemble-focused-screen .parts-browser,
+  .assemble-focused-screen .status-panel,
+  .ai-mode-panel,
+  .focused-mode-panel {
+    grid-row: 2;
+    height: 100%;
+    overflow: auto;
+  }
+
+  .assemble-focused-screen .mech-preview-panel {
+    display: none;
+  }
+
+  .combat-nav-actions {
+    display: none;
   }
 }

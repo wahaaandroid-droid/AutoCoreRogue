@@ -43,8 +43,6 @@ interface CombatScreenProps {
   onSelectUnit: (index: number) => void;
   onVictory: (unitHpByUnit: number[], report: CombatReport) => void;
   onDefeat: () => void;
-  onOpenAssemble: () => void;
-  onOpenAi: () => void;
 }
 
 const hpPercent = (actor: CombatActor): number => actor.hp / actor.maxHp;
@@ -641,6 +639,48 @@ const drawEffect = (ctx: CanvasRenderingContext2D, effect: Effect) => {
     ctx.restore();
     return;
   }
+  if (effect.kind === "beamWarning") {
+    const endX = effect.endX ?? effect.x;
+    const endY = effect.endY ?? effect.y;
+    ctx.translate(-effect.x, -effect.y);
+    const pulse = 0.35 + Math.sin(progress * Math.PI * 5) * 0.16;
+    ctx.globalAlpha = Math.max(0.18, 1 - progress * 0.4);
+    ctx.lineCap = "round";
+    ctx.setLineDash([18, 12]);
+    ctx.lineDashOffset = -progress * 28;
+    ctx.strokeStyle = `rgba(255, 237, 169, ${pulse + 0.22})`;
+    ctx.shadowColor = effect.color;
+    ctx.shadowBlur = 16;
+    ctx.lineWidth = Math.max(2, effect.size * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(effect.x, effect.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha *= 0.22;
+    ctx.lineWidth = effect.size;
+    ctx.beginPath();
+    ctx.moveTo(effect.x, effect.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  if (effect.kind === "lockBreak") {
+    ctx.strokeStyle = effect.color;
+    ctx.shadowColor = effect.color;
+    ctx.shadowBlur = 18;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha *= 0.72;
+    for (let i = 0; i < 3; i += 1) {
+      const radius = effect.size * (0.45 + progress * 0.7 + i * 0.18);
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, Math.PI * (0.12 + i * 0.34), Math.PI * (0.92 + i * 0.34));
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
   if (effect.kind === "explosion" && explosionBurstImage.complete && explosionBurstImage.naturalWidth > 0) {
     const size = effect.size * (1.05 + progress * 0.85);
     ctx.drawImage(
@@ -810,8 +850,6 @@ export default function CombatScreen({
   onSelectUnit,
   onVictory,
   onDefeat,
-  onOpenAssemble,
-  onOpenAi,
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef<CombatState>(
@@ -1057,10 +1095,6 @@ export default function CombatScreen({
               <div className="meter hp mini"><span style={{ width: `${hpPercent(enemy) * 100}%` }} /></div>
             </div>
           ))}
-        </div>
-        <div className="screen-actions vertical combat-nav-actions">
-          <button onClick={onOpenAssemble}>ASSEMBLE</button>
-          <button onClick={onOpenAi}>AI EDIT</button>
         </div>
       </section>
     </main>

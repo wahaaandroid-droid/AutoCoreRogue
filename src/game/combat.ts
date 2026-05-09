@@ -12,6 +12,7 @@ import {
 import {
   createEffect,
   createProjectile,
+  DamageKind,
   Effect,
   Projectile,
 } from "./projectiles";
@@ -20,6 +21,7 @@ import {
   AiRule,
   BaseFrameId,
   DerivedStats,
+  GuardProfile,
   LegType,
   TargetPriorityId,
   WeaponHardpoint,
@@ -64,6 +66,7 @@ export interface CombatActor {
   boostCooldown: number;
   guard: boolean;
   canGuard: boolean;
+  guardProfile: GuardProfile;
   loadRatio: number;
   facingX: number;
   facingY: number;
@@ -103,6 +106,8 @@ export interface PlayerWeaponState extends WeaponStats {
   sustainRemaining: number;
   sequenceTargetId?: string;
   sequenceWarmupRemaining: number;
+  beamAimX?: number;
+  beamAimY?: number;
   autoUse: boolean;
 }
 
@@ -161,6 +166,9 @@ const ARENA_HEIGHT = 570;
 const BOOST_LOCK_BREAK_MIN_DISTANCE = 52;
 const BOOST_LOCK_BREAK_MAX_DISTANCE = 108;
 const BOOST_LOCK_BREAK_MIN_APPROACH = 0.35;
+const BEAM_TRACK_TURN_RATE = 0.72;
+const BEAM_WARNING_WIDTH = 34;
+const BEAM_HIT_WIDTH = 8;
 const BLADE_REACH_CAP = 86;
 const BLADE_ENGAGE_BUFFER = 146;
 let nextId = 1;
@@ -231,6 +239,7 @@ const createPlayerActor = (stats: DerivedStats, index: number): CombatActor => (
   boostCooldown: 0,
   guard: false,
   canGuard: stats.canGuard,
+  guardProfile: stats.guardProfile,
   loadRatio: statsLoadRatio(stats),
   facingX: 0,
   facingY: -1,
@@ -257,6 +266,8 @@ const createWeaponState = (
   sequenceTimer: 0,
   sustainRemaining: 0,
   sequenceWarmupRemaining: 0,
+  beamAimX: undefined,
+  beamAimY: undefined,
   autoUse,
 });
 
@@ -363,6 +374,7 @@ const createRivalStats = (
   },
   weapons: WeaponStats[],
   canGuard = false,
+  guardProfile: GuardProfile = "balanced",
 ): DerivedStats => {
   const byHardpoint = (hardpoint: WeaponHardpoint): WeaponStats | undefined =>
     weapons.find((weapon) => weapon.hardpoint === hardpoint);
@@ -402,6 +414,7 @@ const createRivalStats = (
     rightAmmoMax: right.ammoMax,
     leftAmmoMax: left.ammoMax,
     canGuard,
+    guardProfile,
     weapons,
   };
 };
@@ -873,6 +886,7 @@ const createEnemy = (
     boostCooldown: 1.1 + index * 0.18,
     guard: false,
     canGuard: rivalSpec?.stats.canGuard ?? false,
+    guardProfile: rivalSpec?.stats.guardProfile ?? "balanced",
     loadRatio: rivalSpec ? statsLoadRatio(rivalSpec.stats) : rank === "boss" ? 0.94 : rank === "elite" ? 0.82 : 0.68,
     facingX: rank === "boss" ? 0 : -entryDirection.x,
     facingY: rank === "boss" ? 1 : -entryDirection.y,
@@ -1144,18 +1158,62 @@ const selectPlayerTarget = (
   return sorted[0];
 };
 
-const nearestHostileProjectileDistance = (state: CombatState, actor: CombatActor): number => {
-  let best = Number.POSITIVE_INFINITY;
+interface ProjectileThreatDistances {
+  any: number;
+  ballistic: number;
+  energy: number;
+  missile: number;
+}
+
+const hostileProjectileThreatDistances = (state: CombatState, actor: CombatActor): ProjectileThreatDistances => {
+  const best: ProjectileThreatDistances = {
+    any: Number.POSITIVE_INFINITY,
+    ballistic: Number.POSITIVE_INFINITY,
+    energy: Number.POSITIVE_INFINITY,
+    missile: Number.POSITIVE_INFINITY,
+  };
+
   for (const projectile of state.projectiles) {
     if (projectile.owner === actor.team) {
       continue;
     }
-    best = Math.min(best, Math.hypot(projectile.x - actor.x, projectile.y - actor.y));
+    const distance = Math.hypot(projectile.x - actor.x, projectile.y - actor.y);
+    best.any = Math.min(best.any, distance);
+    if (projectile.damageKind === "missile") {
+      best.missile = Math.min(best.missile, distance);
+    } else if (projectile.damageKind === "energy") {
+      best.energy = Math.min(best.energy, distance);
+    } else if (projectile.damageKind === "ballistic" || projectile.damageKind === "explosive") {
+      best.ballistic = Math.min(best.ballistic, distance);
+    }
   }
   return best;
 };
 
+const nearestHostileMissile = (
+  state: CombatState,
+  actor: CombatActor,
+  maxDistance = 280,
+): Projectile | undefined => {
+  let best: Projectile | undefined;
+  let bestDistance = maxDistance;
+
+  for (const projectile of state.projectiles) {
+    if (projectile.owner === actor.team || projectile.kind !== "missile") {
+      continue;
+    }
+    const distance = Math.hypot(projectile.x - actor.x, projectile.y - actor.y);
+    if (distance < bestDistance) {
+      best = projectile;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
+};
+
 const breakIncomingMissileLocks = (state: CombatState, actor: CombatActor): void => {
+  let broken = 0;
   for (const projectile of state.projectiles) {
     const dx = actor.x - projectile.x;
     const dy = actor.y - projectile.y;
@@ -1172,7 +1230,23 @@ const breakIncomingMissileLocks = (state: CombatState, actor: CombatActor): void
       approach >= BOOST_LOCK_BREAK_MIN_APPROACH
     ) {
       projectile.targetId = undefined;
+      broken += 1;
     }
+  }
+
+  if (broken > 0) {
+    state.effects.push(
+      createEffect({
+        id: uid("effect"),
+        kind: "lockBreak",
+        x: actor.x,
+        y: actor.y,
+        life: 0.36,
+        maxLife: 0.36,
+        color: actor.team === "player" ? "#8af6ff" : actor.color,
+        size: actor.radius * 2.9,
+      }),
+    );
   }
 };
 
@@ -1249,10 +1323,11 @@ const pushBoostBurst = (
 const fireProjectile = (
   state: CombatState,
   source: CombatActor,
-  target: CombatActor,
+  target: Pick<CombatActor, "x" | "y">,
   damage: number,
   speed: number,
   kind: Projectile["kind"],
+  damageKind: DamageKind,
   color: string,
   radius: number,
   targetId?: string,
@@ -1270,6 +1345,7 @@ const fireProjectile = (
       vx: aim.x * speed,
       vy: aim.y * speed,
       damage,
+      damageKind,
       radius,
       blastRadius,
       life: kind === "missile" ? 2.9 : kind === "rocket" || kind === "grenade" ? 2.05 : 1.55,
@@ -1311,6 +1387,7 @@ const projectileProfile = (
   color: string;
   radius: number;
   damageScale: number;
+  damageKind: DamageKind;
   homing: boolean;
 } => {
   switch (kind) {
@@ -1321,6 +1398,7 @@ const projectileProfile = (
         color: resource === "energy" ? "#8ce5ff" : "#ffe0a6",
         radius: 4.1,
         damageScale: 1.18,
+        damageKind: resource === "energy" ? "energy" : "ballistic",
         homing: false,
       };
     case "machineGun":
@@ -1330,6 +1408,7 @@ const projectileProfile = (
         color: resource === "energy" ? "#54f4a7" : "#ffb15a",
         radius: 3.5,
         damageScale: 0.82,
+        damageKind: resource === "energy" ? "energy" : "ballistic",
         homing: false,
       };
     case "rocket":
@@ -1339,6 +1418,7 @@ const projectileProfile = (
         color: "#ff9d42",
         radius: 6.4,
         damageScale: 1.08,
+        damageKind: "explosive",
         homing: false,
       };
     case "grenade":
@@ -1348,6 +1428,7 @@ const projectileProfile = (
         color: "#ffc45f",
         radius: 7.2,
         damageScale: 1.0,
+        damageKind: "explosive",
         homing: false,
       };
     case "missile":
@@ -1357,6 +1438,7 @@ const projectileProfile = (
         color: "#ff9c35",
         radius: 5.9,
         damageScale: 1.0,
+        damageKind: "missile",
         homing: true,
       };
     case "pulse":
@@ -1366,6 +1448,7 @@ const projectileProfile = (
         color: "#63cfff",
         radius: 4.8,
         damageScale: 1.0,
+        damageKind: "energy",
         homing: false,
       };
     case "rifle":
@@ -1376,6 +1459,7 @@ const projectileProfile = (
         color: resource === "energy" ? "#63cfff" : "#ffb15a",
         radius: 4.4,
         damageScale: 1.0,
+        damageKind: resource === "energy" ? "energy" : "ballistic",
         homing: false,
       };
   }
@@ -1420,7 +1504,7 @@ const performBladeAttack = (
     }),
   );
 
-  const resolvedDamage = damageAfterDefense(damage, target);
+  const resolvedDamage = damageAfterDefense(damage, target, "melee");
   target.hp = Math.max(0, target.hp - resolvedDamage);
   const sourceUnitIndex = source.id.startsWith("player-") ? Number(source.id.replace("player-", "")) - 1 : undefined;
   if (sourceUnitIndex !== undefined && Number.isFinite(sourceUnitIndex)) {
@@ -1445,29 +1529,111 @@ const performBladeAttack = (
   );
 };
 
+const beamLineDistance = (
+  source: CombatActor,
+  aim: { x: number; y: number },
+  target: CombatActor,
+): { projection: number; perpendicular: number } => {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const projection = dx * aim.x + dy * aim.y;
+  const perpendicular = Math.abs(dx * aim.y - dy * aim.x);
+  return { projection, perpendicular };
+};
+
+const lockBeamAim = (weapon: PlayerWeaponState, source: CombatActor, target: CombatActor): void => {
+  const aim = normalize(target.x - source.x, target.y - source.y);
+  weapon.beamAimX = aim.x;
+  weapon.beamAimY = aim.y;
+};
+
+const rotateBeamAimToward = (
+  weapon: PlayerWeaponState,
+  source: CombatActor,
+  target: CombatActor,
+  maxTurn: number,
+): void => {
+  if (weapon.beamAimX === undefined || weapon.beamAimY === undefined) {
+    lockBeamAim(weapon, source, target);
+    return;
+  }
+
+  const desired = normalize(target.x - source.x, target.y - source.y);
+  const currentAngle = Math.atan2(weapon.beamAimY, weapon.beamAimX);
+  const desiredAngle = Math.atan2(desired.y, desired.x);
+  const delta = Math.atan2(Math.sin(desiredAngle - currentAngle), Math.cos(desiredAngle - currentAngle));
+  const nextAngle = currentAngle + clamp(delta, -maxTurn, maxTurn);
+  weapon.beamAimX = Math.cos(nextAngle);
+  weapon.beamAimY = Math.sin(nextAngle);
+};
+
+const pushBeamWarning = (
+  state: CombatState,
+  source: CombatActor,
+  weapon: PlayerWeaponState,
+  range: number,
+): void => {
+  const aimX = weapon.beamAimX ?? source.facingX;
+  const aimY = weapon.beamAimY ?? source.facingY;
+  const startX = source.x + aimX * (source.radius + 8);
+  const startY = source.y + aimY * (source.radius + 8);
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "beamWarning",
+      x: startX,
+      y: startY,
+      endX: source.x + aimX * range,
+      endY: source.y + aimY * range,
+      life: 0.06,
+      maxLife: 0.06,
+      color: source.team === "player" ? "#78f3ff" : source.color,
+      size: BEAM_WARNING_WIDTH,
+    }),
+  );
+};
+
 const performBeamAttack = (
   state: CombatState,
   source: CombatActor,
-  target: CombatActor,
+  weapon: PlayerWeaponState,
   damage: number,
   range: number,
-): void => {
-  const aim = normalize(target.x - source.x, target.y - source.y);
-  const hitDistance = Math.min(range, aim.distance);
+): boolean => {
+  const aim = {
+    x: weapon.beamAimX ?? source.facingX,
+    y: weapon.beamAimY ?? source.facingY,
+  };
   const startX = source.x + aim.x * (source.radius + 8);
   const startY = source.y + aim.y * (source.radius + 8);
-  const endX = source.x + aim.x * hitDistance;
-  const endY = source.y + aim.y * hitDistance;
-  const resolvedDamage = damageAfterDefense(damage, target);
-
-  target.hp = Math.max(0, target.hp - resolvedDamage);
+  const endX = source.x + aim.x * range;
+  const endY = source.y + aim.y * range;
+  const targets = source.team === "player" ? livingEnemies(state) : livingPlayerUnits(state).map((unit) => unit.actor);
   const sourceUnitIndex = source.id.startsWith("player-") ? Number(source.id.replace("player-", "")) - 1 : undefined;
-  if (sourceUnitIndex !== undefined && Number.isFinite(sourceUnitIndex)) {
-    state.report.damageByUnit[sourceUnitIndex] =
-      (state.report.damageByUnit[sourceUnitIndex] ?? 0) + resolvedDamage;
+  let hit = false;
+
+  for (const target of targets) {
+    const { projection, perpendicular } = beamLineDistance(source, aim, target);
+    const hitWidth = BEAM_HIT_WIDTH + target.radius;
+    if (projection < source.radius || projection > range + target.radius || perpendicular > hitWidth) {
+      continue;
+    }
+
+    const centerWidth = Math.max(1, target.radius * 0.42);
+    const edgeWidth = Math.max(1, hitWidth - centerWidth);
+    const damageScale = perpendicular <= centerWidth
+      ? 1
+      : clamp(1 - (perpendicular - centerWidth) / edgeWidth, 0.35, 1);
+    const resolvedDamage = damageAfterDefense(damage * damageScale, target, "energy");
+    target.hp = Math.max(0, target.hp - resolvedDamage);
+    if (sourceUnitIndex !== undefined && Number.isFinite(sourceUnitIndex)) {
+      state.report.damageByUnit[sourceUnitIndex] =
+        (state.report.damageByUnit[sourceUnitIndex] ?? 0) + resolvedDamage;
+    }
+    target.vx += aim.x * (target.rank === "boss" ? 20 : 36) * damageScale;
+    target.vy += aim.y * (target.rank === "boss" ? 20 : 36) * damageScale;
+    hit = true;
   }
-  target.vx += aim.x * (target.rank === "boss" ? 20 : 36);
-  target.vy += aim.y * (target.rank === "boss" ? 20 : 36);
   state.effects.push(
     createEffect({
       id: uid("effect"),
@@ -1494,7 +1660,49 @@ const performBeamAttack = (
       size: 18,
     }),
   );
-  state.soundEvents.push("shootEnergy", "hit");
+  state.soundEvents.push("shootEnergy");
+  if (hit) {
+    state.soundEvents.push("hit");
+  }
+  return hit;
+};
+
+const hostileBeamLockDistance = (state: CombatState, actor: CombatActor): number => {
+  let best = Number.POSITIVE_INFINITY;
+  const scan = (source: CombatActor, weapons: PlayerWeaponState[]): void => {
+    if (source.team === actor.team || source.hp <= 0) {
+      return;
+    }
+
+    for (const weapon of weapons) {
+      if (
+        weapon.weaponKind !== "beamLaser" ||
+        weapon.beamAimX === undefined ||
+        weapon.beamAimY === undefined ||
+        (weapon.sequenceWarmupRemaining <= 0 && weapon.sustainRemaining <= 0)
+      ) {
+        continue;
+      }
+
+      const aim = { x: weapon.beamAimX, y: weapon.beamAimY };
+      const { projection, perpendicular } = beamLineDistance(source, aim, actor);
+      if (projection < source.radius || projection > weapon.range + actor.radius) {
+        continue;
+      }
+      best = Math.min(best, Math.max(0, perpendicular - actor.radius));
+    }
+  };
+
+  for (const unit of state.players) {
+    scan(unit.actor, unit.weapons);
+  }
+  for (const enemy of state.enemies) {
+    if (enemy.rivalAi) {
+      scan(enemy, enemy.rivalAi.weapons);
+    }
+  }
+
+  return best;
 };
 
 const spendEnergy = (actor: CombatActor, amount: number): boolean => {
@@ -1633,6 +1841,8 @@ const updateWeaponRuntime = (weapon: PlayerWeaponState, dt: number): void => {
 
   if (!isWeaponSequenceActive(weapon)) {
     weapon.sequenceTargetId = undefined;
+    weapon.beamAimX = undefined;
+    weapon.beamAimY = undefined;
   }
 };
 
@@ -1672,7 +1882,7 @@ const fireWeaponShot = (
     if (!consumeWeapon(unit, weapon)) {
       return false;
     }
-    performBeamAttack(state, player, target, weapon.attack * 0.56, weapon.range + target.radius);
+    performBeamAttack(state, player, weapon, weapon.attack * 0.56, weapon.range + target.radius);
     return true;
   }
 
@@ -1691,6 +1901,7 @@ const fireWeaponShot = (
     weapon.attack * profile.damageScale,
     profile.speed,
     profile.projectileKind,
+    profile.damageKind,
     profile.color,
     profile.radius,
     profile.homing ? target.id : undefined,
@@ -1704,6 +1915,7 @@ const startWeaponSequence = (
   weapon: PlayerWeaponState,
   target: CombatActor,
   firedImmediately: boolean,
+  source?: CombatActor,
 ): void => {
   weapon.sequenceTargetId = target.id;
   if (weapon.firePattern === "burst") {
@@ -1714,6 +1926,9 @@ const startWeaponSequence = (
   }
 
   if (weapon.firePattern === "sustain") {
+    if (weapon.weaponKind === "beamLaser" && source) {
+      lockBeamAim(weapon, source, target);
+    }
     weapon.sequenceWarmupRemaining = weapon.spinUpTime;
     weapon.sequenceTimer = weapon.spinUpTime;
     weapon.sustainRemaining = weapon.sustainTime;
@@ -1743,7 +1958,7 @@ const firePlayerWeapon = (
     if (!canPayWeapon(unit, weapon)) {
       return false;
     }
-    startWeaponSequence(weapon, target, false);
+    startWeaponSequence(weapon, target, false, unit.actor);
     state.effects.push(
       createEffect({
         id: uid("effect"),
@@ -1764,7 +1979,7 @@ const firePlayerWeapon = (
     return false;
   }
 
-  startWeaponSequence(weapon, target, true);
+  startWeaponSequence(weapon, target, true, unit.actor);
   return true;
 };
 
@@ -1772,9 +1987,18 @@ const resolveWeaponSequences = (
   state: CombatState,
   unit: PlayerCombatUnit,
   fallbackTarget: CombatActor | undefined,
+  dt: number,
 ): void => {
   for (const weapon of unit.weapons) {
-    if (!weapon.autoUse || weapon.sequenceTimer > 0 || weapon.sequenceWarmupRemaining > 0) {
+    if (!weapon.autoUse) {
+      continue;
+    }
+
+    if (weapon.weaponKind === "beamLaser" && weapon.sequenceWarmupRemaining > 0) {
+      pushBeamWarning(state, unit.actor, weapon, weapon.range + 48);
+    }
+
+    if (weapon.sequenceTimer > 0 || weapon.sequenceWarmupRemaining > 0) {
       continue;
     }
 
@@ -1783,6 +2007,8 @@ const resolveWeaponSequences = (
       weapon.burstShotsRemaining = 0;
       weapon.sustainRemaining = 0;
       weapon.sequenceTargetId = undefined;
+      weapon.beamAimX = undefined;
+      weapon.beamAimY = undefined;
       continue;
     }
 
@@ -1796,6 +2022,9 @@ const resolveWeaponSequences = (
     }
 
     if (weapon.sustainRemaining > 0 && weapon.sequenceTimer <= 0 && weapon.sequenceWarmupRemaining <= 0) {
+      if (weapon.weaponKind === "beamLaser") {
+        rotateBeamAimToward(weapon, unit.actor, target, BEAM_TRACK_TURN_RATE * Math.max(dt, weapon.burstInterval));
+      }
       if (fireWeaponShot(state, unit, weapon, target, true)) {
         weapon.sequenceTimer = weapon.burstInterval;
       } else {
@@ -1897,6 +2126,60 @@ const firePlannedWeapons = (
   return fired;
 };
 
+const isMissileInterceptWeapon = (weapon: PlayerWeaponState): boolean =>
+  (weapon.hardpoint === "leftArm" || weapon.hardpoint === "rightArm") &&
+  (weapon.weaponKind === "rifle" || weapon.weaponKind === "machineGun" || weapon.weaponKind === "pulse");
+
+const interceptWeaponScore = (weapon: PlayerWeaponState): number => {
+  const profile = projectileProfile(weapon.weaponKind, weapon.resource);
+  return profile.speed + (weapon.weaponKind === "machineGun" ? 80 : 0) - weapon.cooldownMax * 20;
+};
+
+const interceptIncomingMissile = (state: CombatState, unit: PlayerCombatUnit): boolean => {
+  const player = unit.actor;
+  const missile = nearestHostileMissile(state, player);
+  if (!missile) {
+    return false;
+  }
+
+  const distance = Math.hypot(missile.x - player.x, missile.y - player.y);
+  const weapon = unit.weapons
+    .filter((candidate) =>
+      isMissileInterceptWeapon(candidate) &&
+      candidate.autoUse &&
+      candidate.cooldownRemaining <= 0 &&
+      !isWeaponSequenceActive(candidate) &&
+      canPayWeapon(unit, candidate) &&
+      distance <= candidate.range + 90,
+    )
+    .sort((a, b) => interceptWeaponScore(b) - interceptWeaponScore(a))[0];
+
+  if (!weapon || !consumeWeapon(unit, weapon)) {
+    return false;
+  }
+
+  const aim = normalize(missile.x - player.x, missile.y - player.y);
+  player.facingX = aim.x;
+  player.facingY = aim.y;
+  const profile = projectileProfile(weapon.weaponKind, weapon.resource);
+  fireProjectile(
+    state,
+    player,
+    missile,
+    weapon.attack * profile.damageScale * 1.05,
+    profile.speed,
+    profile.projectileKind,
+    profile.damageKind,
+    profile.color,
+    profile.radius,
+    undefined,
+    unit.unitIndex,
+    0,
+  );
+  weapon.cooldownRemaining = Math.max(0.14, weapon.cooldownMax * 0.7);
+  return true;
+};
+
 const applyPlayerAction = (
   state: CombatState,
   unit: PlayerCombatUnit,
@@ -1905,6 +2188,9 @@ const applyPlayerAction = (
 ): void => {
   const player = unit.actor;
   if (!target) {
+    if (action === "interceptMissile") {
+      interceptIncomingMissile(state, unit);
+    }
     return;
   }
 
@@ -2001,6 +2287,10 @@ const applyPlayerAction = (
       combatDrift();
       firePlayerWeapon(state, unit, firstReadyShoulderWeapon(unit, target), target, true);
       break;
+    case "interceptMissile":
+      combatDrift();
+      interceptIncomingMissile(state, unit);
+      break;
     case "guard":
       if (unit.stats.canGuard && player.canGuard) {
         player.guard = true;
@@ -2053,7 +2343,8 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
   const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
   const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
   const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
-  resolveWeaponSequences(state, unit, target);
+  resolveWeaponSequences(state, unit, target, dt);
+  const projectileThreats = hostileProjectileThreatDistances(state, enemy);
   const decision = evaluateAiRules(rival.rules, {
     en: enemy.en,
     hpPercent: enemy.hp / enemy.maxHp,
@@ -2070,7 +2361,11 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
     leftShoulderCanPay: canAutoUseWeapon(unit, leftShoulderWeapon),
     rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
     bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
-    enemyProjectileDistance: nearestHostileProjectileDistance(state, enemy),
+    enemyProjectileDistance: projectileThreats.any,
+    incomingBallisticDistance: projectileThreats.ballistic,
+    incomingEnergyDistance: projectileThreats.energy,
+    incomingMissileDistance: projectileThreats.missile,
+    incomingBeamLockDistance: hostileBeamLockDistance(state, enemy),
     canGuard: rival.stats.canGuard,
   });
 
@@ -2201,6 +2496,7 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
       missile ? enemy.attack * 1.35 : enemy.attack,
       missile ? 215 : 410,
       missile ? "missile" : "bullet",
+      missile ? "missile" : "ballistic",
       missile ? "#ff7a37" : "#ff5f42",
       missile ? 6.5 : 4.3,
       missile ? player.id : undefined,
@@ -2257,7 +2553,8 @@ export const stepCombat = (
     const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
     const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
     const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
-    resolveWeaponSequences(state, unit, target);
+    resolveWeaponSequences(state, unit, target, dt);
+    const projectileThreats = hostileProjectileThreatDistances(state, player);
     const decision = evaluateAiRules(rules, {
       en: player.en,
       hpPercent: player.hp / player.maxHp,
@@ -2274,7 +2571,11 @@ export const stepCombat = (
       leftShoulderCanPay: canAutoUseWeapon(unit, leftShoulderWeapon),
       rightShoulderCanPay: canAutoUseWeapon(unit, rightShoulderWeapon),
       bothShoulderCanPay: canAutoUseWeapon(unit, bothShoulderWeapon),
-      enemyProjectileDistance: nearestHostileProjectileDistance(state, player),
+      enemyProjectileDistance: projectileThreats.any,
+      incomingBallisticDistance: projectileThreats.ballistic,
+      incomingEnergyDistance: projectileThreats.energy,
+      incomingMissileDistance: projectileThreats.missile,
+      incomingBeamLockDistance: hostileBeamLockDistance(state, player),
       canGuard: unit.stats.canGuard,
     });
 

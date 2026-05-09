@@ -1,6 +1,7 @@
 import {
   advanceProjectiles,
   createEffect,
+  DamageKind,
   Projectile,
 } from "./projectiles";
 import type { CombatActor, CombatState } from "./combat";
@@ -10,9 +11,41 @@ const PLAYER_DAMAGE_MULTIPLIER = 0.48;
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
-export const damageAfterDefense = (raw: number, target: CombatActor): number => {
+const guardDamageMultiplier = (kind: DamageKind, target: CombatActor): number => {
+  if (!target.guard) {
+    return 1;
+  }
+
+  switch (target.guardProfile) {
+    case "kinetic":
+      return kind === "ballistic"
+        ? 0.36
+        : kind === "explosive"
+          ? 0.48
+          : kind === "missile"
+            ? 0.54
+            : kind === "energy"
+              ? 0.82
+              : 0.74;
+    case "energy":
+      return kind === "energy"
+        ? 0.36
+        : kind === "missile"
+          ? 0.72
+          : kind === "ballistic"
+            ? 0.78
+            : kind === "explosive"
+              ? 0.82
+              : 0.74;
+    case "balanced":
+    default:
+      return kind === "melee" ? 0.72 : kind === "explosive" || kind === "missile" ? 0.62 : 0.56;
+  }
+};
+
+export const damageAfterDefense = (raw: number, target: CombatActor, kind: DamageKind = "ballistic"): number => {
   const mitigation = Math.min(0.68, target.defense / (target.defense + 380));
-  const guard = target.guard ? 0.72 : 1;
+  const guard = guardDamageMultiplier(kind, target);
   const teamScale = target.team === "enemy" ? PLAYER_DAMAGE_MULTIPLIER : 1;
   return Math.max(2, raw * teamScale * (1 - mitigation) * guard);
 };
@@ -43,7 +76,7 @@ const applyBlastDamage = (
     }
 
     const falloff = clamp(1 - distance / Math.max(1, blastRadius), 0.22, 1);
-    const damage = damageAfterDefense(projectile.damage * damageScale * falloff, target);
+    const damage = damageAfterDefense(projectile.damage * damageScale * falloff, target, projectile.damageKind);
     target.hp = Math.max(0, target.hp - damage);
     if (projectile.owner === "player" && target.team === "enemy" && projectile.sourceUnitIndex !== undefined) {
       state.report.damageByUnit[projectile.sourceUnitIndex] =
@@ -154,7 +187,7 @@ export const updateHits = (
         const falloff = blastRadius > 0
           ? clamp(1 - distance / Math.max(1, blastRadius), 0.34, 1)
           : 1;
-        const damage = damageAfterDefense(projectile.damage * falloff, target);
+        const damage = damageAfterDefense(projectile.damage * falloff, target, projectile.damageKind);
         target.hp = Math.max(0, target.hp - damage);
         if (projectile.owner === "player" && projectile.sourceUnitIndex !== undefined) {
           state.report.damageByUnit[projectile.sourceUnitIndex] =

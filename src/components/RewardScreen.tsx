@@ -26,6 +26,9 @@ const rewardGlyph = (reward: RewardOption): string => {
   if (reward.payload.kind === "aiSlot") {
     return "AI";
   }
+  if (reward.payload.kind === "aiUnlock") {
+    return "CHIP";
+  }
   if (reward.payload.kind === "cooldown") {
     return "CD";
   }
@@ -45,6 +48,7 @@ const rewardImageUrl = (reward: RewardOption): string => {
       return part.slot === "BOOSTER" ? rewardCategoryMobilityUrl : rewardCategoryPartUrl;
     }
     case "aiSlot":
+    case "aiUnlock":
       return rewardCategoryAiUrl;
     case "cooldown":
       return rewardCategoryCooldownUrl;

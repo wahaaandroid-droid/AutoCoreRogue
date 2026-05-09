@@ -3,6 +3,7 @@ import {
   DerivedStats,
   EQUIP_SLOTS,
   EquipSlot,
+  GuardProfile,
   LegType,
   Loadout,
   MechBuild,
@@ -142,6 +143,11 @@ const defaultHeatPerShot = (kind: WeaponKind, energyCost: number): number => {
 
 const defaultCoolingRate = (kind: WeaponKind): number =>
   kind === "sniperRifle" ? 24 : kind === "blade" ? 30 : kind === "pulse" ? 34 : kind === "beamLaser" ? 28 : 31;
+
+const guardProfileForParts = (parts: Part[]): GuardProfile => {
+  const guardPart = parts.find((part) => part.guardEnabled);
+  return guardPart?.guardProfile ?? "balanced";
+};
 
 const defaultFirePattern = (kind: WeaponKind, resource: WeaponResource): WeaponFirePattern =>
   resource === "energy" && kind === "beamLaser" ? "sustain" :
@@ -496,8 +502,9 @@ export const parts: Part[] = [
     slot: "L-ARM",
     name: "AEGIS ガードシールド",
     manufacturer: "North Arc",
-    description: "防御姿勢を有効化する左腕用シールド。火器を持たない代わりに防御を厚くする。",
+    description: "実弾と爆風に強い左腕用シールド。火器を持たない代わりに防御を厚くする。",
     guardEnabled: true,
+    guardProfile: "kinetic",
     rarity: "common",
     initial: true,
     stats: stats({
@@ -507,6 +514,25 @@ export const parts: Part[] = [
       defense: 36,
       turnSpeed: 4,
       weight: 280,
+    }),
+  },
+  {
+    id: "larm-phase-shield",
+    slot: "L-ARM",
+    name: "PHASE パルスシールド",
+    manufacturer: "Mira Node",
+    description: "EN弾と照射レーザーに強い左腕用位相シールド。実弾への耐性は控えめ。",
+    guardEnabled: true,
+    guardProfile: "energy",
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      hp: 94,
+      enCapacity: 86,
+      enRegen: 5,
+      defense: 20,
+      turnSpeed: 2,
+      weight: 320,
     }),
   },
   {
@@ -1291,6 +1317,7 @@ export const calculateDerivedStats = (
       ? left.magazineSize ?? defaultMagazineSize(left.weaponKind ?? "rifle")
       : 0,
     canGuard: selected.some((part) => part.guardEnabled),
+    guardProfile: guardProfileForParts(selected),
     weapons,
   };
 };

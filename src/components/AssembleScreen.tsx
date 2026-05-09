@@ -107,6 +107,18 @@ const firePatternText = (pattern: Part["firePattern"], weaponKind?: Part["weapon
   }
 };
 
+const guardProfileText = (profile: Part["guardProfile"]): string => {
+  switch (profile) {
+    case "kinetic":
+      return "GUARD 実弾/爆風";
+    case "energy":
+      return "GUARD EN/レーザー";
+    case "balanced":
+    default:
+      return "GUARD バランス";
+  }
+};
+
 export default function AssembleScreen({
   loadouts,
   unitFrameIds,
@@ -131,6 +143,7 @@ export default function AssembleScreen({
   canStartCombat,
 }: AssembleScreenProps) {
   const [activeSlot, setActiveSlot] = useState<EquipSlot>("R-ARM");
+  const [activeView, setActiveView] = useState<"units" | "parts" | "stats">("units");
   const loadout = normalizeLoadout(loadouts[activeUnitIndex] ?? loadouts[0]);
   const stats = statsByUnit[activeUnitIndex] ?? statsByUnit[0];
   const currentHp = Math.min(unitHpByUnit[activeUnitIndex] ?? stats.hpMax, stats.hpMax);
@@ -154,7 +167,19 @@ export default function AssembleScreen({
   };
 
   return (
-    <main className="screen-grid assemble-screen">
+    <main className="screen-grid assemble-screen assemble-focused-screen">
+      <div className="mode-tab-row assemble-mode-tabs">
+        <button className={activeView === "units" ? "active" : ""} onClick={() => setActiveView("units")}>
+          Units
+        </button>
+        <button className={activeView === "parts" ? "active" : ""} onClick={() => setActiveView("parts")}>
+          Parts
+        </button>
+        <button className={activeView === "stats" ? "active" : ""} onClick={() => setActiveView("stats")}>
+          Stats
+        </button>
+      </div>
+      {activeView === "units" && (
       <section className="panel slot-panel">
         <div className="section-title">ASSEMBLE</div>
         <div className="unit-switcher">
@@ -231,7 +256,10 @@ export default function AssembleScreen({
           <button className="primary" onClick={onStartCombat} disabled={!canStartCombat}>出撃</button>
         </div>
       </section>
+      )}
 
+      {activeView === "stats" && (
+      <>
       <section className="panel mech-preview-panel">
         <div className="section-title">FRAME PREVIEW</div>
         <div className="mech-preview">
@@ -294,7 +322,10 @@ export default function AssembleScreen({
         )}
         {lastOutcome && <div className="outcome-line">{lastOutcome}</div>}
       </section>
+      </>
+      )}
 
+      {activeView === "parts" && (
       <section className="panel parts-browser">
         <div className="tab-row">
           {EQUIP_SLOTS.map((slot) => (
@@ -352,11 +383,17 @@ export default function AssembleScreen({
                       : `EN ${part.energyCost ?? 0}${part.heatPerShot ? ` / HEAT ${part.heatPerShot}` : ""}`}
                   </span>
                 )}
+                {part.guardEnabled && (
+                  <span className="part-stat-line">
+                    {guardProfileText(part.guardProfile)}
+                  </span>
+                )}
               </button>
               );
             })}
         </div>
       </section>
+      )}
     </main>
   );
 }

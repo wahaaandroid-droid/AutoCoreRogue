@@ -1,4 +1,9 @@
-import { PartInventory } from "../types";
+import { AiUnlockPackage, AiUnlockPackageId, PartInventory } from "../types";
+import {
+  getAiUnlockPackage,
+  selectAiUnlockPackagesForReward,
+  selectAiUnlockPackagesForShop,
+} from "./aiUnlocks";
 import { getSlotLabel, playableParts } from "./parts";
 import { StageType } from "./stages";
 
@@ -7,6 +12,7 @@ export type RewardPayload =
   | { kind: "stat"; stat: "hp" | "enCapacity" | "enRegen" | "attack" | "defense"; amount: number }
   | { kind: "cooldown"; multiplier: number }
   | { kind: "aiSlot"; amount: number }
+  | { kind: "aiUnlock"; packageId: AiUnlockPackageId }
   | { kind: "repairKit"; amount: number }
   | { kind: "credits"; amount: number };
 
@@ -118,6 +124,18 @@ const rewardPartTitle = (slot: string): string => {
 const rarityScore = (rarity: string): number =>
   rarity === "elite" ? 3 : rarity === "rare" ? 2 : 1;
 
+const aiPackageAccent = (item: AiUnlockPackage): RewardOption["accent"] =>
+  item.rarity === "elite" ? "purple" : item.world >= 2 ? "orange" : "blue";
+
+const aiUnlockReward = (item: AiUnlockPackage, source: "reward" | "shop" = "reward"): RewardOption => ({
+  id: `${source}-ai-unlock-${item.id}`,
+  title: item.name,
+  subtitle: `AIチップ / WORLD ${item.world}`,
+  description: item.description,
+  accent: aiPackageAccent(item),
+  payload: { kind: "aiUnlock", packageId: item.id },
+});
+
 const creditRewardFor = (stage: number, stageType: StageType): RewardOption => {
   const world = Math.ceil(stage / 7);
   const amount = stageType === "elite" ? 150 + world * 55 : stageType === "boss" ? 210 + world * 70 : 80 + world * 35;
@@ -172,6 +190,7 @@ export const generateRewardOptions = (
   partInventory: PartInventory,
   aiSlotCount: number,
   stageType: StageType = "normal",
+  unlockedAiPackageIds: AiUnlockPackageId[] = [],
 ): RewardOption[] => {
   const parts = playableParts();
   const partPool = stageType === "elite"
@@ -194,6 +213,13 @@ export const generateRewardOptions = (
     };
   });
 
+  const aiUnlockCount = stageType === "elite" || stageType === "boss" ? 2 : 1;
+  const aiUnlockRewards = selectAiUnlockPackagesForReward(
+    stage,
+    stageType,
+    unlockedAiPackageIds,
+    aiUnlockCount,
+  ).map((item) => aiUnlockReward(item));
   const aiReward =
     aiSlotCount < 8
       ? staticRewards.find((reward) => reward.id === "ai-slot")
@@ -204,11 +230,12 @@ export const generateRewardOptions = (
   const repairReward = staticRewards.find((reward) => reward.id === "repair-kit");
   const pool = [
     creditRewardFor(stage, stageType),
+    ...aiUnlockRewards,
     stageType === "elite" ? undefined : repairReward,
     ...partRewards,
     first,
     second,
-    aiReward ? scaledStaticReward(aiReward, stageType) : undefined,
+    aiUnlockRewards.length === 0 && aiReward ? scaledStaticReward(aiReward, stageType) : undefined,
     stageType === "boss" ? creditRewardFor(stage, stageType) : undefined,
   ].filter(Boolean) as RewardOption[];
   const unique = new Map<string, RewardOption>();
@@ -224,6 +251,7 @@ export const generateShopOffers = (
   stage: number,
   partInventory: PartInventory,
   aiSlotCount: number,
+  unlockedAiPackageIds: AiUnlockPackageId[] = [],
 ): ShopOffer[] => {
   const parts = playableParts();
   const lockedParts = parts.filter((part) => (partInventory[part.id] ?? 0) === 0);
@@ -237,6 +265,14 @@ export const generateShopOffers = (
     cost: 95 + rarityScore(part.rarity) * 65 + index * 20 + Math.ceil(stage / 7) * 25,
     accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
     payload: { kind: "part", partId: part.id },
+  }));
+
+  const aiOffers = selectAiUnlockPackagesForShop(stage, unlockedAiPackageIds, 2).map<ShopOffer>((item, index) => ({
+    ...aiUnlockReward(item, "shop"),
+    id: `shop-ai-unlock-${item.id}`,
+    subtitle: `AIチップ / WORLD ${item.world}`,
+    cost: 80 + item.world * 70 + rarityScore(item.rarity) * 45 + index * 25,
+    payload: { kind: "aiUnlock", packageId: item.id },
   }));
 
   const utilityOffers: ShopOffer[] = [
@@ -269,5 +305,8 @@ export const generateShopOffers = (
     },
   ];
 
-  return [...partOffers, ...utilityOffers].slice(0, 5);
+  return [...partOffers.slice(0, 2), ...aiOffers, ...utilityOffers].slice(0, 6);
 };
+
+export const getAiUnlockRewardTitle = (packageId: AiUnlockPackageId): string =>
+  getAiUnlockPackage(packageId).name;

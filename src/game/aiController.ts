@@ -17,6 +17,10 @@ export interface AiRuntimeContext {
   rightShoulderCanPay: boolean;
   bothShoulderCanPay: boolean;
   enemyProjectileDistance: number;
+  incomingBallisticDistance: number;
+  incomingEnergyDistance: number;
+  incomingMissileDistance: number;
+  incomingBeamLockDistance: number;
   canGuard: boolean;
 }
 
@@ -58,6 +62,14 @@ const isConditionMet = (condition: AiConditionId, context: AiRuntimeContext): bo
       );
     case "enemyProjectileNear":
       return context.enemyProjectileDistance < 82;
+    case "incomingBallistic":
+      return context.incomingBallisticDistance < 92;
+    case "incomingEnergy":
+      return context.incomingEnergyDistance < 92;
+    case "incomingMissile":
+      return context.incomingMissileDistance < 170;
+    case "incomingBeamLock":
+      return context.incomingBeamLockDistance < 48;
     case "always":
       return true;
     default:

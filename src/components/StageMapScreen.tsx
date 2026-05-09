@@ -1,4 +1,3 @@
-import { ShopOffer } from "../data/rewards";
 import {
   STAGES_PER_WORLD,
   TOTAL_STAGES,
@@ -7,7 +6,6 @@ import {
   worldStageForStage,
 } from "../data/stages";
 import { DerivedStats } from "../types";
-import mapEventsUrl from "../assets/map-events.png";
 
 interface StageMapScreenProps {
   stage: number;
@@ -18,12 +16,8 @@ interface StageMapScreenProps {
   unitHpByUnit: number[];
   statsByUnit: DerivedStats[];
   credits: number;
-  shopOffers: ShopOffer[];
   canStartStage: boolean;
   onSelectStageNode: (nodeId: string) => void;
-  onRest: () => void;
-  onBuyShopOffer: (offer: ShopOffer) => void;
-  onLeaveShop: () => void;
   onOpenAssemble: () => void;
   onOpenAi: () => void;
   onStartCombat: () => void;
@@ -48,11 +42,6 @@ const actionText: Record<StagePlan["type"], string> = {
 const worldStageNumbers = (world: number): number[] =>
   Array.from({ length: STAGES_PER_WORLD }, (_, index) => (world - 1) * STAGES_PER_WORLD + index + 1);
 
-const eventImageStyle = (type: "rest" | "shop") => ({
-  backgroundImage: `url(${mapEventsUrl})`,
-  backgroundPosition: type === "rest" ? "0% 50%" : "100% 50%",
-});
-
 export default function StageMapScreen({
   stage,
   selectedNodeId,
@@ -62,12 +51,8 @@ export default function StageMapScreen({
   unitHpByUnit,
   statsByUnit,
   credits,
-  shopOffers,
   canStartStage,
   onSelectStageNode,
-  onRest,
-  onBuyShopOffer,
-  onLeaveShop,
   onOpenAssemble,
   onOpenAi,
   onStartCombat,
@@ -163,48 +148,6 @@ export default function StageMapScreen({
             <dd>{currentUnitHp || "-"}</dd>
           </div>
         </dl>
-
-        {currentPlan.type === "rest" && (
-          <div className="map-event-panel rest-event">
-            <div
-              className="map-event-visual"
-              style={eventImageStyle("rest")}
-              role="img"
-              aria-label="休憩地点の修理ベイ"
-            />
-            <strong>休憩地点</strong>
-            <small>全配備UNITのHPを最大値の50%ぶん回復します。</small>
-            <button className="primary" onClick={onRest}>休憩する</button>
-          </div>
-        )}
-
-        {currentPlan.type === "shop" && (
-          <div className="map-event-panel shop-event">
-            <div
-              className="map-event-visual"
-              style={eventImageStyle("shop")}
-              role="img"
-              aria-label="商人の武器市場"
-            />
-            <strong>商人</strong>
-            <small>{credits} CR</small>
-            <div className="shop-offer-list">
-              {shopOffers.map((offer) => (
-                <button
-                  key={offer.id}
-                  className={`shop-offer accent-${offer.accent}`}
-                  onClick={() => onBuyShopOffer(offer)}
-                  disabled={credits < offer.cost}
-                >
-                  <span>{offer.cost} CR</span>
-                  <strong>{offer.title}</strong>
-                  <small>{offer.subtitle}</small>
-                </button>
-              ))}
-            </div>
-            <button onClick={onLeaveShop}>通過</button>
-          </div>
-        )}
 
         <div className="legend">
           <span className="legend-normal">通常戦闘</span>

@@ -1,21 +1,42 @@
-import { AiActionId, AiConditionId, AiPresetId, AiRule, BaseFrameId, TargetPriorityId } from "../types";
+import {
+  AiActionId,
+  AiConditionId,
+  AiDefinitionCategory,
+  AiDefinitionTier,
+  AiPresetId,
+  AiRule,
+  AiUnlockPackageId,
+  BaseFrameId,
+  TargetPriorityId,
+} from "../types";
+import { STARTER_AI_SLOT_COUNT, getAiUnlockState, isAiRuleUnlocked } from "./aiUnlocks";
 
 export interface ConditionDefinition {
   id: AiConditionId;
   label: string;
   tint: string;
+  tier: AiDefinitionTier;
+  category: AiDefinitionCategory;
+  isStarter: boolean;
+  unlockPackageId?: AiUnlockPackageId;
 }
 
 export interface ActionDefinition {
   id: AiActionId;
   label: string;
   tint: string;
+  tier: AiDefinitionTier;
+  category: AiDefinitionCategory;
+  isStarter: boolean;
+  unlockPackageId?: AiUnlockPackageId;
 }
 
 export interface TargetPriorityDefinition {
   id: TargetPriorityId;
   label: string;
   description: string;
+  isStarter: boolean;
+  unlockPackageId?: AiUnlockPackageId;
 }
 
 export interface AiPresetDefinition {
@@ -26,48 +47,105 @@ export interface AiPresetDefinition {
   rules: AiRule[];
 }
 
+const condition = (
+  id: AiConditionId,
+  label: string,
+  tint: string,
+  category: AiDefinitionCategory,
+  tier: AiDefinitionTier = "starter",
+  unlockPackageId?: AiUnlockPackageId,
+): ConditionDefinition => ({
+  id,
+  label,
+  tint,
+  category,
+  tier,
+  unlockPackageId,
+  isStarter: !unlockPackageId,
+});
+
+const action = (
+  id: AiActionId,
+  label: string,
+  tint: string,
+  category: AiDefinitionCategory,
+  tier: AiDefinitionTier = "starter",
+  unlockPackageId?: AiUnlockPackageId,
+): ActionDefinition => ({
+  id,
+  label,
+  tint,
+  category,
+  tier,
+  unlockPackageId,
+  isStarter: !unlockPackageId,
+});
+
 export const conditionDefinitions: ConditionDefinition[] = [
-  { id: "hpLow", label: "HPが30%以下", tint: "red" },
-  { id: "enemyClose", label: "敵が近距離にいる", tint: "orange" },
-  { id: "enemyMid", label: "敵が中距離にいる", tint: "green" },
-  { id: "enemyFar", label: "敵が遠距離にいる", tint: "blue" },
-  { id: "enemyClustered", label: "敵が密集している", tint: "purple" },
-  { id: "enHigh", label: "ENが50%以上", tint: "cyan" },
-  { id: "rightReady", label: "右腕武器が使用可能", tint: "blue" },
-  { id: "leftReady", label: "左腕武器が使用可能", tint: "green" },
-  { id: "leftShoulderReady", label: "左肩武器が使用可能", tint: "orange" },
-  { id: "rightShoulderReady", label: "右肩武器が使用可能", tint: "orange" },
-  { id: "bothShoulderReady", label: "両肩武器が使用可能", tint: "purple" },
-  { id: "shoulderReady", label: "肩武器が使用可能", tint: "purple" },
-  { id: "enemyProjectileNear", label: "敵弾が近い", tint: "orange" },
-  { id: "always", label: "常に", tint: "gray" },
+  condition("enemyClose", "敵が近距離にいる", "orange", "targeting"),
+  condition("enemyMid", "敵が中距離にいる", "green", "targeting"),
+  condition("enemyFar", "敵が遠距離にいる", "blue", "targeting"),
+  condition("rightReady", "右腕武器が使用可能", "blue", "weapon"),
+  condition("leftReady", "左腕武器が使用可能", "green", "weapon"),
+  condition("always", "常に", "gray", "utility"),
+  condition("hpLow", "HPが30%以下", "red", "defense", "tactical", "w1-guard-logic"),
+  condition("enemyProjectileNear", "敵弾が近い", "orange", "defense", "tactical", "w1-boost-dodge"),
+  condition("leftShoulderReady", "左肩武器が使用可能", "orange", "weapon", "tactical", "w1-shoulder-basic"),
+  condition("rightShoulderReady", "右肩武器が使用可能", "orange", "weapon", "tactical", "w1-shoulder-basic"),
+  condition("shoulderReady", "肩武器が使用可能", "purple", "weapon", "tactical", "w1-shoulder-basic"),
+  condition("enHigh", "ENが50%以上", "cyan", "weapon", "tactical", "w1-suppressive-fire"),
+  condition("enemyClustered", "敵が密集している", "purple", "targeting", "advanced", "w2-explosive"),
+  condition("incomingMissile", "ミサイル接近", "red", "defense", "advanced", "w2-missile"),
+  condition("incomingBallistic", "実弾が接近", "orange", "defense", "advanced", "w2-damage-defense"),
+  condition("incomingEnergy", "EN攻撃が接近", "cyan", "defense", "advanced", "w2-damage-defense"),
+  condition("bothShoulderReady", "両肩武器が使用可能", "purple", "weapon", "expert", "w3-dual-shoulder"),
+  condition("incomingBeamLock", "レーザー照準中", "purple", "defense", "expert", "w3-beam-counter"),
 ];
 
 export const actionDefinitions: ActionDefinition[] = [
-  { id: "approach", label: "接近する", tint: "blue" },
-  { id: "retreat", label: "後退する", tint: "orange" },
-  { id: "strafe", label: "横移動する", tint: "green" },
-  { id: "boostDodge", label: "ブースト回避", tint: "cyan" },
-  { id: "suppressiveFire", label: "牽制射撃", tint: "green" },
-  { id: "alphaStrike", label: "一斉射撃", tint: "purple" },
-  { id: "fireExplosive", label: "爆発武器攻撃", tint: "orange" },
-  { id: "fireLongRange", label: "長射程武器攻撃", tint: "blue" },
-  { id: "shootRight", label: "右腕武器を撃つ", tint: "blue" },
-  { id: "shootLeft", label: "左腕武器を撃つ", tint: "green" },
-  { id: "fireLeftShoulder", label: "左肩武器を撃つ", tint: "orange" },
-  { id: "fireRightShoulder", label: "右肩武器を撃つ", tint: "orange" },
-  { id: "fireBothShoulders", label: "両肩武器を撃つ", tint: "purple" },
-  { id: "fireShoulder", label: "肩武器を撃つ", tint: "purple" },
-  { id: "fireMissile", label: "肩ミサイルを撃つ", tint: "orange" },
-  { id: "guard", label: "防御する", tint: "gray" },
-  { id: "idle", label: "何もしない", tint: "gray" },
+  action("approach", "接近する", "blue", "movement"),
+  action("retreat", "後退する", "orange", "movement"),
+  action("strafe", "横移動する", "green", "movement"),
+  action("shootRight", "右腕武器を撃つ", "blue", "weapon"),
+  action("shootLeft", "左腕武器を撃つ", "green", "weapon"),
+  action("idle", "何もしない", "gray", "utility"),
+  action("boostDodge", "ブースト回避", "cyan", "movement", "tactical", "w1-boost-dodge"),
+  action("guard", "防御する", "gray", "defense", "tactical", "w1-guard-logic"),
+  action("fireLeftShoulder", "左肩武器を撃つ", "orange", "weapon", "tactical", "w1-shoulder-basic"),
+  action("fireRightShoulder", "右肩武器を撃つ", "orange", "weapon", "tactical", "w1-shoulder-basic"),
+  action("fireShoulder", "肩武器を撃つ", "purple", "weapon", "tactical", "w1-shoulder-basic"),
+  action("suppressiveFire", "牽制射撃", "green", "weapon", "tactical", "w1-suppressive-fire"),
+  action("fireLongRange", "長射程武器攻撃", "blue", "weapon", "advanced", "w2-long-range"),
+  action("fireExplosive", "爆発武器攻撃", "orange", "weapon", "advanced", "w2-explosive"),
+  action("fireMissile", "肩ミサイルを撃つ", "orange", "weapon", "advanced", "w2-missile"),
+  action("alphaStrike", "一斉射撃", "purple", "weapon", "expert", "w3-alpha-strike"),
+  action("fireBothShoulders", "両肩武器を撃つ", "purple", "weapon", "expert", "w3-dual-shoulder"),
+  action("interceptMissile", "ミサイル迎撃", "cyan", "defense", "expert", "w3-missile-intercept"),
 ];
 
 export const targetPriorityDefinitions: TargetPriorityDefinition[] = [
-  { id: "nearest", label: "近い敵", description: "距離が最も近い敵を狙う" },
-  { id: "lowestHp", label: "HPが低い敵", description: "残HPが最も少ない敵を狙う" },
-  { id: "lowestHpPercent", label: "HP割合が低い敵", description: "削れている敵を優先して狙う" },
-  { id: "eliteFirst", label: "強敵優先", description: "ボスやエリートを優先して狙う" },
+  { id: "nearest", label: "近い敵", description: "距離が最も近い敵を狙う", isStarter: true },
+  {
+    id: "lowestHp",
+    label: "HPが低い敵",
+    description: "残HPが最も少ない敵を狙う",
+    isStarter: false,
+    unlockPackageId: "w2-focus-fire",
+  },
+  {
+    id: "lowestHpPercent",
+    label: "HP割合が低い敵",
+    description: "削れている敵を優先して狙う",
+    isStarter: false,
+    unlockPackageId: "w2-focus-fire",
+  },
+  {
+    id: "eliteFirst",
+    label: "強敵優先",
+    description: "ボスやエリートを優先して狙う",
+    isStarter: false,
+    unlockPackageId: "w3-elite-hunter",
+  },
 ];
 
 const presetRules = (id: string, rules: Array<Omit<AiRule, "id">>): AiRule[] =>
@@ -79,10 +157,12 @@ const presetRules = (id: string, rules: Array<Omit<AiRule, "id">>): AiRule[] =>
 export const aiPresetDefinitions: AiPresetDefinition[] = [
   {
     id: "assault",
-    label: "強襲",
-    description: "近中距離で圧をかけ、撃てる武器を素早く回す",
+    label: "近距離基礎",
+    description: "接近と左右腕の基本射撃から始める前衛設計図",
     targetPriority: "nearest",
     rules: presetRules("assault", [
+      { condition: "incomingBeamLock", action: "boostDodge", enabled: true },
+      { condition: "incomingMissile", action: "interceptMissile", enabled: true },
       { condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
       { condition: "enemyClose", action: "shootLeft", enabled: true },
       { condition: "enemyMid", action: "alphaStrike", enabled: true },
@@ -92,10 +172,12 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   },
   {
     id: "skirmisher",
-    label: "近接回避",
-    description: "回避と横移動を優先し、軽量機で粘る",
+    label: "射撃維持",
+    description: "横移動しながら左右武器を回す継続戦闘設計図",
     targetPriority: "lowestHpPercent",
     rules: presetRules("skirmisher", [
+      { condition: "incomingBeamLock", action: "boostDodge", enabled: true },
+      { condition: "incomingMissile", action: "boostDodge", enabled: true },
       { condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
       { condition: "enemyClose", action: "retreat", enabled: true },
       { condition: "leftReady", action: "shootLeft", enabled: true },
@@ -105,10 +187,12 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   },
   {
     id: "fireSupport",
-    label: "火力支援",
-    description: "遠距離と腕武器の継続火力を優先する",
+    label: "高火力型",
+    description: "長射程と腕武器をつなげて火力を伸ばす設計図",
     targetPriority: "eliteFirst",
     rules: presetRules("fire-support", [
+      { condition: "incomingMissile", action: "interceptMissile", enabled: true },
+      { condition: "incomingBeamLock", action: "boostDodge", enabled: true },
       { condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
       { condition: "enemyFar", action: "fireLongRange", enabled: true },
       { condition: "rightReady", action: "shootRight", enabled: true },
@@ -118,11 +202,13 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   },
   {
     id: "bombard",
-    label: "爆撃",
-    description: "密集敵へ爆発武器を優先して撃ち込む",
+    label: "爆撃型",
+    description: "密集敵へ爆発武器と肩武器を撃ち込む設計図",
     targetPriority: "eliteFirst",
     rules: presetRules("bombard", [
       { condition: "hpLow", action: "guard", enabled: true },
+      { condition: "incomingBallistic", action: "guard", enabled: true },
+      { condition: "incomingMissile", action: "interceptMissile", enabled: true },
       { condition: "enemyClustered", action: "fireExplosive", enabled: true },
       { condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
       { condition: "shoulderReady", action: "fireShoulder", enabled: true },
@@ -132,10 +218,12 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   },
   {
     id: "missileSupport",
-    label: "ミサイル支援",
-    description: "肩ミサイルと長射程武器で圧をかける",
+    label: "ミサイル型",
+    description: "肩ミサイルと長射程武器で圧をかける設計図",
     targetPriority: "lowestHp",
     rules: presetRules("missile-support", [
+      { condition: "incomingMissile", action: "interceptMissile", enabled: true },
+      { condition: "incomingBeamLock", action: "boostDodge", enabled: true },
       { condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
       { condition: "shoulderReady", action: "fireMissile", enabled: true },
       { condition: "enemyFar", action: "fireLongRange", enabled: true },
@@ -145,11 +233,14 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   },
   {
     id: "defender",
-    label: "防御",
-    description: "シールドや重装甲で耐えながら射撃する",
+    label: "防御型",
+    description: "シールドや重装甲で耐えながら射撃する設計図",
     targetPriority: "nearest",
     rules: presetRules("defender", [
       { condition: "hpLow", action: "guard", enabled: true },
+      { condition: "incomingEnergy", action: "guard", enabled: true },
+      { condition: "incomingBallistic", action: "guard", enabled: true },
+      { condition: "incomingMissile", action: "interceptMissile", enabled: true },
       { condition: "enemyProjectileNear", action: "guard", enabled: true },
       { condition: "enemyClustered", action: "fireExplosive", enabled: true },
       { condition: "enemyFar", action: "fireLongRange", enabled: true },
@@ -195,23 +286,71 @@ export const defaultAiPresetForFrame = (frameId: BaseFrameId = "medium"): AiPres
   }
 };
 
-export const createAiPresetRules = (preset: AiPresetId, slotCount?: number): AiRule[] => {
+export const createAiPresetRules = (
+  preset: AiPresetId,
+  slotCount = STARTER_AI_SLOT_COUNT,
+  unlockedPackageIds: AiUnlockPackageId[] = [],
+): AiRule[] => {
   const definition = getAiPresetDefinition(preset);
-  const rules = definition.id === "custom"
-    ? createInitialAiRules()
-    : definition.rules.map((rule) => ({ ...rule }));
-  return slotCount ? ensureAiRuleSlots(rules, slotCount) : rules;
+  const unlockState = getAiUnlockState(unlockedPackageIds);
+  const filteredRules = definition.id === "custom"
+    ? starterRuleTemplate()
+    : definition.rules
+        .filter((rule) => isAiRuleUnlocked(rule, unlockState))
+        .map((rule) => ({ ...rule }));
+  const rules = mergeStarterRules(filteredRules);
+  return ensureAiRuleSlots(rules, slotCount);
+};
+
+const starterRuleTemplate = (): AiRule[] => [
+  {
+    id: "starter-1",
+    condition: "enemyFar",
+    action: "approach",
+    enabled: true,
+  },
+  {
+    id: "starter-2",
+    condition: "rightReady",
+    action: "shootRight",
+    enabled: true,
+  },
+  {
+    id: "starter-3",
+    condition: "leftReady",
+    action: "shootLeft",
+    enabled: true,
+  },
+  {
+    id: "starter-4",
+    condition: "always",
+    action: "strafe",
+    enabled: true,
+  },
+];
+
+const mergeStarterRules = (rules: AiRule[]): AiRule[] => {
+  const next = [...rules];
+  for (const starterRule of starterRuleTemplate()) {
+    const duplicate = next.some(
+      (rule) => rule.condition === starterRule.condition && rule.action === starterRule.action,
+    );
+    if (!duplicate) {
+      next.push({ ...starterRule, id: `${starterRule.id}-${next.length + 1}` });
+    }
+  }
+  return next;
 };
 
 export const createEmptyRule = (index: number): AiRule => ({
   id: `rule-${index + 1}`,
-  condition: index === 0 ? "enemyProjectileNear" : "always",
-  action: index === 0 ? "boostDodge" : "idle",
+  condition: "always",
+  action: "idle",
   enabled: true,
 });
 
 export const createInitialAiRules = (frameId: BaseFrameId = "medium"): AiRule[] =>
-  createAiPresetRules(defaultAiPresetForFrame(frameId));
+  createAiPresetRules(defaultAiPresetForFrame(frameId), STARTER_AI_SLOT_COUNT);
 
 export const ensureAiRuleSlots = (rules: AiRule[], slotCount: number): AiRule[] => {
   const normalized = [...rules];
@@ -222,4 +361,25 @@ export const ensureAiRuleSlots = (rules: AiRule[], slotCount: number): AiRule[] 
     ...rule,
     id: rule.id || `rule-${index + 1}`,
   }));
+};
+
+export const getAvailableConditionDefinitions = (
+  unlockedPackageIds: AiUnlockPackageId[] = [],
+): ConditionDefinition[] => {
+  const unlockState = getAiUnlockState(unlockedPackageIds);
+  return conditionDefinitions.filter((item) => unlockState.conditions.has(item.id));
+};
+
+export const getAvailableActionDefinitions = (
+  unlockedPackageIds: AiUnlockPackageId[] = [],
+): ActionDefinition[] => {
+  const unlockState = getAiUnlockState(unlockedPackageIds);
+  return actionDefinitions.filter((item) => unlockState.actions.has(item.id));
+};
+
+export const getAvailableTargetPriorityDefinitions = (
+  unlockedPackageIds: AiUnlockPackageId[] = [],
+): TargetPriorityDefinition[] => {
+  const unlockState = getAiUnlockState(unlockedPackageIds);
+  return targetPriorityDefinitions.filter((item) => unlockState.targetPriorities.has(item.id));
 };

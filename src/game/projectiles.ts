@@ -2,6 +2,8 @@ export type ProjectileOwner = "player" | "enemy";
 
 export type ProjectileKind = "bullet" | "pulse" | "missile" | "rocket" | "grenade";
 
+export type DamageKind = "ballistic" | "energy" | "missile" | "explosive" | "melee";
+
 export interface Projectile {
   id: string;
   owner: ProjectileOwner;
@@ -11,6 +13,7 @@ export interface Projectile {
   vx: number;
   vy: number;
   damage: number;
+  damageKind: DamageKind;
   radius: number;
   blastRadius?: number;
   life: number;
@@ -24,7 +27,7 @@ export interface Projectile {
 
 export interface Effect {
   id: string;
-  kind: "explosion" | "boost" | "muzzle" | "slash" | "alert" | "beam";
+  kind: "explosion" | "boost" | "muzzle" | "slash" | "alert" | "beam" | "beamWarning" | "lockBreak";
   x: number;
   y: number;
   life: number;
