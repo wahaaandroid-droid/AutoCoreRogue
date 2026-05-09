@@ -65,17 +65,6 @@ export const aiUnlockPackages: AiUnlockPackage[] = [
     description: "HP低下時にシールドを構える防御AI。シールド装備で真価を発揮する。",
   },
   {
-    id: "w1-shoulder-basic",
-    name: "肩武器基礎",
-    world: 1,
-    rarity: "common",
-    actions: ["fireLeftShoulder", "fireRightShoulder", "fireShoulder"],
-    conditions: ["leftShoulderReady", "rightShoulderReady", "shoulderReady"],
-    targetPriorities: [],
-    recommendedRules: [rule("chip-shoulder-ready", "shoulderReady", "fireShoulder")],
-    description: "肩武器の準備完了を見て単発運用する火器管制AI。",
-  },
-  {
     id: "w1-suppressive-fire",
     name: "制圧射撃",
     world: 1,
@@ -116,8 +105,8 @@ export const aiUnlockPackages: AiUnlockPackage[] = [
     actions: ["fireMissile"],
     conditions: ["incomingMissile"],
     targetPriorities: [],
-    recommendedRules: [rule("chip-fire-missile", "shoulderReady", "fireMissile")],
-    description: "肩ミサイルの発射判断とミサイル接近の検知を解放する。",
+    recommendedRules: [rule("chip-fire-missile", "enemyMid", "fireMissile")],
+    description: "ミサイル系武器の発射判断とミサイル接近の検知をまとめる。",
   },
   {
     id: "w2-damage-defense",
@@ -154,17 +143,6 @@ export const aiUnlockPackages: AiUnlockPackage[] = [
     targetPriorities: [],
     recommendedRules: [rule("chip-alpha-strike", "enemyMid", "alphaStrike")],
     description: "中距離で全武装を同期して叩き込む高火力AI。",
-  },
-  {
-    id: "w3-dual-shoulder",
-    name: "両肩一斉射撃",
-    world: 3,
-    rarity: "rare",
-    actions: ["fireBothShoulders"],
-    conditions: ["bothShoulderReady"],
-    targetPriorities: [],
-    recommendedRules: [rule("chip-dual-shoulder", "bothShoulderReady", "fireBothShoulders")],
-    description: "両肩武装の準備完了を見て一斉射撃する重火力AI。",
   },
   {
     id: "w3-missile-intercept",
@@ -236,9 +214,6 @@ export const getAiUnlockState = (unlockedPackageIds: AiUnlockPackageId[] = []): 
   };
 
   for (const item of aiUnlockPackages) {
-    if (!state.packageIds.has(item.id)) {
-      continue;
-    }
     item.actions.forEach((action) => state.actions.add(action));
     item.conditions.forEach((condition) => state.conditions.add(condition));
     item.targetPriorities.forEach((priority) => state.targetPriorities.add(priority));

@@ -4,9 +4,7 @@ export const EQUIP_SLOTS = [
   "BOOSTER",
   "L-ARM",
   "R-ARM",
-  "L-SHOULDER",
-  "R-SHOULDER",
-  "B-SHOULDER",
+  "SPECIAL",
 ] as const;
 export const PART_SLOTS = [...EQUIP_SLOTS, "LEGS"] as const;
 
@@ -16,17 +14,60 @@ export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
 export type PartSlot = (typeof PART_SLOTS)[number];
 
+export type WeaponMountSlot = EquipSlot | "L-SHOULDER" | "R-SHOULDER" | "B-SHOULDER";
+
 export type BaseFrameId = "light" | "medium" | "heavy" | "quad" | "tank";
 
 export type LegType = "biped" | "quad" | "reverse" | "tank" | "hover";
 
 export type Rarity = "common" | "rare" | "elite";
 
+export type RelicRarity = Rarity | "clear";
+
 export type WeaponResource = "energy" | "ballistic";
 
 export type WeaponFirePattern = "single" | "burst" | "sustain";
 
 export type GuardProfile = "kinetic" | "energy" | "balanced";
+
+export type SpecialKind =
+  | "shield"
+  | "barrier"
+  | "bit"
+  | "bomb"
+  | "stun"
+  | "poison";
+
+export type SpecialTrigger =
+  | "hpLow"
+  | "incomingThreat"
+  | "enemyPresent"
+  | "enemyClustered"
+  | "enemyClose"
+  | "enemyMid";
+
+export interface SpecialDefinition {
+  kind: SpecialKind;
+  trigger: SpecialTrigger;
+  cooldown: number;
+  threshold?: number;
+  duration?: number;
+  shieldHp?: number;
+  damageReduction?: number;
+  bitHp?: number;
+  bitCount?: number;
+  fireInterval?: number;
+  range?: number;
+  damage?: number;
+  blastRadius?: number;
+  statusDuration?: number;
+  dotDamagePerSecond?: number;
+}
+
+export interface EquippedSpecial extends SpecialDefinition {
+  partId: string;
+  name: string;
+}
 
 export type WeaponKind =
   | "rifle"
@@ -67,6 +108,7 @@ export interface PartStats {
   quickBoostCost: number;
   quickBoostDuration: number;
   quickBoostIdealWeight: number;
+  aiReaction: number;
 }
 
 export interface BaseFrame {
@@ -88,6 +130,7 @@ export interface Part {
   manufacturer: string;
   description: string;
   legType?: LegType;
+  special?: SpecialDefinition;
   weaponResource?: WeaponResource;
   weaponKind?: WeaponKind;
   guardEnabled?: boolean;
@@ -120,7 +163,7 @@ export type WeaponAutoUse = Record<WeaponHardpoint, boolean>;
 
 export interface WeaponStats {
   hardpoint: WeaponHardpoint;
-  slot: EquipSlot;
+  slot: WeaponMountSlot;
   partId: string;
   label: string;
   range: number;
@@ -170,6 +213,7 @@ export interface DerivedStats {
   quickBoostCooldown: number;
   quickBoostCost: number;
   quickBoostDuration: number;
+  aiReaction: number;
   rightRange: number;
   leftRange: number;
   rightAttack: number;
@@ -187,6 +231,7 @@ export interface DerivedStats {
   canGuard: boolean;
   guardProfile: GuardProfile;
   weapons: WeaponStats[];
+  special?: EquippedSpecial;
 }
 
 export type AiConditionId =
@@ -247,7 +292,6 @@ export type AiDefinitionCategory =
 export type AiUnlockPackageId =
   | "w1-boost-dodge"
   | "w1-guard-logic"
-  | "w1-shoulder-basic"
   | "w1-suppressive-fire"
   | "w2-long-range"
   | "w2-explosive"
@@ -255,7 +299,6 @@ export type AiUnlockPackageId =
   | "w2-damage-defense"
   | "w2-focus-fire"
   | "w3-alpha-strike"
-  | "w3-dual-shoulder"
   | "w3-missile-intercept"
   | "w3-beam-counter"
   | "w3-elite-hunter";
@@ -270,6 +313,103 @@ export interface AiUnlockPackage {
   targetPriorities: TargetPriorityId[];
   recommendedRules: AiRule[];
   description: string;
+}
+
+export type RelicId =
+  | "boot-log"
+  | "reserve-cell"
+  | "armor-sample"
+  | "mechanic-mark"
+  | "junk-appraiser"
+  | "tactical-memory"
+  | "merchant-tag"
+  | "reward-filter"
+  | "route-scanner"
+  | "supply-beacon"
+  | "elite-blackbox"
+  | "triple-core-sync"
+  | "world-core-echo"
+  | "clear-auth-key";
+
+export type RelicEffectKind =
+  | "initialCredits"
+  | "unitOneEn"
+  | "unitOneHp"
+  | "restHealBonus"
+  | "partShopDiscount"
+  | "aiRewardBias"
+  | "aiShopDiscount"
+  | "rewardRerolls"
+  | "extraRouteChoice"
+  | "worldEntryHeal"
+  | "eliteRewardOption"
+  | "reinforcementAiSlot"
+  | "bossRewardBias"
+  | "clearStartChoice";
+
+export type ClearStartBonusChoice = "credits" | "rewardReroll" | "shopDiscount";
+
+export interface RelicDefinition {
+  id: RelicId;
+  name: string;
+  rarity: RelicRarity;
+  maxLevel: number;
+  description: string;
+  effectKind: RelicEffectKind;
+  values: number[];
+  unlockCondition: "defeat" | "clear";
+}
+
+export interface MetaRunHistoryEntry {
+  id: string;
+  endedAt: string;
+  completed: boolean;
+  reachedStage: number;
+  reachedWorld: number;
+  clearedStages: number;
+  relicIds: RelicId[];
+}
+
+export interface MetaSaveState {
+  ownedRelics: Partial<Record<RelicId, number>>;
+  runHistory: MetaRunHistoryEntry[];
+  duplicateDust: number;
+  clearStartBonusChoice: ClearStartBonusChoice;
+}
+
+export interface RelicBonuses {
+  initialCredits: number;
+  unitOneHpMultiplier: number;
+  unitOneEnMultiplier: number;
+  restHealBonus: number;
+  partShopDiscount: number;
+  aiShopDiscount: number;
+  rewardRerollsPerWorld: number;
+  extraRouteChoice: boolean;
+  worldEntryHealPercent: number;
+  aiRewardBonusCount: number;
+  eliteRewardBonusCount: number;
+  reinforcementAiSlotBonus: number;
+  bossRareBias: boolean;
+}
+
+export interface RelicRewardOption {
+  id: string;
+  relicId: RelicId;
+  duplicate: boolean;
+  nextLevel: number;
+  dust: number;
+}
+
+export interface PendingRelicReward {
+  reason: "defeat" | "clear";
+  phase: "normal" | "clear";
+  reachedStage: number;
+  reachedWorld: number;
+  clearedStages: number;
+  picksRemaining: number;
+  options: RelicRewardOption[];
+  grantedRelicIds: RelicId[];
 }
 
 export type AiPresetId =
@@ -294,6 +434,8 @@ export type ScreenId =
   | "ai"
   | "combat"
   | "reward"
+  | "relicReward"
+  | "relicCollection"
   | "map"
   | "shop"
   | "rest"

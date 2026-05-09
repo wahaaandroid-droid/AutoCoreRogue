@@ -5,8 +5,6 @@ import { AiRule } from "../types";
 interface RunCompleteScreenProps {
   report?: CombatReport;
   rulesByUnit: AiRule[][];
-  onOpenAssemble: () => void;
-  onOpenAi: () => void;
   onNewRun: () => void;
 }
 
@@ -15,7 +13,7 @@ const topRuleLine = (report: CombatReport | undefined, rules: AiRule[], unitInde
   const [ruleId, count] = Object.entries(hits).sort((a, b) => b[1] - a[1])[0] ?? [];
   const rule = rules.find((item) => item.id === ruleId);
   if (!rule || !count) {
-    return "AI記録なし";
+    return "戦闘記録なし";
   }
   return `${getConditionLabel(rule.condition)} -> ${getActionLabel(rule.action)} x${count}`;
 };
@@ -23,8 +21,6 @@ const topRuleLine = (report: CombatReport | undefined, rules: AiRule[], unitInde
 export default function RunCompleteScreen({
   report,
   rulesByUnit,
-  onOpenAssemble,
-  onOpenAi,
   onNewRun,
 }: RunCompleteScreenProps) {
   const reportUnits = report
@@ -53,8 +49,6 @@ export default function RunCompleteScreen({
         )}
 
         <div className="screen-actions">
-          <button onClick={onOpenAssemble}>ASSEMBLE</button>
-          <button onClick={onOpenAi}>AI EDIT</button>
           <button className="primary" onClick={onNewRun}>NEW RUN</button>
         </div>
       </section>

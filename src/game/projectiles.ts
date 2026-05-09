@@ -4,6 +4,12 @@ export type ProjectileKind = "bullet" | "pulse" | "missile" | "rocket" | "grenad
 
 export type DamageKind = "ballistic" | "energy" | "missile" | "explosive" | "melee";
 
+export interface ProjectileStatusEffect {
+  kind: "stun" | "poison";
+  duration: number;
+  damagePerSecond?: number;
+}
+
 export interface Projectile {
   id: string;
   owner: ProjectileOwner;
@@ -23,6 +29,7 @@ export interface Projectile {
   interceptable?: boolean;
   interceptHp?: number;
   interceptDamage?: number;
+  statusEffect?: ProjectileStatusEffect;
 }
 
 export interface Effect {

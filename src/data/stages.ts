@@ -1,3 +1,5 @@
+import type { RelicBonuses } from "../types";
+
 export type StageType = "normal" | "elite" | "rest" | "shop" | "boss";
 
 export type CombatStageType = Extract<StageType, "normal" | "elite" | "boss">;
@@ -62,12 +64,29 @@ const plan = (
   focus,
 });
 
-export const createStageChoices = (stage: number): StagePlan[] => {
+export const createStageChoices = (stage: number, bonuses?: Partial<RelicBonuses>): StagePlan[] => {
   const safeStage = Math.min(TOTAL_STAGES, Math.max(1, stage));
   const world = worldForStage(safeStage);
   const worldStage = worldStageForStage(safeStage);
   const worldName = worldNames[world] ?? worldNames[1];
   const pressure = world === 1 ? "基礎" : world === 2 ? "連携" : "総力";
+  const withScannerChoice = (choices: StagePlan[], bonuses?: Partial<RelicBonuses>): StagePlan[] => {
+    if (!bonuses?.extraRouteChoice || worldStage === 1 || worldStage === 7 || choices.length >= 3) {
+      return choices;
+    }
+    return [
+      ...choices,
+      plan(
+        safeStage,
+        3,
+        "normal",
+        "Scanner flank",
+        "ルートスキャナが見つけた迂回路。戦闘リスクを抑えて通常報酬を狙う。",
+        "損耗を抑えた安定進行",
+        "SCAN",
+      ),
+    ];
+  };
 
   if (worldStage === 7) {
     return [
@@ -100,10 +119,10 @@ export const createStageChoices = (stage: number): StagePlan[] => {
 
   switch (worldStage) {
     case 2:
-      return [
+      return withScannerChoice([
         plan(safeStage, 0, "normal", "Scout screen", "高速機が散発的に接近する。", "近距離条件と回避行動"),
         plan(safeStage, 2, "normal", "Ranged picket", "長射程機が混ざるが敵数は控えめ。", "射程とターゲット優先"),
-      ];
+      ], bonuses);
     case 3:
       return [
         plan(safeStage, 0, "normal", "Mixed patrol", "標準的な混成小隊。安定した報酬を狙える。", "通常報酬で装備幅を広げる"),
@@ -134,8 +153,8 @@ export const createStageChoices = (stage: number): StagePlan[] => {
 
 export const getDefaultStagePlan = (stage: number): StagePlan => createStageChoices(stage)[0];
 
-export const getStagePlan = (stage: number, nodeId?: string): StagePlan => {
-  const choices = createStageChoices(stage);
+export const getStagePlan = (stage: number, nodeId?: string, bonuses?: Partial<RelicBonuses>): StagePlan => {
+  const choices = createStageChoices(stage, bonuses);
   return choices.find((choice) => choice.id === nodeId) ?? choices[0];
 };
 

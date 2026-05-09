@@ -8,6 +8,7 @@ interface RestScreenProps {
   unlockedUnitCount: number;
   unitHpByUnit: number[];
   statsByUnit: DerivedStats[];
+  healPercent: number;
   onRest: () => void;
   onBackMap: () => void;
 }
@@ -23,6 +24,7 @@ export default function RestScreen({
   unlockedUnitCount,
   unitHpByUnit,
   statsByUnit,
+  healPercent,
   onRest,
   onBackMap,
 }: RestScreenProps) {
@@ -41,7 +43,7 @@ export default function RestScreen({
             <span>WORLD {worldForStage(stage)} / {worldStageForStage(stage)}</span>
             <h1>{plan.threat}</h1>
             <p>{plan.brief}</p>
-            <strong>全配備UNITのHPを50%回復</strong>
+            <strong>全配備UNITのHPを{Math.round(healPercent * 100)}%回復</strong>
           </div>
         </div>
         <div className="rest-unit-list">

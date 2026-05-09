@@ -7,6 +7,7 @@ import {
   AiRule,
   AiUnlockPackageId,
   BaseFrameId,
+  DerivedStats,
   TargetPriorityId,
 } from "../types";
 import { STARTER_AI_SLOT_COUNT, getAiUnlockState, isAiRuleUnlocked } from "./aiUnlocks";
@@ -90,15 +91,11 @@ export const conditionDefinitions: ConditionDefinition[] = [
   condition("always", "常に", "gray", "utility"),
   condition("hpLow", "HPが30%以下", "red", "defense", "tactical", "w1-guard-logic"),
   condition("enemyProjectileNear", "敵弾が近い", "orange", "defense", "tactical", "w1-boost-dodge"),
-  condition("leftShoulderReady", "左肩武器が使用可能", "orange", "weapon", "tactical", "w1-shoulder-basic"),
-  condition("rightShoulderReady", "右肩武器が使用可能", "orange", "weapon", "tactical", "w1-shoulder-basic"),
-  condition("shoulderReady", "肩武器が使用可能", "purple", "weapon", "tactical", "w1-shoulder-basic"),
   condition("enHigh", "ENが50%以上", "cyan", "weapon", "tactical", "w1-suppressive-fire"),
   condition("enemyClustered", "敵が密集している", "purple", "targeting", "advanced", "w2-explosive"),
   condition("incomingMissile", "ミサイル接近", "red", "defense", "advanced", "w2-missile"),
   condition("incomingBallistic", "実弾が接近", "orange", "defense", "advanced", "w2-damage-defense"),
   condition("incomingEnergy", "EN攻撃が接近", "cyan", "defense", "advanced", "w2-damage-defense"),
-  condition("bothShoulderReady", "両肩武器が使用可能", "purple", "weapon", "expert", "w3-dual-shoulder"),
   condition("incomingBeamLock", "レーザー照準中", "purple", "defense", "expert", "w3-beam-counter"),
 ];
 
@@ -111,15 +108,11 @@ export const actionDefinitions: ActionDefinition[] = [
   action("idle", "何もしない", "gray", "utility"),
   action("boostDodge", "ブースト回避", "cyan", "movement", "tactical", "w1-boost-dodge"),
   action("guard", "防御する", "gray", "defense", "tactical", "w1-guard-logic"),
-  action("fireLeftShoulder", "左肩武器を撃つ", "orange", "weapon", "tactical", "w1-shoulder-basic"),
-  action("fireRightShoulder", "右肩武器を撃つ", "orange", "weapon", "tactical", "w1-shoulder-basic"),
-  action("fireShoulder", "肩武器を撃つ", "purple", "weapon", "tactical", "w1-shoulder-basic"),
   action("suppressiveFire", "牽制射撃", "green", "weapon", "tactical", "w1-suppressive-fire"),
   action("fireLongRange", "長射程武器攻撃", "blue", "weapon", "advanced", "w2-long-range"),
   action("fireExplosive", "爆発武器攻撃", "orange", "weapon", "advanced", "w2-explosive"),
-  action("fireMissile", "肩ミサイルを撃つ", "orange", "weapon", "advanced", "w2-missile"),
+  action("fireMissile", "ミサイル攻撃", "orange", "weapon", "advanced", "w2-missile"),
   action("alphaStrike", "一斉射撃", "purple", "weapon", "expert", "w3-alpha-strike"),
-  action("fireBothShoulders", "両肩武器を撃つ", "purple", "weapon", "expert", "w3-dual-shoulder"),
   action("interceptMissile", "ミサイル迎撃", "cyan", "defense", "expert", "w3-missile-intercept"),
 ];
 
@@ -203,15 +196,13 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   {
     id: "bombard",
     label: "爆撃型",
-    description: "密集敵へ爆発武器と肩武器を撃ち込む設計図",
+    description: "密集敵へ爆発武器を撃ち込む設計図",
     targetPriority: "eliteFirst",
     rules: presetRules("bombard", [
       { condition: "hpLow", action: "guard", enabled: true },
       { condition: "incomingBallistic", action: "guard", enabled: true },
       { condition: "incomingMissile", action: "interceptMissile", enabled: true },
       { condition: "enemyClustered", action: "fireExplosive", enabled: true },
-      { condition: "bothShoulderReady", action: "fireBothShoulders", enabled: true },
-      { condition: "shoulderReady", action: "fireShoulder", enabled: true },
       { condition: "enemyFar", action: "fireLongRange", enabled: true },
       { condition: "always", action: "strafe", enabled: true },
     ]),
@@ -219,13 +210,13 @@ export const aiPresetDefinitions: AiPresetDefinition[] = [
   {
     id: "missileSupport",
     label: "ミサイル型",
-    description: "肩ミサイルと長射程武器で圧をかける設計図",
+    description: "ミサイルと長射程武器で圧をかける設計図",
     targetPriority: "lowestHp",
     rules: presetRules("missile-support", [
       { condition: "incomingMissile", action: "interceptMissile", enabled: true },
       { condition: "incomingBeamLock", action: "boostDodge", enabled: true },
       { condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
-      { condition: "shoulderReady", action: "fireMissile", enabled: true },
+      { condition: "enemyMid", action: "fireMissile", enabled: true },
       { condition: "enemyFar", action: "fireLongRange", enabled: true },
       { condition: "enemyMid", action: "suppressiveFire", enabled: true },
       { condition: "always", action: "strafe", enabled: true },
@@ -382,4 +373,69 @@ export const getAvailableTargetPriorityDefinitions = (
 ): TargetPriorityDefinition[] => {
   const unlockState = getAiUnlockState(unlockedPackageIds);
   return targetPriorityDefinitions.filter((item) => unlockState.targetPriorities.has(item.id));
+};
+
+const autoRule = (id: string, condition: AiRule["condition"], action: AiRule["action"]): AiRule => ({
+  id,
+  condition,
+  action,
+  enabled: true,
+});
+
+export const createAutoCombatRules = (stats: DerivedStats): AiRule[] => {
+  const hasWeaponKind = (kind: string): boolean =>
+    stats.weapons.some((weapon) => weapon.weaponKind === kind);
+  const hasExplosive = stats.weapons.some((weapon) =>
+    weapon.weaponKind === "rocket" || weapon.weaponKind === "grenade" || weapon.blastRadius > 0,
+  );
+  const hasLongRange = stats.weapons.some((weapon) =>
+    weapon.weaponKind === "sniperRifle" ||
+    weapon.weaponKind === "beamLaser" ||
+    weapon.weaponKind === "rocket" ||
+    weapon.weaponKind === "missile" ||
+    weapon.range >= 390,
+  );
+  const rules: AiRule[] = [
+    autoRule("auto-beam-dodge", "incomingBeamLock", "boostDodge"),
+    autoRule("auto-missile-intercept", "incomingMissile", "interceptMissile"),
+    autoRule("auto-projectile-dodge", "enemyProjectileNear", "boostDodge"),
+  ];
+
+  if (stats.canGuard) {
+    rules.push(
+      autoRule("auto-low-hp-guard", "hpLow", "guard"),
+      autoRule("auto-ballistic-guard", "incomingBallistic", "guard"),
+      autoRule("auto-energy-guard", "incomingEnergy", "guard"),
+    );
+  }
+  if (hasExplosive) {
+    rules.push(autoRule("auto-cluster-explosive", "enemyClustered", "fireExplosive"));
+  }
+  if (hasWeaponKind("missile")) {
+    rules.push(autoRule("auto-missile-fire", "enemyMid", "fireMissile"));
+  }
+  if (hasLongRange) {
+    rules.push(autoRule("auto-long-range", "enemyFar", "fireLongRange"));
+  } else {
+    rules.push(autoRule("auto-approach", "enemyFar", "approach"));
+  }
+  rules.push(
+    autoRule("auto-alpha", "enemyMid", "alphaStrike"),
+    autoRule("auto-left", "leftReady", "shootLeft"),
+    autoRule("auto-right", "rightReady", "shootRight"),
+    autoRule("auto-strafe", "always", "strafe"),
+    autoRule("auto-suppress", "always", "suppressiveFire"),
+  );
+
+  return rules;
+};
+
+export const createAutoTargetPriority = (stats: DerivedStats): TargetPriorityId => {
+  if (stats.weapons.some((weapon) => weapon.weaponKind === "sniperRifle" || weapon.range >= 470)) {
+    return "eliteFirst";
+  }
+  if (stats.weapons.some((weapon) => weapon.weaponKind === "machineGun" || weapon.weaponKind === "pulse")) {
+    return "lowestHpPercent";
+  }
+  return "nearest";
 };

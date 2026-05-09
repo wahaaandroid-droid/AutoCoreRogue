@@ -38,6 +38,7 @@ const zeroStats: PartStats = {
   quickBoostCost: 0,
   quickBoostDuration: 0,
   quickBoostIdealWeight: 0,
+  aiReaction: 0,
 };
 
 const stats = (value: Partial<PartStats>): PartStats => ({
@@ -54,9 +55,7 @@ const weaponSlotLabels: Record<EquipSlot, string> = {
   BOOSTER: "ブースター",
   "L-ARM": "左腕",
   "R-ARM": "右腕",
-  "L-SHOULDER": "左肩",
-  "R-SHOULDER": "右肩",
-  "B-SHOULDER": "両肩",
+  SPECIAL: "特殊装備",
 };
 
 const weaponKindLabels: Record<WeaponKind, string> = {
@@ -77,9 +76,7 @@ const weaponHardpoints: Record<EquipSlot, WeaponHardpoint | undefined> = {
   BOOSTER: undefined,
   "L-ARM": "leftArm",
   "R-ARM": "rightArm",
-  "L-SHOULDER": "leftShoulder",
-  "R-SHOULDER": "rightShoulder",
-  "B-SHOULDER": "bothShoulders",
+  SPECIAL: undefined,
 };
 
 const defaultMagazineSize = (kind: WeaponKind): number => {
@@ -155,43 +152,13 @@ const defaultFirePattern = (kind: WeaponKind, resource: WeaponResource): WeaponF
 
 export const EMPTY_LEFT_ARM_PART_ID = "empty-larm";
 export const EMPTY_RIGHT_ARM_PART_ID = "empty-rarm";
-export const EMPTY_LEFT_SHOULDER_PART_ID = "empty-lshoulder";
-export const EMPTY_RIGHT_SHOULDER_PART_ID = "empty-rshoulder";
-export const EMPTY_BOTH_SHOULDER_PART_ID = "empty-bshoulder";
 
 const freePartIds = new Set<string>([
   EMPTY_LEFT_ARM_PART_ID,
   EMPTY_RIGHT_ARM_PART_ID,
-  EMPTY_LEFT_SHOULDER_PART_ID,
-  EMPTY_RIGHT_SHOULDER_PART_ID,
-  EMPTY_BOTH_SHOULDER_PART_ID,
 ]);
 
 export const isFreePart = (partId: string): boolean => freePartIds.has(partId);
-
-const isBothShoulderWeaponEquipped = (loadout: Loadout): boolean =>
-  !isFreePart(loadout["B-SHOULDER"]);
-
-const isSideShoulderSlot = (slot: EquipSlot): boolean =>
-  slot === "L-SHOULDER" || slot === "R-SHOULDER";
-
-export const isShoulderSlotBlocked = (loadout: Loadout, slot: EquipSlot): boolean =>
-  isSideShoulderSlot(slot) && isBothShoulderWeaponEquipped(loadout);
-
-export const normalizeShoulderLoadout = (loadout: Loadout): Loadout => {
-  if (isBothShoulderWeaponEquipped(loadout)) {
-    return {
-      ...loadout,
-      "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
-      "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
-    };
-  }
-
-  return {
-    ...loadout,
-    "B-SHOULDER": EMPTY_BOTH_SHOULDER_PART_ID,
-  };
-};
 
 export const getSlotLabel = (slot: PartSlot): string =>
   slot === "LEGS" ? "脚部" : weaponSlotLabels[slot];
@@ -216,6 +183,7 @@ export const parts: Part[] = [
       turnSpeed: 18,
       weight: 130,
       range: 24,
+      aiReaction: 32,
     }),
   },
   {
@@ -234,6 +202,7 @@ export const parts: Part[] = [
       turnSpeed: 8,
       weight: 210,
       range: 8,
+      aiReaction: 22,
     }),
   },
   {
@@ -254,6 +223,7 @@ export const parts: Part[] = [
       weight: 170,
       range: 42,
       attack: 8,
+      aiReaction: 46,
     }),
   },
   {
@@ -701,181 +671,144 @@ export const parts: Part[] = [
     }),
   },
   {
-    id: EMPTY_LEFT_SHOULDER_PART_ID,
-    slot: "L-SHOULDER",
-    name: "左肩 未装備",
-    manufacturer: "Standard",
-    description: "左肩武装を外し、重量と火器管制負荷を空ける。",
-    rarity: "common",
-    initial: true,
-    stats: stats({}),
-  },
-  {
-    id: "lshoulder-harrier-rocket",
-    slot: "L-SHOULDER",
-    name: "HARRIER 左肩ロケット",
+    id: "special-aegis-shell",
+    slot: "SPECIAL",
+    name: "AEGIS 緊急シェル",
     manufacturer: "North Arc",
-    description: "中遠距離から直進ロケットを撃ち込む左肩武装。",
-    weaponResource: "ballistic",
-    weaponKind: "rocket",
-    blastRadius: 42,
-    ammoCapacity: 14,
-    magazineSize: 4,
-    reloadTime: 1.85,
+    description: "HP低下時に別耐久のシールドを自動展開する耐久系特殊装備。",
+    special: {
+      kind: "shield",
+      trigger: "hpLow",
+      threshold: 0.45,
+      cooldown: 16,
+      duration: 7,
+      shieldHp: 280,
+    },
     rarity: "common",
     initial: true,
     stats: stats({
-      hp: 64,
-      defense: 5,
-      turnSpeed: -3,
-      weight: 620,
-      range: 420,
-      attack: 118,
-      cooldown: 1.65,
-    }),
-  },
-  {
-    id: "lshoulder-sentinel-sniper",
-    slot: "L-SHOULDER",
-    name: "SENTINEL 肩部狙撃砲",
-    manufacturer: "Kairo Grid",
-    description: "静止砲撃に向いた左肩用スナイパーライフル。",
-    weaponResource: "energy",
-    weaponKind: "sniperRifle",
-    energyCost: 14,
-    heatPerShot: 35,
-    heatLimit: 96,
-    coolingRate: 24,
-    rarity: "rare",
-    initial: false,
-    stats: stats({
-      hp: 50,
-      enCapacity: 34,
-      defense: 4,
-      turnSpeed: -5,
-      weight: 560,
-      range: 560,
-      attack: 132,
-      cooldown: 1.72,
-    }),
-  },
-  {
-    id: EMPTY_RIGHT_SHOULDER_PART_ID,
-    slot: "R-SHOULDER",
-    name: "右肩 未装備",
-    manufacturer: "Standard",
-    description: "右肩武装を外し、片肩または両肩構成に切り替える。",
-    rarity: "common",
-    initial: true,
-    stats: stats({}),
-  },
-  {
-    id: "rshoulder-lynx-mg",
-    slot: "R-SHOULDER",
-    name: "LYNX 右肩マシンガン",
-    manufacturer: "Vantline",
-    description: "近中距離で弾幕を張る右肩マシンガン。",
-    weaponResource: "ballistic",
-    weaponKind: "machineGun",
-    ammoCapacity: 120,
-    firePattern: "sustain",
-    magazineSize: 48,
-    reloadTime: 1.45,
-    burstInterval: 0.09,
-    spinUpTime: 0.42,
-    sustainTime: 1.45,
-    rarity: "common",
-    initial: true,
-    stats: stats({
-      hp: 56,
-      defense: 4,
-      weight: 470,
-      range: 285,
-      attack: 24,
-      cooldown: 0.16,
-    }),
-  },
-  {
-    id: "rshoulder-viper-missile",
-    slot: "R-SHOULDER",
-    name: "VIPER 右肩ミサイル",
-    manufacturer: "North Arc",
-    description: "回避行動中でも追尾弾で圧をかける右肩ミサイルポッド。",
-    weaponResource: "ballistic",
-    weaponKind: "missile",
-    ammoCapacity: 16,
-    magazineSize: 4,
-    reloadTime: 1.55,
-    rarity: "rare",
-    initial: false,
-    stats: stats({
-      hp: 62,
+      hp: 70,
       enCapacity: 20,
-      defense: 5,
-      weight: 540,
-      range: 390,
-      attack: 76,
-      cooldown: 1.08,
+      defense: 8,
+      weight: 260,
     }),
   },
   {
-    id: EMPTY_BOTH_SHOULDER_PART_ID,
-    slot: "B-SHOULDER",
-    name: "両肩 未装備",
-    manufacturer: "Standard",
-    description: "両肩武装を外し、左右肩武装を使用できるようにする。",
-    rarity: "common",
-    initial: true,
-    stats: stats({}),
+    id: "special-reflex-veil",
+    slot: "SPECIAL",
+    name: "REFLEX 瞬間防壁",
+    manufacturer: "Mira Node",
+    description: "敵弾接近時に短時間の被ダメージ軽減フィールドを張る耐久系特殊装備。",
+    special: {
+      kind: "barrier",
+      trigger: "incomingThreat",
+      cooldown: 13,
+      duration: 3.2,
+      damageReduction: 0.42,
+    },
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      enCapacity: 70,
+      enRegen: 4,
+      defense: 4,
+      weight: 210,
+    }),
   },
   {
-    id: "bshoulder-crater-grenade",
-    slot: "B-SHOULDER",
-    name: "CRATER 両肩グレネード",
-    manufacturer: "Vantline",
-    description: "両肩で反動を受け止め、着弾点を範囲爆破する重グレネード。",
-    weaponResource: "ballistic",
-    weaponKind: "grenade",
-    blastRadius: 108,
-    ammoCapacity: 8,
-    magazineSize: 2,
-    reloadTime: 2.45,
+    id: "special-orbit-bit",
+    slot: "SPECIAL",
+    name: "ORBIT 射撃ビット",
+    manufacturer: "Kairo Grid",
+    description: "別耐久の小型ビットを展開し、近い敵へ自動射撃する攻撃系特殊装備。",
+    special: {
+      kind: "bit",
+      trigger: "enemyPresent",
+      cooldown: 15,
+      duration: 9,
+      bitHp: 120,
+      bitCount: 1,
+      fireInterval: 0.58,
+      range: 330,
+      damage: 42,
+    },
     rarity: "common",
     initial: true,
     stats: stats({
-      hp: 110,
-      defense: 12,
-      moveSpeed: -4,
-      turnSpeed: -8,
-      weight: 980,
-      range: 365,
-      attack: 152,
-      cooldown: 2.35,
+      enCapacity: 40,
+      attack: 6,
+      weight: 300,
     }),
   },
   {
-    id: "bshoulder-siege-rocket",
-    slot: "B-SHOULDER",
-    name: "SIEGE 両肩ロケット",
-    manufacturer: "Mira Node",
-    description: "長射程の連装ロケット。単体火力と制圧力を両立する。",
-    weaponResource: "ballistic",
-    weaponKind: "rocket",
-    blastRadius: 52,
-    ammoCapacity: 10,
-    magazineSize: 5,
-    reloadTime: 2.05,
+    id: "special-crater-bomb",
+    slot: "SPECIAL",
+    name: "CRATER 大型爆弾",
+    manufacturer: "Vantline",
+    description: "密集した敵へ超範囲爆発を起こす大型爆弾を自動発射する攻撃系特殊装備。",
+    special: {
+      kind: "bomb",
+      trigger: "enemyClustered",
+      cooldown: 21,
+      range: 430,
+      damage: 220,
+      blastRadius: 165,
+    },
     rarity: "elite",
     initial: false,
     stats: stats({
-      hp: 82,
-      enRegen: -2,
-      defense: 7,
-      turnSpeed: -6,
-      weight: 860,
-      range: 470,
-      attack: 138,
-      cooldown: 1.85,
+      hp: 90,
+      defense: 8,
+      moveSpeed: -3,
+      turnSpeed: -5,
+      weight: 620,
+      attack: 12,
+    }),
+  },
+  {
+    id: "special-stun-anchor",
+    slot: "SPECIAL",
+    name: "ANCHOR 麻痺パルス",
+    manufacturer: "North Arc",
+    description: "中距離の敵へ麻痺パルスを撃ち、短時間行動を止める特殊系装備。",
+    special: {
+      kind: "stun",
+      trigger: "enemyMid",
+      cooldown: 12,
+      range: 290,
+      damage: 28,
+      statusDuration: 1.6,
+    },
+    rarity: "rare",
+    initial: false,
+    stats: stats({
+      enCapacity: 55,
+      enRegen: 2,
+      weight: 260,
+      range: 12,
+    }),
+  },
+  {
+    id: "special-corrosion-dart",
+    slot: "SPECIAL",
+    name: "CORROSION 毒針",
+    manufacturer: "Mira Node",
+    description: "敵へ腐食毒を撃ち込み、一定時間継続ダメージを与える特殊系装備。",
+    special: {
+      kind: "poison",
+      trigger: "enemyMid",
+      cooldown: 10,
+      range: 315,
+      damage: 24,
+      statusDuration: 5,
+      dotDamagePerSecond: 22,
+    },
+    rarity: "common",
+    initial: true,
+    stats: stats({
+      enCapacity: 35,
+      attack: 4,
+      weight: 240,
     }),
   },
   {
@@ -1017,9 +950,7 @@ export const initialLoadout: Loadout = {
   BOOSTER: "booster-vanguard",
   "L-ARM": "larm-pulse-needle",
   "R-ARM": "rarm-rail-carbine",
-  "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
-  "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
-  "B-SHOULDER": "bshoulder-crater-grenade",
+  SPECIAL: "special-aegis-shell",
 };
 
 export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
@@ -1031,9 +962,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BOOSTER: "booster-sparrow",
         "L-ARM": "larm-arc-blade",
         "R-ARM": "rarm-kinetic-rifle",
-        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
-        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
-        "B-SHOULDER": "bshoulder-crater-grenade",
+        SPECIAL: "special-corrosion-dart",
       };
     case "heavy":
       return {
@@ -1042,9 +971,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BOOSTER: "booster-vanguard",
         "L-ARM": "larm-solid-shredder",
         "R-ARM": "rarm-burst-cannon",
-        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
-        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
-        "B-SHOULDER": "bshoulder-crater-grenade",
+        SPECIAL: "special-aegis-shell",
       };
     case "quad":
       return {
@@ -1053,9 +980,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BOOSTER: "booster-vanguard",
         "L-ARM": "larm-micro-missile",
         "R-ARM": "rarm-longshot-sniper",
-        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
-        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
-        "B-SHOULDER": "bshoulder-crater-grenade",
+        SPECIAL: "special-orbit-bit",
       };
     case "tank":
       return {
@@ -1064,9 +989,7 @@ export const createInitialLoadoutForFrame = (frameId: BaseFrameId): Loadout => {
         BOOSTER: "booster-vanguard",
         "L-ARM": "larm-solid-shredder",
         "R-ARM": "rarm-burst-cannon",
-        "L-SHOULDER": EMPTY_LEFT_SHOULDER_PART_ID,
-        "R-SHOULDER": EMPTY_RIGHT_SHOULDER_PART_ID,
-        "B-SHOULDER": "bshoulder-crater-grenade",
+        SPECIAL: "special-aegis-shell",
       };
     case "medium":
     default:
@@ -1080,7 +1003,7 @@ export const normalizeLoadout = (loadout: Partial<Loadout> | undefined): Loadout
     return next;
   }, {} as Loadout);
 
-  return normalizeShoulderLoadout(withDefaults);
+  return withDefaults;
 };
 
 export const initialUnlockedPartIds = parts
@@ -1170,12 +1093,14 @@ export const calculateDerivedStats = (
       quickBoostCost: sum.quickBoostCost + part.stats.quickBoostCost,
       quickBoostDuration: sum.quickBoostDuration + part.stats.quickBoostDuration,
       quickBoostIdealWeight: sum.quickBoostIdealWeight + part.stats.quickBoostIdealWeight,
+      aiReaction: sum.aiReaction + part.stats.aiReaction,
     }),
     { ...frame.stats },
   );
 
   const right = build["R-ARM"];
   const left = build["L-ARM"];
+  const specialPart = build.SPECIAL;
   const weaponEntries = EQUIP_SLOTS
     .map((slot) => ({ slot, part: build[slot], hardpoint: weaponHardpoints[slot] }))
     .filter((entry): entry is { slot: EquipSlot; part: Part; hardpoint: WeaponHardpoint } =>
@@ -1292,6 +1217,7 @@ export const calculateDerivedStats = (
     quickBoostCooldown,
     quickBoostCost,
     quickBoostDuration,
+    aiReaction: Math.max(8, Math.round(total.aiReaction)),
     rightRange: rightHasWeapon ? Math.round(right.stats.range + supportRange) : 0,
     leftRange: leftHasWeapon ? Math.round(left.stats.range + supportRange) : 0,
     rightAttack: rightHasWeapon ? Math.round(right.stats.attack + supportAttack + upgrades.attack) : 0,
@@ -1319,6 +1245,13 @@ export const calculateDerivedStats = (
     canGuard: selected.some((part) => part.guardEnabled),
     guardProfile: guardProfileForParts(selected),
     weapons,
+    special: specialPart.special
+      ? {
+          ...specialPart.special,
+          partId: specialPart.id,
+          name: specialPart.name,
+        }
+      : undefined,
   };
 };
 

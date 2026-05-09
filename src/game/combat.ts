@@ -1,5 +1,5 @@
 import { evaluateAiRules } from "./aiController";
-import { damageAfterDefense, updateHits } from "./combatDamage";
+import { applyDamageToActor, damageAfterDefense, updateHits } from "./combatDamage";
 import { updateEnemyDestructions } from "./combatDestruction";
 import { isEntryBoosting, resolveActorCollisions, updatePositions } from "./combatMovement";
 import { CombatStageType, worldForStage, worldStageForStage } from "../data/stages";
@@ -15,12 +15,14 @@ import {
   DamageKind,
   Effect,
   Projectile,
+  ProjectileStatusEffect,
 } from "./projectiles";
 import {
   AiActionId,
   AiRule,
   BaseFrameId,
   DerivedStats,
+  EquippedSpecial,
   GuardProfile,
   LegType,
   TargetPriorityId,
@@ -81,6 +83,25 @@ export interface CombatActor {
   entryBoostSoundPlayed?: boolean;
   deathTimer?: number;
   deathEffectPlayed?: boolean;
+  shieldHp?: number;
+  shieldMax?: number;
+  shieldRemaining?: number;
+  damageReductionRemaining?: number;
+  damageReductionMultiplier?: number;
+  stunRemaining?: number;
+  poisonRemaining?: number;
+  poisonDamagePerSecond?: number;
+  poisonSourceUnitIndex?: number;
+  supportBit?: {
+    ownerUnitIndex: number;
+    life: number;
+    fireCooldown: number;
+    fireInterval: number;
+    damage: number;
+    range: number;
+    orbitIndex: number;
+    orbitCount: number;
+  };
 }
 
 export interface PlayerCombatUnit {
@@ -91,6 +112,8 @@ export interface PlayerCombatUnit {
   activeRuleId?: string;
   weapons: PlayerWeaponState[];
   boostCooldown: number;
+  decisionCooldown: number;
+  special?: PlayerSpecialState;
 }
 
 export interface PlayerWeaponState extends WeaponStats {
@@ -121,6 +144,11 @@ export interface RivalBossAi {
   targetPriority: TargetPriorityId;
 }
 
+export interface PlayerSpecialState extends EquippedSpecial {
+  cooldownRemaining: number;
+  activeRemaining: number;
+}
+
 export type CombatSoundEvent =
   | "shoot"
   | "shootEnergy"
@@ -149,6 +177,7 @@ export interface CombatState {
   stageType: CombatStageType;
   players: PlayerCombatUnit[];
   enemies: CombatActor[];
+  supportBits: CombatActor[];
   enemyQueue: CombatActor["rank"][];
   enemyTotal: number;
   spawnedEnemyCount: number;
@@ -271,6 +300,15 @@ const createWeaponState = (
   autoUse,
 });
 
+const createSpecialState = (special: EquippedSpecial | undefined): PlayerSpecialState | undefined =>
+  special
+    ? {
+        ...special,
+        cooldownRemaining: 0.45,
+        activeRemaining: 0,
+      }
+    : undefined;
+
 const createPlayerUnit = (
   stats: DerivedStats,
   unitIndex: number,
@@ -297,6 +335,8 @@ const createPlayerUnit = (
     activeAction: "idle",
     weapons,
     boostCooldown: 0,
+    decisionCooldown: 0,
+    special: createSpecialState(stats.special),
   };
 };
 
@@ -399,6 +439,7 @@ const createRivalStats = (
     quickBoostCooldown: legType === "reverse" ? 0.44 : legType === "tank" ? 0.72 : 0.52,
     quickBoostCost: legType === "reverse" ? 12 : legType === "tank" ? 22 : 16,
     quickBoostDuration: legType === "hover" ? 0.22 : 0.18,
+    aiReaction: 32,
     rightRange: right.range,
     leftRange: left.range,
     rightAttack: right.attack,
@@ -946,6 +987,7 @@ const createInitialEnemies = (
   playerCount: number,
 ): {
   enemies: CombatActor[];
+  supportBits: CombatActor[];
   enemyQueue: CombatActor["rank"][];
   enemyTotal: number;
   spawnedEnemyCount: number;
@@ -956,6 +998,7 @@ const createInitialEnemies = (
 
   return {
     enemies: [],
+    supportBits: [],
     enemyQueue: ranks,
     enemyTotal: ranks.length,
     spawnedEnemyCount: 0,
@@ -1026,6 +1069,7 @@ export const createCombatState = (
     stageType,
     players,
     enemies: wave.enemies,
+    supportBits: wave.supportBits,
     enemyQueue: wave.enemyQueue,
     enemyTotal: wave.enemyTotal,
     spawnedEnemyCount: wave.spawnedEnemyCount,
@@ -1333,6 +1377,7 @@ const fireProjectile = (
   targetId?: string,
   sourceUnitIndex?: number,
   blastRadius = 0,
+  statusEffect?: ProjectileStatusEffect,
 ): void => {
   const aim = normalize(target.x - source.x, target.y - source.y);
   state.projectiles.push(
@@ -1355,6 +1400,7 @@ const fireProjectile = (
       interceptable: kind === "missile",
       interceptHp: kind === "missile" ? Math.max(16, damage * 0.18) : undefined,
       interceptDamage: Math.max(4, damage * (kind === "pulse" ? 0.68 : kind === "bullet" ? 0.9 : 1.05)),
+      statusEffect,
     }),
   );
   state.effects.push(
@@ -1376,6 +1422,312 @@ const fireProjectile = (
         ? "shootEnergy"
         : "shootBallistic",
   );
+};
+
+const reactionIntervalFor = (stats: DerivedStats): number =>
+  clamp(0.46 - stats.aiReaction * 0.006, 0.12, 0.48);
+
+const updateActorStatus = (state: CombatState, actor: CombatActor, dt: number): void => {
+  actor.shieldRemaining = Math.max(0, (actor.shieldRemaining ?? 0) - dt);
+  if ((actor.shieldRemaining ?? 0) <= 0) {
+    actor.shieldHp = 0;
+    actor.shieldMax = undefined;
+  }
+  actor.damageReductionRemaining = Math.max(0, (actor.damageReductionRemaining ?? 0) - dt);
+  if ((actor.damageReductionRemaining ?? 0) <= 0) {
+    actor.damageReductionMultiplier = undefined;
+  }
+  actor.stunRemaining = Math.max(0, (actor.stunRemaining ?? 0) - dt);
+  if ((actor.poisonRemaining ?? 0) > 0 && (actor.poisonDamagePerSecond ?? 0) > 0) {
+    const damage = applyDamageToActor(actor, (actor.poisonDamagePerSecond ?? 0) * dt);
+    if (actor.team === "enemy" && actor.poisonSourceUnitIndex !== undefined) {
+      state.report.damageByUnit[actor.poisonSourceUnitIndex] =
+        (state.report.damageByUnit[actor.poisonSourceUnitIndex] ?? 0) + damage;
+    }
+    actor.poisonRemaining = Math.max(0, (actor.poisonRemaining ?? 0) - dt);
+  }
+  if ((actor.poisonRemaining ?? 0) <= 0) {
+    actor.poisonDamagePerSecond = undefined;
+    actor.poisonSourceUnitIndex = undefined;
+  }
+};
+
+const updateStatuses = (state: CombatState, dt: number): void => {
+  for (const unit of state.players) {
+    updateActorStatus(state, unit.actor, dt);
+  }
+  for (const enemy of state.enemies) {
+    updateActorStatus(state, enemy, dt);
+  }
+  for (const bit of state.supportBits) {
+    updateActorStatus(state, bit, dt);
+  }
+};
+
+const pushSpecialEffect = (
+  state: CombatState,
+  actor: CombatActor,
+  color: string,
+  size: number,
+  label?: string,
+): void => {
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "muzzle",
+      x: actor.x,
+      y: actor.y,
+      life: 0.42,
+      maxLife: 0.42,
+      color,
+      size,
+      label,
+    }),
+  );
+};
+
+const createSupportBit = (
+  state: CombatState,
+  unit: PlayerCombatUnit,
+  special: PlayerSpecialState,
+  orbitIndex: number,
+  orbitCount: number,
+): CombatActor => {
+  const angle = (Math.PI * 2 * orbitIndex) / Math.max(1, orbitCount);
+  const owner = unit.actor;
+  return {
+    id: uid("bit"),
+    name: `${special.name} BIT`,
+    team: "player",
+    x: owner.x + Math.cos(angle) * 44,
+    y: owner.y + Math.sin(angle) * 44,
+    ax: 0,
+    ay: 0,
+    vx: 0,
+    vy: 0,
+    radius: 8,
+    hp: special.bitHp ?? 100,
+    maxHp: special.bitHp ?? 100,
+    en: 0,
+    maxEn: 0,
+    rightAmmo: 0,
+    rightAmmoMax: 0,
+    leftAmmo: 0,
+    leftAmmoMax: 0,
+    enRegen: 0,
+    defense: 32,
+    moveSpeed: 170,
+    quickBoostThrust: 0,
+    quickBoostMaxSpeed: 0,
+    quickBoostTime: 0,
+    quickBoostDuration: 0,
+    range: special.range ?? 320,
+    attack: special.damage ?? 38,
+    cooldown: 0,
+    cooldownMax: special.fireInterval ?? 0.58,
+    boostCooldown: 0,
+    guard: false,
+    canGuard: false,
+    guardProfile: "balanced",
+    loadRatio: 0.4,
+    facingX: owner.facingX,
+    facingY: owner.facingY,
+    frameId: "light",
+    legType: "hover",
+    color: "#7dffcf",
+    rank: "normal",
+    supportBit: {
+      ownerUnitIndex: unit.unitIndex,
+      life: special.duration ?? 8,
+      fireCooldown: 0.18 + orbitIndex * 0.12,
+      fireInterval: special.fireInterval ?? 0.58,
+      damage: special.damage ?? 38,
+      range: special.range ?? 320,
+      orbitIndex,
+      orbitCount,
+    },
+  };
+};
+
+const updateSupportBits = (state: CombatState, dt: number): void => {
+  for (const bit of state.supportBits) {
+    const runtime = bit.supportBit;
+    if (!runtime || bit.hp <= 0) {
+      continue;
+    }
+    const owner = state.players.find((unit) => unit.unitIndex === runtime.ownerUnitIndex)?.actor;
+    if (!owner || owner.hp <= 0) {
+      bit.hp = 0;
+      continue;
+    }
+    runtime.life -= dt;
+    runtime.fireCooldown = Math.max(0, runtime.fireCooldown - dt);
+    const angle = state.time * 2.15 + (Math.PI * 2 * runtime.orbitIndex) / Math.max(1, runtime.orbitCount);
+    bit.x = owner.x + Math.cos(angle) * 46;
+    bit.y = owner.y + Math.sin(angle) * 36;
+    bit.facingX = owner.facingX;
+    bit.facingY = owner.facingY;
+    const target = selectEnemyTarget(state, bit, "nearest");
+    if (target && runtime.fireCooldown <= 0 && enemyDistance(bit, target) <= runtime.range + target.radius) {
+      fireProjectile(
+        state,
+        bit,
+        target,
+        runtime.damage,
+        520,
+        "pulse",
+        "energy",
+        "#7dffcf",
+        3.6,
+        undefined,
+        runtime.ownerUnitIndex,
+      );
+      runtime.fireCooldown = runtime.fireInterval;
+    }
+  }
+
+  state.supportBits = state.supportBits.filter((bit) =>
+    bit.hp > 0 && (bit.supportBit?.life ?? 0) > 0,
+  );
+};
+
+const specialTriggerMet = (
+  special: PlayerSpecialState,
+  unit: PlayerCombatUnit,
+  target: CombatActor | undefined,
+  targetDistance: number,
+  clusteredCount: number,
+  projectileThreats: ProjectileThreatDistances,
+): boolean => {
+  switch (special.trigger) {
+    case "hpLow":
+      return unit.actor.hp / unit.actor.maxHp <= (special.threshold ?? 0.4);
+    case "incomingThreat":
+      return projectileThreats.any < 110 || projectileThreats.missile < 190;
+    case "enemyPresent":
+      return Boolean(target);
+    case "enemyClustered":
+      return Boolean(target) && clusteredCount >= 2;
+    case "enemyClose":
+      return Boolean(target) && targetDistance <= 150;
+    case "enemyMid":
+      return Boolean(target) && targetDistance > 120 && targetDistance <= (special.range ?? 320) + (target?.radius ?? 0);
+    default:
+      return false;
+  }
+};
+
+const useSpecialEquipment = (
+  state: CombatState,
+  unit: PlayerCombatUnit,
+  target: CombatActor | undefined,
+  targetDistance: number,
+  clusteredCount: number,
+  projectileThreats: ProjectileThreatDistances,
+): boolean => {
+  const special = unit.special;
+  if (!special || special.cooldownRemaining > 0 || !specialTriggerMet(special, unit, target, targetDistance, clusteredCount, projectileThreats)) {
+    return false;
+  }
+
+  const actor = unit.actor;
+  switch (special.kind) {
+    case "shield":
+      actor.shieldMax = Math.max(actor.shieldMax ?? 0, special.shieldHp ?? 240);
+      actor.shieldHp = Math.max(actor.shieldHp ?? 0, special.shieldHp ?? 240);
+      actor.shieldRemaining = special.duration ?? 6;
+      pushSpecialEffect(state, actor, "#54f4a7", actor.radius * 4.2, "SHIELD");
+      break;
+    case "barrier":
+      actor.damageReductionRemaining = special.duration ?? 3;
+      actor.damageReductionMultiplier = clamp(1 - (special.damageReduction ?? 0.35), 0.2, 0.92);
+      pushSpecialEffect(state, actor, "#8ce5ff", actor.radius * 3.8, "BARRIER");
+      break;
+    case "bit": {
+      const activeBits = state.supportBits.filter((bit) =>
+        bit.supportBit?.ownerUnitIndex === unit.unitIndex && bit.hp > 0,
+      );
+      if (activeBits.length > 0) {
+        return false;
+      }
+      const count = Math.max(1, special.bitCount ?? 1);
+      for (let index = 0; index < count; index += 1) {
+        state.supportBits.push(createSupportBit(state, unit, special, index, count));
+      }
+      pushSpecialEffect(state, actor, "#7dffcf", actor.radius * 3.2, "BIT");
+      break;
+    }
+    case "bomb":
+      if (!target || targetDistance > (special.range ?? 380) + target.radius) {
+        return false;
+      }
+      fireProjectile(
+        state,
+        actor,
+        target,
+        special.damage ?? 180,
+        265,
+        "grenade",
+        "explosive",
+        "#ffcf66",
+        8,
+        undefined,
+        unit.unitIndex,
+        special.blastRadius ?? 145,
+      );
+      break;
+    case "stun":
+      if (!target || targetDistance > (special.range ?? 290) + target.radius) {
+        return false;
+      }
+      fireProjectile(
+        state,
+        actor,
+        target,
+        special.damage ?? 20,
+        540,
+        "pulse",
+        "energy",
+        "#b98cff",
+        5,
+        undefined,
+        unit.unitIndex,
+        0,
+        { kind: "stun", duration: special.statusDuration ?? 1.4 },
+      );
+      break;
+    case "poison":
+      if (!target || targetDistance > (special.range ?? 300) + target.radius) {
+        return false;
+      }
+      fireProjectile(
+        state,
+        actor,
+        target,
+        special.damage ?? 22,
+        500,
+        "pulse",
+        "energy",
+        "#9dff6a",
+        4.6,
+        undefined,
+        unit.unitIndex,
+        0,
+        {
+          kind: "poison",
+          duration: special.statusDuration ?? 4.5,
+          damagePerSecond: special.dotDamagePerSecond ?? 18,
+        },
+      );
+      break;
+    default:
+      return false;
+  }
+
+  special.cooldownRemaining = special.cooldown;
+  special.activeRemaining = special.duration ?? 0;
+  state.soundEvents.push("boostQuiet");
+  return true;
 };
 
 const projectileProfile = (
@@ -1504,8 +1856,7 @@ const performBladeAttack = (
     }),
   );
 
-  const resolvedDamage = damageAfterDefense(damage, target, "melee");
-  target.hp = Math.max(0, target.hp - resolvedDamage);
+  const resolvedDamage = applyDamageToActor(target, damageAfterDefense(damage, target, "melee"));
   const sourceUnitIndex = source.id.startsWith("player-") ? Number(source.id.replace("player-", "")) - 1 : undefined;
   if (sourceUnitIndex !== undefined && Number.isFinite(sourceUnitIndex)) {
     state.report.damageByUnit[sourceUnitIndex] =
@@ -1624,8 +1975,7 @@ const performBeamAttack = (
     const damageScale = perpendicular <= centerWidth
       ? 1
       : clamp(1 - (perpendicular - centerWidth) / edgeWidth, 0.35, 1);
-    const resolvedDamage = damageAfterDefense(damage * damageScale, target, "energy");
-    target.hp = Math.max(0, target.hp - resolvedDamage);
+    const resolvedDamage = applyDamageToActor(target, damageAfterDefense(damage * damageScale, target, "energy"));
     if (sourceUnitIndex !== undefined && Number.isFinite(sourceUnitIndex)) {
       state.report.damageByUnit[sourceUnitIndex] =
         (state.report.damageByUnit[sourceUnitIndex] ?? 0) + resolvedDamage;
@@ -2337,6 +2687,7 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
     activeRuleId: rival.activeRuleId,
     weapons: rival.weapons,
     boostCooldown: rival.boostCooldown,
+    decisionCooldown: 0,
   };
   const rightWeapon = weaponByHardpoint(unit, "rightArm");
   const leftWeapon = weaponByHardpoint(unit, "leftArm");
@@ -2417,6 +2768,12 @@ const updateEnemy = (state: CombatState, enemy: CombatActor, dt: number): void =
   enemy.ay = 0;
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
   enemy.boostCooldown = Math.max(0, enemy.boostCooldown - dt);
+
+  if ((enemy.stunRemaining ?? 0) > 0) {
+    enemy.vx *= Math.exp(-3.4 * dt);
+    enemy.vy *= Math.exp(-3.4 * dt);
+    return;
+  }
 
   if (isEntryBoosting(enemy)) {
     enemy.entryBoostTime = Math.max(0, (enemy.entryBoostTime ?? 0) - dt);
@@ -2523,6 +2880,8 @@ export const stepCombat = (
 
   state.soundEvents = [];
   state.time += dt;
+  updateStatuses(state, dt);
+  updateSupportBits(state, dt);
 
   for (let unitIndex = 0; unitIndex < state.players.length; unitIndex += 1) {
     const unit = state.players[unitIndex];
@@ -2541,6 +2900,11 @@ export const stepCombat = (
       updateWeaponRuntime(weapon, dt);
     }
     unit.boostCooldown = Math.max(0, unit.boostCooldown - dt);
+    unit.decisionCooldown = Math.max(0, unit.decisionCooldown - dt);
+    if (unit.special) {
+      unit.special.cooldownRemaining = Math.max(0, unit.special.cooldownRemaining - dt);
+      unit.special.activeRemaining = Math.max(0, unit.special.activeRemaining - dt);
+    }
 
     const target = selectEnemyTarget(state, player, targetPrioritiesByUnit[unit.unitIndex] ?? "nearest");
     const targetDistance = target
@@ -2555,12 +2919,24 @@ export const stepCombat = (
     const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
     resolveWeaponSequences(state, unit, target, dt);
     const projectileThreats = hostileProjectileThreatDistances(state, player);
+    const clusteredCount = clusteredEnemyCount(state, target);
+
+    player.ax = 0;
+    player.ay = 0;
+    player.guard = false;
+
+    if (unit.decisionCooldown > 0) {
+      applyPlayerAction(state, unit, unit.activeAction, target);
+      continue;
+    }
+
+    useSpecialEquipment(state, unit, target, targetDistance, clusteredCount, projectileThreats);
     const decision = evaluateAiRules(rules, {
       en: player.en,
       hpPercent: player.hp / player.maxHp,
       enPercent: player.en / player.maxEn,
       nearestEnemyDistance: threatDistance,
-      clusteredEnemyCount: clusteredEnemyCount(state, target),
+      clusteredEnemyCount: clusteredCount,
       rightCooldown: rightWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
       leftCooldown: leftWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
       leftShoulderCooldown: leftShoulderWeapon?.cooldownRemaining ?? Number.POSITIVE_INFINITY,
@@ -2603,11 +2979,9 @@ export const stepCombat = (
       });
     }
 
-    player.ax = 0;
-    player.ay = 0;
-    player.guard = false;
     unit.activeAction = decision[0].action;
     unit.activeRuleId = decision[0].ruleId;
+    unit.decisionCooldown = reactionIntervalFor(unit.stats);
     for (const item of decision) {
       if (item.ruleId) {
         const unitRuleHits = state.report.ruleHitsByUnit[unit.unitIndex] ?? {};
@@ -2627,6 +3001,7 @@ export const stepCombat = (
   updatePositions(state, dt);
   resolveActorCollisions(state);
   updateHits(state, dt, uid);
+  state.supportBits = state.supportBits.filter((bit) => bit.hp > 0 && (bit.supportBit?.life ?? 0) > 0);
   updateEnemyDestructions(state, dt, uid);
   updateEffects(state, dt);
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 || (enemy.deathTimer ?? 0) > 0);

@@ -3,7 +3,6 @@ import { getPartById, getSlotLabel } from "../data/parts";
 import { CombatReport } from "../game/combat";
 import { RewardOption } from "../data/rewards";
 import { AiRule } from "../types";
-import rewardCategoryAiUrl from "../assets/reward-category-ai.png";
 import rewardCategoryCooldownUrl from "../assets/reward-category-cooldown.png";
 import rewardCategoryMobilityUrl from "../assets/reward-category-mobility.png";
 import rewardCategoryPartUrl from "../assets/reward-category-part.png";
@@ -16,18 +15,14 @@ interface RewardScreenProps {
   rewards: RewardOption[];
   report?: CombatReport;
   rulesByUnit: AiRule[][];
+  rerollsRemaining: number;
+  onRerollRewards: () => void;
   onPickReward: (reward: RewardOption) => void;
 }
 
 const rewardGlyph = (reward: RewardOption): string => {
   if (reward.payload.kind === "part") {
     return getSlotLabel(getPartById(reward.payload.partId).slot);
-  }
-  if (reward.payload.kind === "aiSlot") {
-    return "AI";
-  }
-  if (reward.payload.kind === "aiUnlock") {
-    return "CHIP";
   }
   if (reward.payload.kind === "cooldown") {
     return "CD";
@@ -47,9 +42,6 @@ const rewardImageUrl = (reward: RewardOption): string => {
       const part = getPartById(reward.payload.partId);
       return part.slot === "BOOSTER" ? rewardCategoryMobilityUrl : rewardCategoryPartUrl;
     }
-    case "aiSlot":
-    case "aiUnlock":
-      return rewardCategoryAiUrl;
     case "cooldown":
       return rewardCategoryCooldownUrl;
     case "repairKit":
@@ -67,12 +59,21 @@ const topRuleLine = (report: CombatReport | undefined, rules: AiRule[], unitInde
   const [ruleId, count] = Object.entries(hits).sort((a, b) => b[1] - a[1])[0] ?? [];
   const rule = rules.find((item) => item.id === ruleId);
   if (!rule || !count) {
-    return "AI記録なし";
+    return "戦闘記録なし";
   }
   return `${getConditionLabel(rule.condition)} -> ${getActionLabel(rule.action)} x${count}`;
 };
 
-export default function RewardScreen({ stage, credits, rewards, report, rulesByUnit, onPickReward }: RewardScreenProps) {
+export default function RewardScreen({
+  stage,
+  credits,
+  rewards,
+  report,
+  rulesByUnit,
+  rerollsRemaining,
+  onRerollRewards,
+  onPickReward,
+}: RewardScreenProps) {
   const reportUnits = report
     ? report.damageByUnit
         .map((damage, unitIndex) => ({ damage, unitIndex }))
@@ -84,7 +85,12 @@ export default function RewardScreen({ stage, credits, rewards, report, rulesByU
       <section className="panel reward-panel">
         <div className="section-title">STAGE {stage} CLEAR</div>
         <h1>報酬選択</h1>
-        <div className="credits-line">CREDITS {credits}</div>
+        <div className="reward-head-actions">
+          <div className="credits-line">CREDITS {credits}</div>
+          <button onClick={onRerollRewards} disabled={rerollsRemaining <= 0}>
+            再抽選 {rerollsRemaining}
+          </button>
+        </div>
         {reportUnits.length > 0 && (
           <div className="combat-report">
             {reportUnits.map(({ damage, unitIndex }) => (

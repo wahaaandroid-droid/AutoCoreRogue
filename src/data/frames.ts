@@ -18,6 +18,7 @@ const zeroStats: PartStats = {
   quickBoostCost: 0,
   quickBoostDuration: 0,
   quickBoostIdealWeight: 0,
+  aiReaction: 0,
 };
 
 const stats = (value: Partial<PartStats>): PartStats => ({

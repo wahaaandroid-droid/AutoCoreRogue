@@ -1,49 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
 import AssembleScreen from "./components/AssembleScreen";
-import AiEditorScreen from "./components/AiEditorScreen";
 import CombatScreen from "./components/CombatScreen";
 import FrameSelectScreen from "./components/FrameSelectScreen";
 import RewardScreen from "./components/RewardScreen";
+import RelicCollectionScreen from "./components/RelicCollectionScreen";
+import RelicRewardScreen from "./components/RelicRewardScreen";
 import RestScreen from "./components/RestScreen";
 import RunCompleteScreen from "./components/RunCompleteScreen";
 import ShopScreen from "./components/ShopScreen";
 import StageMapScreen from "./components/StageMapScreen";
-import {
-  createAiPresetRules,
-  createInitialAiRules,
-  defaultAiPresetForFrame,
-  ensureAiRuleSlots,
-  getAiPresetDefinition,
-} from "./data/aiRules";
-import {
-  STARTER_AI_SLOT_COUNT,
-  aiUnlockPackages,
-  createInitialUnlockedAiPackageIds,
-  getAiUnlockPackage,
-  getAiUnlockState,
-  isAiRuleUnlocked,
-  normalizeAiUnlockPackageIds,
-  normalizeRulesForCombat,
-} from "./data/aiUnlocks";
+import { createAutoCombatRules, createAutoTargetPriority } from "./data/aiRules";
 import { getBaseFrameById, initialFrameId } from "./data/frames";
 import {
   baseUpgrades,
   calculateDerivedStats,
   createEmptyPartInventory,
   createInitialLoadoutForFrame,
-  EMPTY_BOTH_SHOULDER_PART_ID,
-  EMPTY_LEFT_SHOULDER_PART_ID,
-  EMPTY_RIGHT_SHOULDER_PART_ID,
   ensureStarterKit,
   equippedPartCounts,
   getPartById,
   grantStarterKit,
   initialLoadout,
   isFreePart,
-  isShoulderSlotBlocked,
   normalizeLoadout,
 } from "./data/parts";
 import { generateRewardOptions, generateShopOffers, RewardOption, ShopOffer } from "./data/rewards";
+import {
+  appendRunHistory,
+  applyRelicBonusesToStats,
+  calculateRelicBonuses,
+  createInitialMetaSaveState,
+  createPendingRelicReward,
+  emptyRelicBonuses,
+  grantRelicToMeta,
+  normalizeMetaSaveState,
+} from "./data/relics";
 import {
   CombatStageType,
   TOTAL_STAGES,
@@ -55,40 +46,39 @@ import {
 import { CombatReport } from "./game/combat";
 import { playUiSound, unlockCombatAudio } from "./game/sound";
 import {
-  AiRule,
-  AiUnlockPackageId,
-  AiPresetId,
   BaseFrameId,
+  ClearStartBonusChoice,
   EQUIP_SLOTS,
   EquipSlot,
   Loadout,
+  MetaSaveState,
   PartInventory,
+  PendingRelicReward,
   PilotUpgrades,
+  RelicRewardOption,
   ScreenId,
   SQUAD_SIZE,
-  TargetPriorityId,
   WEAPON_HARDPOINTS,
   WeaponAutoUse,
-  WeaponHardpoint,
 } from "./types";
 
 const cloneLoadout = (): Loadout => ({ ...initialLoadout });
 const cloneUpgrades = (): PilotUpgrades => ({ ...baseUpgrades });
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 6;
 const SAVE_KEY = `autocore-rogue-run-v${SAVE_VERSION}`;
-const LEGACY_SAVE_KEYS = ["autocore-rogue-run-v3", "autocore-rogue-run-v2", "autocore-rogue-run-v1"];
+const LEGACY_SAVE_KEYS = [
+  "autocore-rogue-run-v5",
+  "autocore-rogue-run-v4",
+  "autocore-rogue-run-v3",
+  "autocore-rogue-run-v2",
+  "autocore-rogue-run-v1",
+];
+const META_SAVE_VERSION = 1;
+const META_SAVE_KEY = `autocore-rogue-meta-v${META_SAVE_VERSION}`;
 const createInitialLoadouts = (): Loadout[] =>
   Array.from({ length: SQUAD_SIZE }, () => cloneLoadout());
 const createInitialFrameIds = (): BaseFrameId[] =>
   Array.from({ length: SQUAD_SIZE }, () => initialFrameId);
-const createInitialAiSlotCounts = (): number[] =>
-  Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId).length);
-const createInitialAiRulesByUnit = (): AiRule[][] =>
-  Array.from({ length: SQUAD_SIZE }, () => createInitialAiRules(initialFrameId));
-const createInitialAiPresets = (): AiPresetId[] =>
-  Array.from({ length: SQUAD_SIZE }, () => defaultAiPresetForFrame(initialFrameId));
-const createInitialTargetPriorities = (): TargetPriorityId[] =>
-  Array.from({ length: SQUAD_SIZE }, () => "nearest");
 const createWeaponAutoUse = (): WeaponAutoUse =>
   WEAPON_HARDPOINTS.reduce((config, hardpoint) => {
     config[hardpoint] = true;
@@ -96,9 +86,13 @@ const createWeaponAutoUse = (): WeaponAutoUse =>
   }, {} as WeaponAutoUse);
 const createInitialWeaponAutoUseByUnit = (): WeaponAutoUse[] =>
   Array.from({ length: SQUAD_SIZE }, () => createWeaponAutoUse());
-const createInitialUnitHp = (): number[] =>
-  createInitialLoadouts().map((unitLoadout) =>
-    calculateDerivedStats(unitLoadout, baseUpgrades, initialFrameId).hpMax,
+const createInitialUnitHp = (bonuses = emptyRelicBonuses): number[] =>
+  createInitialLoadouts().map((unitLoadout, index) =>
+    applyRelicBonusesToStats(
+      calculateDerivedStats(unitLoadout, baseUpgrades, initialFrameId),
+      index,
+      bonuses,
+    ).hpMax,
   );
 const createInitialSortieEnabled = (): boolean[] =>
   Array.from({ length: SQUAD_SIZE }, () => false);
@@ -114,17 +108,14 @@ interface SavedRunState {
   activeUnitIndex: number;
   partInventory: PartInventory;
   upgrades: PilotUpgrades;
-  aiSlotCounts: number[];
-  aiRulesByUnit: AiRule[][];
-  aiPresetsByUnit: AiPresetId[];
-  unlockedAiPackageIds: AiUnlockPackageId[];
-  targetPrioritiesByUnit: TargetPriorityId[];
   weaponAutoUseByUnit: WeaponAutoUse[];
   unitHpByUnit: number[];
   sortieEnabled: boolean[];
   repairKitStock: number;
   credits: number;
   rewardOptions: RewardOption[];
+  rewardRerollsUsedByWorld: number[];
+  pendingRelicReward?: PendingRelicReward;
   lastCombatReport?: CombatReport;
   lastOutcome?: string;
 }
@@ -174,6 +165,46 @@ const saveRunState = (state: SavedRunState): void => {
   }
 };
 
+interface MetaSavePayload {
+  version: number;
+  savedAt: string;
+  state: MetaSaveState;
+}
+
+const readMetaSaveState = (): MetaSaveState => {
+  if (typeof window === "undefined") {
+    return createInitialMetaSaveState();
+  }
+
+  try {
+    const raw = window.localStorage.getItem(META_SAVE_KEY);
+    if (!raw) {
+      return createInitialMetaSaveState();
+    }
+    const payload = JSON.parse(raw) as Partial<MetaSavePayload>;
+    return normalizeMetaSaveState(payload.state);
+  } catch {
+    return createInitialMetaSaveState();
+  }
+};
+
+const saveMetaState = (state: MetaSaveState): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const payload: MetaSavePayload = {
+      version: META_SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: normalizeMetaSaveState(state),
+    };
+    window.localStorage.setItem(META_SAVE_KEY, JSON.stringify(payload));
+  } catch {
+    // Meta progression is best-effort for the same reason as run autosave.
+  }
+};
+
 const normalizeSavedArray = <T,>(value: T[] | undefined, fallback: T[]): T[] =>
   Array.isArray(value) ? fallback.map((item, index) => value[index] ?? item) : fallback;
 
@@ -181,6 +212,12 @@ const normalizeSavedLoadouts = (value: Loadout[] | undefined): Loadout[] =>
   normalizeSavedArray(value, createInitialLoadouts()).map((loadout) => normalizeLoadout(loadout));
 
 const restoreScreen = (screen: ScreenId | undefined, hasSavedUnit: boolean): ScreenId => {
+  if (screen === "ai") {
+    return hasSavedUnit ? "assemble" : "frameSelect";
+  }
+  if (screen === "relicReward" || screen === "relicCollection") {
+    return screen;
+  }
   if (!hasSavedUnit) {
     return "frameSelect";
   }
@@ -197,30 +234,11 @@ const countEquippedPart = (loadouts: Loadout[], unlockedUnitCount: number, partI
     return count + slotCount;
   }, 0);
 
-const applyShoulderCompatibility = (
-  loadout: Loadout,
-  slot: EquipSlot,
-  partId: string,
-): Loadout => {
-  const next = {
-    ...normalizeLoadout(loadout),
-    [slot]: partId,
-  };
-
-  if (slot === "B-SHOULDER" && !isFreePart(partId)) {
-    next["L-SHOULDER"] = EMPTY_LEFT_SHOULDER_PART_ID;
-    next["R-SHOULDER"] = EMPTY_RIGHT_SHOULDER_PART_ID;
-  }
-
-  if ((slot === "L-SHOULDER" || slot === "R-SHOULDER") && !isFreePart(partId)) {
-    next["B-SHOULDER"] = EMPTY_BOTH_SHOULDER_PART_ID;
-  }
-
-  return normalizeLoadout(next);
-};
-
 export default function App() {
   const savedRun = useMemo(() => readSavedRunState(), []);
+  const savedMeta = useMemo(() => readMetaSaveState(), []);
+  const [metaState, setMetaState] = useState<MetaSaveState>(() => savedMeta);
+  const relicBonuses = useMemo(() => calculateRelicBonuses(metaState), [metaState]);
   const savedUnlockedUnitCount = savedRun?.unlockedUnitCount ?? 0;
   const [screen, setScreen] = useState<ScreenId>(() =>
     restoreScreen(savedRun?.screen, savedUnlockedUnitCount > 0),
@@ -245,38 +263,24 @@ export default function App() {
     ...cloneUpgrades(),
     ...savedRun?.upgrades,
   }));
-  const [aiSlotCounts, setAiSlotCounts] = useState<number[]>(() =>
-    normalizeSavedArray(savedRun?.aiSlotCounts, createInitialAiSlotCounts()),
-  );
-  const [aiRulesByUnit, setAiRulesByUnit] = useState<AiRule[][]>(() =>
-    normalizeSavedArray(savedRun?.aiRulesByUnit, createInitialAiRulesByUnit()),
-  );
-  const [aiPresetsByUnit, setAiPresetsByUnit] = useState<AiPresetId[]>(() =>
-    normalizeSavedArray(
-      savedRun?.aiPresetsByUnit,
-      savedRun?.aiRulesByUnit
-        ? Array.from({ length: SQUAD_SIZE }, () => "custom" as AiPresetId)
-        : createInitialAiPresets(),
-    ),
-  );
-  const [unlockedAiPackageIds, setUnlockedAiPackageIds] = useState<AiUnlockPackageId[]>(() =>
-    normalizeAiUnlockPackageIds(savedRun?.unlockedAiPackageIds),
-  );
-  const [targetPrioritiesByUnit, setTargetPrioritiesByUnit] = useState<TargetPriorityId[]>(() =>
-    normalizeSavedArray(savedRun?.targetPrioritiesByUnit, createInitialTargetPriorities()),
-  );
   const [weaponAutoUseByUnit, setWeaponAutoUseByUnit] = useState<WeaponAutoUse[]>(() =>
     normalizeSavedArray(savedRun?.weaponAutoUseByUnit, createInitialWeaponAutoUseByUnit()),
   );
   const [unitHpByUnit, setUnitHpByUnit] = useState<number[]>(() =>
-    normalizeSavedArray(savedRun?.unitHpByUnit, createInitialUnitHp()),
+    normalizeSavedArray(savedRun?.unitHpByUnit, createInitialUnitHp(relicBonuses)),
   );
   const [sortieEnabled, setSortieEnabled] = useState<boolean[]>(() =>
     normalizeSavedArray(savedRun?.sortieEnabled, createInitialSortieEnabled()),
   );
   const [repairKitStock, setRepairKitStock] = useState(() => savedRun?.repairKitStock ?? 0);
-  const [credits, setCredits] = useState(() => savedRun?.credits ?? 0);
+  const [credits, setCredits] = useState(() => savedRun?.credits ?? relicBonuses.initialCredits);
   const [rewardOptions, setRewardOptions] = useState<RewardOption[]>(() => savedRun?.rewardOptions ?? []);
+  const [rewardRerollsUsedByWorld, setRewardRerollsUsedByWorld] = useState<number[]>(() =>
+    normalizeSavedArray(savedRun?.rewardRerollsUsedByWorld, [0, 0, 0]),
+  );
+  const [pendingRelicReward, setPendingRelicReward] = useState<PendingRelicReward | undefined>(
+    () => savedRun?.pendingRelicReward,
+  );
   const [lastCombatReport, setLastCombatReport] = useState<CombatReport | undefined>(
     () => savedRun?.lastCombatReport,
   );
@@ -285,35 +289,25 @@ export default function App() {
   const statsByUnit = useMemo(
     () =>
       loadouts.map((unitLoadout, index) =>
-        calculateDerivedStats(unitLoadout, upgrades, unitFrameIds[index] ?? initialFrameId),
+        applyRelicBonusesToStats(
+          calculateDerivedStats(unitLoadout, upgrades, unitFrameIds[index] ?? initialFrameId),
+          index,
+          relicBonuses,
+        ),
       ),
-    [loadouts, upgrades, unitFrameIds],
-  );
-  const aiUnlockState = useMemo(
-    () => getAiUnlockState(unlockedAiPackageIds),
-    [unlockedAiPackageIds],
+    [loadouts, relicBonuses, upgrades, unitFrameIds],
   );
   const equippedCounts = useMemo(
     () => equippedPartCounts(loadouts, unlockedUnitCount),
     [loadouts, unlockedUnitCount],
   );
-  const normalizedRulesByUnit = useMemo(
-    () =>
-      aiRulesByUnit.map((rules, index) =>
-        ensureAiRuleSlots(rules, aiSlotCounts[index] ?? STARTER_AI_SLOT_COUNT),
-      ),
-    [aiRulesByUnit, aiSlotCounts],
-  );
   const combatRulesByUnit = useMemo(
-    () => normalizedRulesByUnit.map((rules) => normalizeRulesForCombat(rules, aiUnlockState)),
-    [aiUnlockState, normalizedRulesByUnit],
+    () => statsByUnit.map((stats) => createAutoCombatRules(stats)),
+    [statsByUnit],
   );
   const combatTargetPrioritiesByUnit = useMemo(
-    () =>
-      targetPrioritiesByUnit.map((priority) =>
-        aiUnlockState.targetPriorities.has(priority) ? priority : "nearest",
-      ),
-    [aiUnlockState, targetPrioritiesByUnit],
+    () => statsByUnit.map((stats) => createAutoTargetPriority(stats)),
+    [statsByUnit],
   );
   const sortieReady = useMemo(
     () =>
@@ -322,10 +316,10 @@ export default function App() {
       ),
     [sortieEnabled, statsByUnit, unitHpByUnit, unlockedUnitCount],
   );
-  const stageChoices = useMemo(() => createStageChoices(stage), [stage]);
+  const stageChoices = useMemo(() => createStageChoices(stage, relicBonuses), [relicBonuses, stage]);
   const currentStagePlan = useMemo(
-    () => getStagePlan(stage, selectedStageNodeId),
-    [stage, selectedStageNodeId],
+    () => getStagePlan(stage, selectedStageNodeId, relicBonuses),
+    [relicBonuses, stage, selectedStageNodeId],
   );
   const currentCombatStageType: CombatStageType = isCombatStageType(currentStagePlan.type)
     ? currentStagePlan.type
@@ -335,10 +329,9 @@ export default function App() {
       generateShopOffers(
         stage,
         partInventory,
-        aiSlotCounts[activeUnitIndex] ?? STARTER_AI_SLOT_COUNT,
-        unlockedAiPackageIds,
+        relicBonuses,
       ),
-    [activeUnitIndex, aiSlotCounts, partInventory, stage, unlockedAiPackageIds],
+    [partInventory, relicBonuses, stage],
   );
 
   useEffect(() => {
@@ -354,6 +347,16 @@ export default function App() {
   }, [activeUnitIndex, unlockedUnitCount]);
 
   useEffect(() => {
+    if (screen === "relicReward" && !pendingRelicReward) {
+      setScreen("frameSelect");
+    }
+  }, [pendingRelicReward, screen]);
+
+  useEffect(() => {
+    saveMetaState(metaState);
+  }, [metaState]);
+
+  useEffect(() => {
     saveRunState({
       screen,
       stage,
@@ -365,42 +368,36 @@ export default function App() {
       activeUnitIndex,
       partInventory,
       upgrades,
-      aiSlotCounts,
-      aiRulesByUnit,
-      aiPresetsByUnit,
-      unlockedAiPackageIds,
-      targetPrioritiesByUnit,
       weaponAutoUseByUnit,
       unitHpByUnit,
       sortieEnabled,
       repairKitStock,
       credits,
       rewardOptions,
+      rewardRerollsUsedByWorld,
+      pendingRelicReward,
       lastCombatReport,
       lastOutcome,
     });
   }, [
     activeUnitIndex,
-    aiPresetsByUnit,
-    aiRulesByUnit,
-    aiSlotCounts,
     credits,
     lastCombatReport,
     lastOutcome,
     loadouts,
+    pendingRelicReward,
     partInventory,
     pendingUnitIndex,
     repairKitStock,
     rewardOptions,
+    rewardRerollsUsedByWorld,
     screen,
     selectedStageNodeId,
     sortieEnabled,
     stage,
-    targetPrioritiesByUnit,
     unitFrameIds,
     unitHpByUnit,
     unlockedUnitCount,
-    unlockedAiPackageIds,
     upgrades,
     weaponAutoUseByUnit,
   ]);
@@ -421,12 +418,6 @@ export default function App() {
       ? normalizeLoadout(loadouts[activeUnitIndex])
       : undefined;
     if (!activeLoadout || activeLoadout[slot] === partId) {
-      return;
-    }
-
-    if (isShoulderSlotBlocked(activeLoadout, slot) && !isFreePart(partId)) {
-      playUiSound("error");
-      setLastOutcome("両肩武装を装備中のため、左右肩武装は装備できません");
       return;
     }
 
@@ -453,10 +444,16 @@ export default function App() {
     setLoadouts((current) =>
       current.map((unitLoadout, index) => {
         if (index === activeUnitIndex) {
-          return applyShoulderCompatibility(unitLoadout, slot, partId);
+          return normalizeLoadout({
+            ...unitLoadout,
+            [slot]: partId,
+          });
         }
         if (index === donorIndex) {
-          return applyShoulderCompatibility(unitLoadout, slot, previousPartId);
+          return normalizeLoadout({
+            ...unitLoadout,
+            [slot]: previousPartId,
+          });
         }
         return normalizeLoadout(unitLoadout);
       }),
@@ -466,69 +463,6 @@ export default function App() {
       donorIndex >= 0
         ? `UNIT ${donorIndex + 1} から ${part.name} を付け替え`
         : `${part.name} を装備`,
-    );
-  };
-
-  const changeActiveAiRules = (rules: AiRule[]) => {
-    setAiPresetsByUnit((current) =>
-      current.map((preset, index) => (index === activeUnitIndex ? "custom" : preset)),
-    );
-    setAiRulesByUnit((current) =>
-      current.map((unitRules, index) => (index === activeUnitIndex ? rules : unitRules)),
-    );
-  };
-
-  const changeActiveAiPreset = (preset: AiPresetId) => {
-    playUiSound("select");
-    setAiPresetsByUnit((current) =>
-      current.map((unitPreset, index) => (index === activeUnitIndex ? preset : unitPreset)),
-    );
-    if (preset === "custom") {
-      return;
-    }
-
-    const definition = getAiPresetDefinition(preset);
-    const slotCount = aiSlotCounts[activeUnitIndex] ?? definition.rules.length;
-    setAiRulesByUnit((current) =>
-      current.map((unitRules, index) =>
-        index === activeUnitIndex ? createAiPresetRules(preset, slotCount, unlockedAiPackageIds) : unitRules,
-      ),
-    );
-    setTargetPrioritiesByUnit((current) =>
-      current.map((unitPriority, index) =>
-        index === activeUnitIndex && aiUnlockState.targetPriorities.has(definition.targetPriority)
-          ? definition.targetPriority
-          : unitPriority,
-      ),
-    );
-  };
-
-  const changeActiveTargetPriority = (priority: TargetPriorityId) => {
-    if (!aiUnlockState.targetPriorities.has(priority)) {
-      playUiSound("error");
-      setLastOutcome(`${priority} は未解放のターゲット優先です`);
-      return;
-    }
-    playUiSound("select");
-    setAiPresetsByUnit((current) =>
-      current.map((preset, index) => (index === activeUnitIndex ? "custom" : preset)),
-    );
-    setTargetPrioritiesByUnit((current) =>
-      current.map((unitPriority, index) => (index === activeUnitIndex ? priority : unitPriority)),
-    );
-  };
-
-  const toggleWeaponAutoUse = (hardpoint: WeaponHardpoint) => {
-    playUiSound("toggle");
-    setWeaponAutoUseByUnit((current) =>
-      current.map((config, index) =>
-        index === activeUnitIndex
-          ? {
-              ...config,
-              [hardpoint]: !config[hardpoint],
-            }
-          : config,
-      ),
     );
   };
 
@@ -588,7 +522,8 @@ export default function App() {
     setLastOutcome(`UNIT ${unitIndex + 1} を全回復`);
   };
 
-  const resetRun = () => {
+  const resetRun = (options?: { preservePendingRelic?: boolean; nextMetaState?: MetaSaveState }) => {
+    const startingBonuses = calculateRelicBonuses(options?.nextMetaState ?? metaState);
     setStage(1);
     setSelectedStageNodeId(undefined);
     setLoadouts(createInitialLoadouts());
@@ -598,17 +533,16 @@ export default function App() {
     setActiveUnitIndex(0);
     setPartInventory(createEmptyPartInventory());
     setUpgrades(cloneUpgrades());
-    setAiSlotCounts(createInitialAiSlotCounts());
-    setAiRulesByUnit(createInitialAiRulesByUnit());
-    setAiPresetsByUnit(createInitialAiPresets());
-    setUnlockedAiPackageIds(createInitialUnlockedAiPackageIds());
-    setTargetPrioritiesByUnit(createInitialTargetPriorities());
     setWeaponAutoUseByUnit(createInitialWeaponAutoUseByUnit());
-    setUnitHpByUnit(createInitialUnitHp());
+    setUnitHpByUnit(createInitialUnitHp(startingBonuses));
     setSortieEnabled(createInitialSortieEnabled());
     setRepairKitStock(0);
-    setCredits(0);
+    setCredits(startingBonuses.initialCredits);
     setRewardOptions([]);
+    setRewardRerollsUsedByWorld([0, 0, 0]);
+    if (!options?.preservePendingRelic) {
+      setPendingRelicReward(undefined);
+    }
     setLastCombatReport(undefined);
   };
 
@@ -617,10 +551,11 @@ export default function App() {
     const unitIndex = pendingUnitIndex;
     const frame = getBaseFrameById(frameId);
     const frameLoadout = createInitialLoadoutForFrame(frameId);
-    const framePreset = defaultAiPresetForFrame(frameId);
-    const frameRules = createAiPresetRules(framePreset, STARTER_AI_SLOT_COUNT, unlockedAiPackageIds);
-    const framePresetDefinition = getAiPresetDefinition(framePreset);
-    const unitStats = calculateDerivedStats(frameLoadout, upgrades, frameId);
+    const unitStats = applyRelicBonusesToStats(
+      calculateDerivedStats(frameLoadout, upgrades, frameId),
+      unitIndex,
+      relicBonuses,
+    );
 
     setLoadouts((current) =>
       current.map((unitLoadout, index) => (index === unitIndex ? frameLoadout : unitLoadout)),
@@ -629,22 +564,6 @@ export default function App() {
       current.map((currentFrameId, index) => (index === unitIndex ? frameId : currentFrameId)),
     );
     setPartInventory((current) => grantStarterKit(current));
-    setAiRulesByUnit((current) =>
-      current.map((unitRules, index) => (index === unitIndex ? frameRules : unitRules)),
-    );
-    setAiPresetsByUnit((current) =>
-      current.map((unitPreset, index) => (index === unitIndex ? framePreset : unitPreset)),
-    );
-    setTargetPrioritiesByUnit((current) =>
-      current.map((unitPriority, index) =>
-        index === unitIndex && aiUnlockState.targetPriorities.has(framePresetDefinition.targetPriority)
-          ? framePresetDefinition.targetPriority
-          : unitPriority,
-      ),
-    );
-    setAiSlotCounts((current) =>
-      current.map((slotCount, index) => (index === unitIndex ? frameRules.length : slotCount)),
-    );
     setWeaponAutoUseByUnit((current) =>
       current.map((config, index) => (index === unitIndex ? createWeaponAutoUse() : config)),
     );
@@ -667,9 +586,16 @@ export default function App() {
     setLastCombatReport(report);
     if (stage >= TOTAL_STAGES) {
       playUiSound("runComplete");
-      setRewardOptions([]);
-      setLastOutcome("RUN COMPLETE: 3ワールド全ステージ制圧");
-      setScreen("complete");
+      const pending = createPendingRelicReward("clear", TOTAL_STAGES, TOTAL_STAGES, metaState);
+      resetRun({ preservePendingRelic: true });
+      if (pending) {
+        setPendingRelicReward(pending);
+        setLastOutcome("RUN COMPLETE: 遺物を選択してください");
+        setScreen("relicReward");
+      } else {
+        setLastOutcome("RUN COMPLETE: 新しいランを開始できます");
+        setScreen("frameSelect");
+      }
       return;
     }
     playUiSound("stageClear");
@@ -677,9 +603,8 @@ export default function App() {
       generateRewardOptions(
         stage,
         partInventory,
-        aiSlotCounts[activeUnitIndex] ?? STARTER_AI_SLOT_COUNT,
         currentStagePlan.type,
-        unlockedAiPackageIds,
+        relicBonuses,
       ),
     );
     setLastOutcome(`WORLD ${worldForStage(stage)} / STAGE ${stage} CLEAR`);
@@ -687,8 +612,18 @@ export default function App() {
   };
 
   const handleDefeat = () => {
-    resetRun();
-    setLastOutcome("機体大破: ランを最初から再開");
+    const clearedStages = Math.max(0, stage - 1);
+    const pending = createPendingRelicReward("defeat", stage, clearedStages, metaState);
+    resetRun({ preservePendingRelic: true });
+    if (pending) {
+      playUiSound("reward");
+      setPendingRelicReward(pending);
+      setLastOutcome(`機体大破: STAGE ${stage} 到達遺物を選択`);
+      setScreen("relicReward");
+      return;
+    }
+    setPendingRelicReward(undefined);
+    setLastOutcome("機体大破: 1戦未勝利のため遺物なし");
     setScreen("frameSelect");
   };
 
@@ -716,8 +651,17 @@ export default function App() {
     setStage(nextStage);
     const unlockIndex = unitUnlockIndexForStage(nextStage);
     if (unlockIndex !== undefined && unlockedUnitCount < unlockIndex + 1) {
+      if (relicBonuses.worldEntryHealPercent > 0) {
+        healAllUnits(relicBonuses.worldEntryHealPercent);
+      }
       setPendingUnitIndex(unlockIndex);
-      setLastOutcome(`${outcome} / UNIT ${unlockIndex + 1} 配備選択`);
+      setLastOutcome(
+        `${outcome} / UNIT ${unlockIndex + 1} 配備選択${
+          relicBonuses.worldEntryHealPercent > 0
+            ? ` / 補給ビーコン +${Math.round(relicBonuses.worldEntryHealPercent * 100)}%`
+            : ""
+        }`,
+      );
       setScreen("frameSelect");
       return;
     }
@@ -744,50 +688,6 @@ export default function App() {
     );
   };
 
-  const unlockAiPackage = (packageId: AiUnlockPackageId) => {
-    if (unlockedAiPackageIds.includes(packageId)) {
-      return;
-    }
-
-    const item = getAiUnlockPackage(packageId);
-    const nextUnlockedPackageIds = [...unlockedAiPackageIds, packageId];
-    const nextUnlockState = getAiUnlockState(nextUnlockedPackageIds);
-    setUnlockedAiPackageIds(nextUnlockedPackageIds);
-    setAiRulesByUnit((current) =>
-      current.map((rules, unitIndex) => {
-        if (unitIndex >= unlockedUnitCount || item.recommendedRules.length === 0) {
-          return rules;
-        }
-        const slotCount = aiSlotCounts[unitIndex] ?? STARTER_AI_SLOT_COUNT;
-        const normalized = ensureAiRuleSlots(rules, slotCount);
-        const nextRules = [...normalized];
-        for (const recommendedRule of item.recommendedRules) {
-          if (!isAiRuleUnlocked(recommendedRule, nextUnlockState)) {
-            continue;
-          }
-          const duplicate = nextRules.some(
-            (rule) =>
-              rule.condition === recommendedRule.condition &&
-              rule.action === recommendedRule.action,
-          );
-          if (duplicate) {
-            continue;
-          }
-          const insertIndex = nextRules.findIndex((rule) => rule.action === "idle" || !rule.enabled);
-          if (insertIndex < 0) {
-            continue;
-          }
-          nextRules[insertIndex] = {
-            ...recommendedRule,
-            id: `${recommendedRule.id}-u${unitIndex + 1}`,
-          };
-        }
-        return nextRules;
-      }),
-    );
-    setLastOutcome(`${item.name} をAIチップとして解放`);
-  };
-
   const applyRewardPayload = (payload: RewardOption["payload"]) => {
     if (payload.kind === "part") {
       const part = getPartById(payload.partId);
@@ -800,7 +700,10 @@ export default function App() {
         setLoadouts((current) =>
           current.map((unitLoadout, index) =>
             index === activeUnitIndex
-              ? applyShoulderCompatibility(unitLoadout, slot, part.id)
+              ? normalizeLoadout({
+                  ...unitLoadout,
+                  [slot]: part.id,
+                })
               : unitLoadout,
           ),
         );
@@ -819,18 +722,6 @@ export default function App() {
         ...current,
         cooldownMultiplier: Math.max(0.58, current.cooldownMultiplier * payload.multiplier),
       }));
-    }
-
-    if (payload.kind === "aiSlot") {
-      setAiSlotCounts((current) =>
-        current.map((slotCount, index) =>
-          index === activeUnitIndex ? Math.min(8, slotCount + payload.amount) : slotCount,
-        ),
-      );
-    }
-
-    if (payload.kind === "aiUnlock") {
-      unlockAiPackage(payload.packageId);
     }
 
     if (payload.kind === "repairKit") {
@@ -856,6 +747,31 @@ export default function App() {
     advanceToNextStage(`${reward.title} を獲得`);
   };
 
+  const rerollRewardOptions = () => {
+    const worldIndex = worldForStage(stage) - 1;
+    const used = rewardRerollsUsedByWorld[worldIndex] ?? 0;
+    if (used >= relicBonuses.rewardRerollsPerWorld) {
+      playUiSound("error");
+      setLastOutcome("報酬再抽選はこのWORLDでは使用済み");
+      return;
+    }
+    playUiSound("select");
+    const nextUsed = used + 1;
+    setRewardRerollsUsedByWorld((current) =>
+      current.map((count, index) => (index === worldIndex ? nextUsed : count)),
+    );
+    setRewardOptions(
+      generateRewardOptions(
+        stage,
+        partInventory,
+        currentStagePlan.type,
+        relicBonuses,
+        nextUsed * 17,
+      ),
+    );
+    setLastOutcome(`報酬フィルタ: WORLD ${worldForStage(stage)} 再抽選`);
+  };
+
   const selectStageNode = (nodeId: string) => {
     playUiSound("select");
     setSelectedStageNodeId(nodeId);
@@ -863,8 +779,9 @@ export default function App() {
 
   const resolveRestSite = () => {
     playUiSound("repair");
-    healAllUnits(0.5);
-    advanceToNextStage(`休憩地点で全機HPを50%回復`);
+    const healPercent = 0.5 + relicBonuses.restHealBonus;
+    healAllUnits(healPercent);
+    advanceToNextStage(`休憩地点で全機HPを${Math.round(healPercent * 100)}%回復`);
   };
 
   const buyShopOffer = (offer: ShopOffer) => {
@@ -924,6 +841,64 @@ export default function App() {
     setScreen("frameSelect");
   };
 
+  const finishRelicFlow = (nextMetaState: MetaSaveState, pending: PendingRelicReward) => {
+    const finalizedMeta = appendRunHistory(nextMetaState, pending, new Date().toISOString());
+    setMetaState(finalizedMeta);
+    resetRun({ nextMetaState: finalizedMeta });
+    setLastOutcome("遺物を保存: 新しいランを開始できます");
+    setScreen("frameSelect");
+  };
+
+  const pickRelicReward = (option: RelicRewardOption) => {
+    if (!pendingRelicReward) {
+      return;
+    }
+
+    playUiSound("reward");
+    const granted = grantRelicToMeta(metaState, option.relicId);
+    const nextGrantedRelicIds = [...pendingRelicReward.grantedRelicIds, option.relicId];
+    const nextPendingBase: PendingRelicReward = {
+      ...pendingRelicReward,
+      grantedRelicIds: nextGrantedRelicIds,
+      picksRemaining: Math.max(0, pendingRelicReward.picksRemaining - 1),
+    };
+
+    if (pendingRelicReward.reason === "clear" && pendingRelicReward.phase === "normal") {
+      const nextPending = createPendingRelicReward(
+        "clear",
+        pendingRelicReward.reachedStage,
+        pendingRelicReward.clearedStages,
+        granted.metaState,
+        "clear",
+        nextGrantedRelicIds,
+      );
+      if (nextPending) {
+        setMetaState(granted.metaState);
+        setPendingRelicReward(nextPending);
+        setLastOutcome("全クリア専用遺物を選択してください");
+        return;
+      }
+    }
+
+    finishRelicFlow(granted.metaState, nextPendingBase);
+  };
+
+  const skipRelicReward = () => {
+    playUiSound("confirm");
+    setPendingRelicReward(undefined);
+    resetRun();
+    setLastOutcome("遺物選択を終了: 新しいランを開始できます");
+    setScreen("frameSelect");
+  };
+
+  const changeClearStartBonus = (choice: ClearStartBonusChoice) => {
+    playUiSound("select");
+    setMetaState((current) => ({
+      ...normalizeMetaSaveState(current),
+      clearStartBonusChoice: choice,
+    }));
+  };
+
   const hasUnit = unlockedUnitCount > 0;
   const runComplete = stage >= TOTAL_STAGES && lastOutcome?.startsWith("RUN COMPLETE") === true;
   const selectActiveUnit = (index: number) => {
@@ -934,6 +909,15 @@ export default function App() {
     playUiSound("select");
     setScreen(nextScreen);
   };
+  const openRelicCollection = () => openScreen("relicCollection");
+  const closeRelicCollection = () => {
+    playUiSound("select");
+    setScreen(hasUnit ? "map" : "frameSelect");
+  };
+  const rewardRerollsRemaining = Math.max(
+    0,
+    relicBonuses.rewardRerollsPerWorld - (rewardRerollsUsedByWorld[worldForStage(stage) - 1] ?? 0),
+  );
   const topBar = (
     <header className="app-header mode-header">
       <div>
@@ -945,7 +929,9 @@ export default function App() {
       <div className="mode-stat-strip">
         <span>{screen.toUpperCase()}</span>
         <span>{credits} CR</span>
-        <span>AI {unlockedAiPackageIds.length}/{aiUnlockPackages.length}</span>
+        {screen !== "combat" && screen !== "relicReward" && screen !== "relicCollection" && (
+          <button onClick={openRelicCollection}>遺物</button>
+        )}
       </div>
     </header>
   );
@@ -974,35 +960,13 @@ export default function App() {
           repairKitStock={repairKitStock}
           activeUnitIndex={activeUnitIndex}
           lastOutcome={lastOutcome}
-          weaponAutoUse={weaponAutoUseByUnit[activeUnitIndex] ?? createWeaponAutoUse()}
           onSelectUnit={selectActiveUnit}
           onChangeLoadout={changeLoadout}
-          onToggleWeaponAutoUse={toggleWeaponAutoUse}
           onToggleSortie={toggleSortie}
           onUseRepairKit={useRepairKit}
-          onOpenAi={() => openScreen("ai")}
           onOpenMap={() => openScreen("map")}
           onStartCombat={startCombat}
           canStartCombat={sortieReady}
-        />
-      )}
-      {screen === "ai" && hasUnit && (
-        <AiEditorScreen
-          rules={normalizedRulesByUnit[activeUnitIndex]}
-          slotCount={aiSlotCounts[activeUnitIndex] ?? STARTER_AI_SLOT_COUNT}
-          activeUnitIndex={activeUnitIndex}
-          unlockedUnitCount={unlockedUnitCount}
-          statsByUnit={statsByUnit}
-          aiPreset={aiPresetsByUnit[activeUnitIndex] ?? "custom"}
-          targetPriority={targetPrioritiesByUnit[activeUnitIndex] ?? "nearest"}
-          unlockedAiPackageIds={unlockedAiPackageIds}
-          onSelectUnit={selectActiveUnit}
-          onChangeAiPreset={changeActiveAiPreset}
-          onChangeRules={changeActiveAiRules}
-          onChangeTargetPriority={changeActiveTargetPriority}
-          onOpenAssemble={() => openScreen("assemble")}
-          onOpenMap={() => openScreen("map")}
-          onStartCombat={startCombat}
         />
       )}
       {screen === "combat" && hasUnit && (
@@ -1030,15 +994,30 @@ export default function App() {
           rewards={rewardOptions}
           report={lastCombatReport}
           rulesByUnit={combatRulesByUnit}
+          rerollsRemaining={rewardRerollsRemaining}
+          onRerollRewards={rerollRewardOptions}
           onPickReward={applyReward}
+        />
+      )}
+      {screen === "relicReward" && pendingRelicReward && (
+        <RelicRewardScreen
+          pending={pendingRelicReward}
+          metaState={metaState}
+          onPickRelic={pickRelicReward}
+          onSkip={skipRelicReward}
+        />
+      )}
+      {screen === "relicCollection" && (
+        <RelicCollectionScreen
+          metaState={metaState}
+          onBack={closeRelicCollection}
+          onChangeClearBonus={changeClearStartBonus}
         />
       )}
       {screen === "complete" && hasUnit && (
         <RunCompleteScreen
           report={lastCombatReport}
-          rulesByUnit={normalizedRulesByUnit}
-          onOpenAssemble={() => openScreen("assemble")}
-          onOpenAi={() => openScreen("ai")}
+          rulesByUnit={combatRulesByUnit}
           onNewRun={startNewRun}
         />
       )}
@@ -1055,7 +1034,6 @@ export default function App() {
           canStartStage={sortieReady || !isCombatStageType(currentStagePlan.type)}
           onSelectStageNode={selectStageNode}
           onOpenAssemble={() => openScreen("assemble")}
-          onOpenAi={() => openScreen("ai")}
           onStartCombat={startCombat}
         />
       )}
@@ -1077,6 +1055,7 @@ export default function App() {
           unlockedUnitCount={unlockedUnitCount}
           unitHpByUnit={unitHpByUnit}
           statsByUnit={statsByUnit}
+          healPercent={0.5 + relicBonuses.restHealBonus}
           onRest={resolveRestSite}
           onBackMap={() => openScreen("map")}
         />

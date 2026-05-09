@@ -1,22 +1,31 @@
 import { strict as assert } from "node:assert";
 import { createCombatState, stepCombat } from "../src/game/combat";
-import { damageAfterDefense } from "../src/game/combatDamage";
+import { applyDamageToActor, damageAfterDefense } from "../src/game/combatDamage";
 import { createEnemyRanks } from "../src/game/enemyWaves";
 import {
   createAiPresetRules,
   getAvailableActionDefinitions,
   getAvailableConditionDefinitions,
 } from "../src/data/aiRules";
-import { getAiUnlockState, normalizeRulesForCombat } from "../src/data/aiUnlocks";
 import {
   EMPTY_LEFT_ARM_PART_ID,
   EMPTY_RIGHT_ARM_PART_ID,
   baseUpgrades,
   calculateDerivedStats,
+  getPartById,
   initialLoadout,
+  normalizeLoadout,
 } from "../src/data/parts";
 import { generateRewardOptions, generateShopOffers } from "../src/data/rewards";
+import {
+  calculateRelicBonuses,
+  createInitialMetaSaveState,
+  createPendingRelicReward,
+  grantRelicToMeta,
+} from "../src/data/relics";
+import { createStageChoices } from "../src/data/stages";
 import type { AiRule, DerivedStats, WeaponStats } from "../src/types";
+import { EQUIP_SLOTS } from "../src/types";
 
 const rules: AiRule[][] = [[]];
 
@@ -38,6 +47,7 @@ const testStats: DerivedStats = {
   quickBoostCooldown: 0.5,
   quickBoostCost: 16,
   quickBoostDuration: 0.18,
+  aiReaction: 32,
   rightRange: 320,
   leftRange: 260,
   rightAttack: 60,
@@ -59,6 +69,24 @@ const testStats: DerivedStats = {
 
 const createOneUnitState = (stage: number) =>
   createCombatState(stage, [testStats], [testStats.hpMax], [true], 1, []);
+
+type TestCombatState = ReturnType<typeof createCombatState>;
+
+const placeFirstEnemyNear = (state: TestCombatState, xOffset = 160) => {
+  stepCombat(state, 0.016, rules);
+  const enemy = state.enemies[0];
+  assert.ok(enemy);
+  const player = state.players[0].actor;
+  state.enemyQueue = [];
+  enemy.x = player.x + xOffset;
+  enemy.y = player.y;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.moveSpeed = 0;
+  enemy.cooldown = 999;
+  enemy.entryBoostTime = 0;
+  return enemy;
+};
 
 const testWeapon = (patch: Partial<WeaponStats> & Pick<WeaponStats, "hardpoint" | "slot" | "partId" | "label">): WeaponStats => ({
   range: 360,
@@ -119,6 +147,11 @@ const statsWithWeapon = (weapon: WeaponStats): DerivedStats => ({
   weapons: [weapon],
 });
 
+const statsWithSpecial = (special: NonNullable<DerivedStats["special"]>): DerivedStats => ({
+  ...testStats,
+  special,
+});
+
 const run = (name: string, test: () => void) => {
   try {
     test();
@@ -129,53 +162,142 @@ const run = (name: string, test: () => void) => {
   }
 };
 
-run("starter AI hides advanced actions until AI chips unlock them", () => {
-  const starterActions = getAvailableActionDefinitions().map((item) => item.id);
-  assert.ok(!starterActions.includes("boostDodge"));
-  assert.ok(!starterActions.includes("alphaStrike"));
-  assert.ok(!starterActions.includes("fireBothShoulders"));
-  assert.ok(!starterActions.includes("interceptMissile"));
-
-  const unlockedActions = getAvailableActionDefinitions(["w1-boost-dodge"]).map((item) => item.id);
-  const unlockedConditions = getAvailableConditionDefinitions(["w1-boost-dodge"]).map((item) => item.id);
-  assert.ok(unlockedActions.includes("boostDodge"));
-  assert.ok(unlockedConditions.includes("enemyProjectileNear"));
+run("automatic AI exposes tactical and expert actions from the start", () => {
+  const actions = getAvailableActionDefinitions().map((item) => item.id);
+  const conditions = getAvailableConditionDefinitions().map((item) => item.id);
+  assert.ok(actions.includes("boostDodge"));
+  assert.ok(actions.includes("alphaStrike"));
+  assert.ok(actions.includes("interceptMissile"));
+  assert.ok(conditions.includes("enemyProjectileNear"));
+  assert.ok(conditions.includes("incomingBeamLock"));
 });
 
-run("locked AI rules are preserved for editing but become idle in combat", () => {
-  const lockedRules: AiRule[] = [
-    { id: "locked-alpha", condition: "enemyMid", action: "alphaStrike", enabled: true },
-  ];
-  const combatRules = normalizeRulesForCombat(lockedRules, getAiUnlockState());
-  assert.equal(combatRules[0].condition, "enemyMid");
-  assert.equal(combatRules[0].action, "idle");
+run("AI blueprints use advanced behavior without unlock packages", () => {
+  const preset = createAiPresetRules("assault", 6);
+  assert.ok(preset.some((rule) => rule.action === "boostDodge"));
+  assert.ok(preset.some((rule) => rule.action === "alphaStrike"));
 });
 
-run("AI blueprints only apply unlocked rules", () => {
-  const starterPreset = createAiPresetRules("assault", 6);
-  assert.ok(!starterPreset.some((rule) => rule.action === "boostDodge"));
-  assert.ok(!starterPreset.some((rule) => rule.action === "alphaStrike"));
+run("rewards and shop offers exclude shoulder slots and AI chip payloads", () => {
+  assert.deepEqual(EQUIP_SLOTS, ["HEAD", "BODY", "BOOSTER", "L-ARM", "R-ARM", "SPECIAL"]);
 
-  const dodgePreset = createAiPresetRules("assault", 6, ["w1-boost-dodge"]);
-  assert.ok(dodgePreset.some((rule) => rule.action === "boostDodge"));
-  assert.ok(!dodgePreset.some((rule) => rule.action === "alphaStrike"));
-});
-
-run("AI chip rewards and shop offers skip already unlocked packages", () => {
-  const rewardOptions = generateRewardOptions(2, {}, 4, "normal", ["w1-boost-dodge"]);
+  const rewardOptions = generateRewardOptions(2, {}, "normal", { aiRewardBonusCount: 1 });
   assert.ok(
-    !rewardOptions.some(
-      (reward) => reward.payload.kind === "aiUnlock" && reward.payload.packageId === "w1-boost-dodge",
-    ),
+    rewardOptions.every((reward) => {
+      const kind = (reward.payload as { kind: string }).kind;
+      return kind !== "aiUnlock" && kind !== "aiSlot";
+    }),
   );
-  assert.ok(rewardOptions.some((reward) => reward.payload.kind === "aiUnlock"));
-
-  const shopOffers = generateShopOffers(3, {}, 4, ["w1-boost-dodge"]);
   assert.ok(
-    !shopOffers.some(
-      (offer) => offer.payload.kind === "aiUnlock" && offer.payload.packageId === "w1-boost-dodge",
-    ),
+    rewardOptions
+      .filter((reward) => reward.payload.kind === "part")
+      .every((reward) => !getPartById(reward.payload.partId).slot.includes("SHOULDER")),
   );
+
+  const shopOffers = generateShopOffers(3, {}, { aiShopDiscount: 0.12 });
+  assert.ok(
+    shopOffers.every((offer) => {
+      const kind = (offer.payload as { kind: string }).kind;
+      return kind !== "aiUnlock" && kind !== "aiSlot";
+    }),
+  );
+  assert.ok(
+    shopOffers
+      .filter((offer) => offer.payload.kind === "part")
+      .every((offer) => getPartById(offer.payload.partId).slot !== "SPECIAL" || offer.accent === "purple"),
+  );
+});
+
+run("legacy shoulder loadouts normalize into the SPECIAL slot", () => {
+  const legacy = normalizeLoadout({
+    ...initialLoadout,
+    "L-SHOULDER": "legacy-missile",
+    "R-SHOULDER": "legacy-pod",
+  } as Partial<typeof initialLoadout> & Record<string, string>);
+  assert.deepEqual(Object.keys(legacy), [...EQUIP_SLOTS]);
+  assert.equal(legacy.SPECIAL, initialLoadout.SPECIAL);
+});
+
+run("defeat relic rewards require at least one cleared battle", () => {
+  const meta = createInitialMetaSaveState();
+  assert.equal(createPendingRelicReward("defeat", 1, 0, meta), undefined);
+
+  const pending = createPendingRelicReward("defeat", 2, 1, meta);
+  assert.ok(pending);
+  assert.equal(pending.options.length, 3);
+  assert.equal(pending.reachedWorld, 1);
+});
+
+run("duplicate relics level to cap and then become dust", () => {
+  let meta = createInitialMetaSaveState();
+  let grant = grantRelicToMeta(meta, "boot-log");
+  meta = grant.metaState;
+  assert.equal(meta.ownedRelics["boot-log"], 1);
+
+  grant = grantRelicToMeta(meta, "boot-log");
+  meta = grant.metaState;
+  grant = grantRelicToMeta(meta, "boot-log");
+  meta = grant.metaState;
+  assert.equal(meta.ownedRelics["boot-log"], 3);
+
+  grant = grantRelicToMeta(meta, "boot-log");
+  meta = grant.metaState;
+  assert.equal(meta.ownedRelics["boot-log"], 3);
+  assert.equal(meta.duplicateDust, 1);
+  assert.equal(grant.dustGained, 1);
+});
+
+run("relic bonuses affect only run-start style modifiers", () => {
+  const meta = {
+    ...createInitialMetaSaveState(),
+    ownedRelics: {
+      "boot-log": 2,
+      "armor-sample": 1,
+      "merchant-tag": 3,
+    },
+  };
+  const bonuses = calculateRelicBonuses(meta);
+  assert.equal(bonuses.initialCredits, 70);
+  assert.ok(Math.abs(bonuses.unitOneHpMultiplier - 1.03) < 0.001);
+  assert.ok(Math.abs(bonuses.aiShopDiscount - 0.2) < 0.001);
+});
+
+run("full clear relic flow grants a normal relic and then the clear key", () => {
+  const meta = createInitialMetaSaveState();
+  const pending = createPendingRelicReward("clear", 21, 21, meta);
+  assert.ok(pending);
+  assert.equal(pending.phase, "normal");
+  assert.equal(pending.picksRemaining, 2);
+  assert.ok(pending.options.every((option) => option.relicId !== "clear-auth-key"));
+
+  const granted = grantRelicToMeta(meta, pending.options[0].relicId);
+  const clearPending = createPendingRelicReward(
+    "clear",
+    21,
+    21,
+    granted.metaState,
+    "clear",
+    [pending.options[0].relicId],
+  );
+  assert.ok(clearPending);
+  assert.deepEqual(clearPending.options.map((option) => option.relicId), ["clear-auth-key"]);
+});
+
+run("relic bonuses can widen rewards, discount shops, and reveal scanner routes", () => {
+  const eliteRewards = generateRewardOptions(
+    5,
+    {},
+    "elite",
+    { eliteRewardBonusCount: 1, aiRewardBonusCount: 1 },
+  );
+  assert.equal(eliteRewards.length, 5);
+
+  const baseShopCost = generateShopOffers(3, {})[0].cost;
+  const discountedShopCost = generateShopOffers(3, {}, { partShopDiscount: 0.12 })[0].cost;
+  assert.ok(discountedShopCost < baseShopCost);
+
+  assert.equal(createStageChoices(2).length, 2);
+  assert.equal(createStageChoices(2, { extraRouteChoice: true }).length, 3);
 });
 
 run("initial enemies wait outside the active arena", () => {
@@ -297,13 +419,273 @@ run("guard action requires shield capability", () => {
   const guardRules: AiRule[][] = [[{ id: "guard-test", condition: "always", action: "guard", enabled: true }]];
   const unshielded = createOneUnitState(1);
   stepCombat(unshielded, 0.016, rules);
+  unshielded.players[0].decisionCooldown = 0;
   stepCombat(unshielded, 0.016, guardRules);
   assert.equal(unshielded.players[0].actor.guard, false);
 
   const shielded = createCombatState(1, [{ ...testStats, canGuard: true }], [testStats.hpMax], [true], 1, []);
   stepCombat(shielded, 0.016, rules);
+  shielded.players[0].decisionCooldown = 0;
   stepCombat(shielded, 0.016, guardRules);
   assert.equal(shielded.players[0].actor.guard, true);
+});
+
+run("AI reaction changes how quickly new threats are evaluated", () => {
+  const idleRules: AiRule[][] = [[{ id: "idle-first", condition: "always", action: "idle", enabled: true }]];
+  const dodgeRules: AiRule[][] = [[{ id: "dodge-threat", condition: "enemyProjectileNear", action: "boostDodge", enabled: true }]];
+  const low = createCombatState(1, [{ ...testStats, aiReaction: 8 }], [testStats.hpMax], [true], 1, []);
+  const high = createCombatState(1, [{ ...testStats, aiReaction: 60 }], [testStats.hpMax], [true], 1, []);
+  stepCombat(low, 0.016, idleRules);
+  stepCombat(high, 0.016, idleRules);
+
+  const addThreat = (state: TestCombatState) => {
+    const player = state.players[0].actor;
+    state.enemyQueue = [];
+    state.projectiles.push({
+      id: `reaction-threat-${state.time}`,
+      owner: "enemy",
+      kind: "bullet",
+      x: player.x + 42,
+      y: player.y,
+      vx: 0,
+      vy: 0,
+      damage: 10,
+      damageKind: "ballistic",
+      radius: 4,
+      life: 1,
+      color: "#ff5f42",
+    });
+  };
+  addThreat(low);
+  addThreat(high);
+
+  stepCombat(low, 0.18, dodgeRules);
+  stepCombat(high, 0.18, dodgeRules);
+  assert.equal(low.players[0].activeAction, "idle");
+  assert.equal(high.players[0].activeAction, "boostDodge");
+});
+
+run("defensive special equipment can create shields and damage reduction", () => {
+  const shieldState = createCombatState(
+    1,
+    [
+      statsWithSpecial({
+        partId: "test-shield",
+        name: "Test Shield",
+        kind: "shield",
+        trigger: "hpLow",
+        threshold: 0.9,
+        cooldown: 1,
+        duration: 4,
+        shieldHp: 80,
+      }),
+    ],
+    [testStats.hpMax * 0.5],
+    [true],
+    1,
+    [],
+  );
+  shieldState.players[0].special!.cooldownRemaining = 0;
+  stepCombat(shieldState, 0.016, rules);
+  const shielded = shieldState.players[0].actor;
+  assert.equal(shielded.shieldHp, 80);
+  const hpBeforeShieldHit = shielded.hp;
+  applyDamageToActor(shielded, 50);
+  assert.equal(shielded.hp, hpBeforeShieldHit);
+  assert.equal(shielded.shieldHp, 30);
+
+  const barrierState = createCombatState(
+    1,
+    [
+      statsWithSpecial({
+        partId: "test-barrier",
+        name: "Test Barrier",
+        kind: "barrier",
+        trigger: "incomingThreat",
+        cooldown: 1,
+        duration: 3,
+        damageReduction: 0.5,
+      }),
+    ],
+    [testStats.hpMax],
+    [true],
+    1,
+    [],
+  );
+  const barrierActor = barrierState.players[0].actor;
+  barrierState.players[0].special!.cooldownRemaining = 0;
+  barrierState.projectiles.push({
+    id: "barrier-threat",
+    owner: "enemy",
+    kind: "bullet",
+    x: barrierActor.x + 60,
+    y: barrierActor.y,
+    vx: 0,
+    vy: 0,
+    damage: 10,
+    damageKind: "ballistic",
+    radius: 4,
+    life: 1,
+    color: "#ff5f42",
+  });
+  stepCombat(barrierState, 0.016, rules);
+  const hpBeforeBarrierHit = barrierActor.hp;
+  applyDamageToActor(barrierActor, 100);
+  assert.ok(barrierActor.hp > hpBeforeBarrierHit - 70);
+});
+
+run("attack special equipment deploys bits, handles bit HP, and fires automatically", () => {
+  const state = createCombatState(
+    1,
+    [
+      statsWithSpecial({
+        partId: "test-bit",
+        name: "Test Bit",
+        kind: "bit",
+        trigger: "enemyPresent",
+        cooldown: 1,
+        duration: 3,
+        bitHp: 60,
+        bitCount: 1,
+        fireInterval: 0.1,
+        range: 380,
+        damage: 20,
+      }),
+    ],
+    [testStats.hpMax],
+    [true],
+    1,
+    [],
+  );
+  const enemy = placeFirstEnemyNear(state, 160);
+  state.players[0].special!.cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
+  stepCombat(state, 0.016, rules);
+  assert.equal(state.supportBits.length, 1);
+  assert.equal(state.supportBits[0].hp, 60);
+
+  stepCombat(state, 0.2, rules);
+  assert.ok(enemy.hp < enemy.maxHp || (state.report.damageByUnit[0] ?? 0) > 0);
+
+  const bit = state.supportBits[0];
+  const bitHpBefore = bit.hp;
+  state.projectiles.push({
+    id: "bit-hit",
+    owner: "enemy",
+    kind: "bullet",
+    x: bit.x,
+    y: bit.y,
+    vx: 0,
+    vy: 0,
+    damage: 80,
+    damageKind: "ballistic",
+    radius: 5,
+    life: 1,
+    color: "#ff5f42",
+  });
+  stepCombat(state, 0, rules);
+  assert.ok(bit.hp < bitHpBefore);
+});
+
+run("large bomb special damages clustered enemies", () => {
+  const state = createCombatState(
+    1,
+    [
+      statsWithSpecial({
+        partId: "test-bomb",
+        name: "Test Bomb",
+        kind: "bomb",
+        trigger: "enemyClustered",
+        cooldown: 1,
+        range: 320,
+        damage: 240,
+        blastRadius: 150,
+      }),
+    ],
+    [testStats.hpMax],
+    [true],
+    1,
+    [],
+  );
+  const enemy = placeFirstEnemyNear(state, 150);
+  const second = { ...enemy, id: "bomb-secondary", hp: enemy.maxHp, x: enemy.x + 42, y: enemy.y };
+  state.enemies.push(second);
+  state.players[0].special!.cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
+  stepCombat(state, 0.016, rules);
+  const bomb = state.projectiles.find((projectile) => projectile.kind === "grenade" && projectile.owner === "player");
+  assert.ok(bomb);
+  bomb.x = enemy.x;
+  bomb.y = enemy.y;
+  stepCombat(state, 0, rules);
+  assert.ok(enemy.hp < enemy.maxHp);
+  assert.ok(second.hp < second.maxHp);
+});
+
+run("status special equipment applies stun and corrosion damage", () => {
+  const stunState = createCombatState(
+    1,
+    [
+      statsWithSpecial({
+        partId: "test-stun",
+        name: "Test Stun",
+        kind: "stun",
+        trigger: "enemyMid",
+        cooldown: 1,
+        range: 320,
+        damage: 10,
+        statusDuration: 1.2,
+      }),
+    ],
+    [testStats.hpMax],
+    [true],
+    1,
+    [],
+  );
+  const stunEnemy = placeFirstEnemyNear(stunState, 170);
+  stunState.players[0].special!.cooldownRemaining = 0;
+  stunState.players[0].decisionCooldown = 0;
+  stepCombat(stunState, 0.016, rules);
+  const stunProjectile = stunState.projectiles.find((projectile) => projectile.statusEffect?.kind === "stun");
+  assert.ok(stunProjectile);
+  stunProjectile.x = stunEnemy.x;
+  stunProjectile.y = stunEnemy.y;
+  stepCombat(stunState, 0, rules);
+  assert.ok((stunEnemy.stunRemaining ?? 0) > 0);
+
+  const poisonState = createCombatState(
+    1,
+    [
+      statsWithSpecial({
+        partId: "test-poison",
+        name: "Test Poison",
+        kind: "poison",
+        trigger: "enemyMid",
+        cooldown: 1,
+        range: 320,
+        damage: 8,
+        statusDuration: 2,
+        dotDamagePerSecond: 30,
+      }),
+    ],
+    [testStats.hpMax],
+    [true],
+    1,
+    [],
+  );
+  const poisonEnemy = placeFirstEnemyNear(poisonState, 170);
+  poisonState.players[0].special!.cooldownRemaining = 0;
+  poisonState.players[0].decisionCooldown = 0;
+  stepCombat(poisonState, 0.016, rules);
+  const poisonProjectile = poisonState.projectiles.find((projectile) => projectile.statusEffect?.kind === "poison");
+  assert.ok(poisonProjectile);
+  poisonProjectile.x = poisonEnemy.x;
+  poisonProjectile.y = poisonEnemy.y;
+  stepCombat(poisonState, 0, rules);
+  assert.ok((poisonEnemy.poisonRemaining ?? 0) > 0);
+  const poisonHpBefore = poisonEnemy.hp;
+  stepCombat(poisonState, 0.5, rules);
+  assert.ok(poisonEnemy.hp < poisonHpBefore);
 });
 
 run("weapon weight affects mobility and empty arms lighten the build", () => {
@@ -364,6 +746,7 @@ run("blade slash effect records the attack direction", () => {
   enemy.vx = 0;
   enemy.vy = 0;
   state.players[0].weapons[0].cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "blade-direction", condition: "always", action: "shootLeft", enabled: true }]]);
 
@@ -393,11 +776,14 @@ run("ballistic weapons reload their magazine instead of exhausting stage ammo", 
   playerWeapon.cooldownRemaining = 0;
   playerWeapon.magazine = 1;
   playerWeapon.ammo = 1;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "reload-shot", condition: "always", action: "shootRight", enabled: true }]]);
   assert.equal(playerWeapon.magazine, 0);
   assert.ok(playerWeapon.reloadRemaining > 0);
 
+  state.players[0].activeAction = "idle";
+  state.players[0].decisionCooldown = 0;
   stepCombat(state, 0.12, [[{ id: "reload-idle", condition: "always", action: "idle", enabled: true }]]);
   assert.equal(playerWeapon.magazine, playerWeapon.magazineSize);
   assert.equal(playerWeapon.reloadRemaining, 0);
@@ -422,12 +808,15 @@ run("energy weapons overheat and recover after cooling", () => {
   stepCombat(state, 0.016, rules);
   const playerWeapon = state.players[0].weapons[0];
   playerWeapon.cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "heat-shot", condition: "always", action: "shootRight", enabled: true }]]);
   playerWeapon.cooldownRemaining = 0;
   stepCombat(state, 0.016, [[{ id: "heat-shot-2", condition: "always", action: "shootRight", enabled: true }]]);
   assert.equal(playerWeapon.overheated, true);
 
+  state.players[0].activeAction = "idle";
+  state.players[0].decisionCooldown = 0;
   stepCombat(state, 0.1, [[{ id: "heat-idle", condition: "always", action: "idle", enabled: true }]]);
   assert.equal(playerWeapon.overheated, false);
   assert.ok(playerWeapon.heat < playerWeapon.heatLimit);
@@ -463,6 +852,7 @@ run("beam laser weapons deal direct sustained damage and draw a beam effect", ()
   state.players[0].actor.x = 300;
   state.players[0].actor.y = 300;
   state.players[0].weapons[0].cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "beam-start", condition: "always", action: "shootRight", enabled: true }]]);
   stepCombat(state, 0.02, [[{ id: "beam-idle", condition: "always", action: "idle", enabled: true }]]);
@@ -503,6 +893,7 @@ run("beam laser warns before damage and misses targets that dodge off the locked
   state.players[0].actor.x = 300;
   state.players[0].actor.y = 300;
   state.players[0].weapons[0].cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "beam-warn-start", condition: "always", action: "shootRight", enabled: true }]]);
   const hpBeforeWarning = enemy.hp;
@@ -608,6 +999,7 @@ run("incoming missile AI can fire an intercept shot", () => {
   state.enemyQueue = [];
   state.enemyTotal = 0;
   state.players[0].weapons[0].cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
   state.projectiles.push({
     id: "ai-intercept-missile",
     owner: "enemy",
@@ -658,6 +1050,7 @@ run("burst weapons fire queued follow-up shots", () => {
   state.players[0].actor.x = 300;
   state.players[0].actor.y = 300;
   state.players[0].weapons[0].cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "burst-start", condition: "always", action: "shootRight", enabled: true }]]);
   stepCombat(state, 0.03, [[{ id: "burst-idle", condition: "always", action: "idle", enabled: true }]]);
@@ -693,6 +1086,7 @@ run("gatling weapons spin up before sustained fire", () => {
   state.players[0].actor.x = 300;
   state.players[0].actor.y = 300;
   state.players[0].weapons[0].cooldownRemaining = 0;
+  state.players[0].decisionCooldown = 0;
 
   stepCombat(state, 0.016, [[{ id: "gatling-start", condition: "always", action: "shootRight", enabled: true }]]);
   assert.equal(state.projectiles.filter((projectile) => projectile.owner === "player").length, 0);

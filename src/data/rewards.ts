@@ -1,9 +1,4 @@
-import { AiUnlockPackage, AiUnlockPackageId, PartInventory } from "../types";
-import {
-  getAiUnlockPackage,
-  selectAiUnlockPackagesForReward,
-  selectAiUnlockPackagesForShop,
-} from "./aiUnlocks";
+import type { PartInventory, RelicBonuses } from "../types";
 import { getSlotLabel, playableParts } from "./parts";
 import { StageType } from "./stages";
 
@@ -11,8 +6,6 @@ export type RewardPayload =
   | { kind: "part"; partId: string }
   | { kind: "stat"; stat: "hp" | "enCapacity" | "enRegen" | "attack" | "defense"; amount: number }
   | { kind: "cooldown"; multiplier: number }
-  | { kind: "aiSlot"; amount: number }
-  | { kind: "aiUnlock"; packageId: AiUnlockPackageId }
   | { kind: "repairKit"; amount: number }
   | { kind: "credits"; amount: number };
 
@@ -92,14 +85,6 @@ const staticRewards: RewardOption[] = [
     accent: "orange",
     payload: { kind: "cooldown", multiplier: 0.9 },
   },
-  {
-    id: "ai-slot",
-    title: "AIスロット追加",
-    subtitle: "判断キュー拡張",
-    description: "AIルール上限 +1",
-    accent: "purple",
-    payload: { kind: "aiSlot", amount: 1 },
-  },
 ];
 
 const rewardPartTitle = (slot: string): string => {
@@ -115,26 +100,14 @@ const rewardPartTitle = (slot: string): string => {
   if (slot.includes("ARM")) {
     return "新しい腕部武器";
   }
-  if (slot.includes("SHOULDER")) {
-    return "新しい肩武器";
+  if (slot === "SPECIAL") {
+    return "新しい特殊装備";
   }
   return "新しいパーツ";
 };
 
 const rarityScore = (rarity: string): number =>
   rarity === "elite" ? 3 : rarity === "rare" ? 2 : 1;
-
-const aiPackageAccent = (item: AiUnlockPackage): RewardOption["accent"] =>
-  item.rarity === "elite" ? "purple" : item.world >= 2 ? "orange" : "blue";
-
-const aiUnlockReward = (item: AiUnlockPackage, source: "reward" | "shop" = "reward"): RewardOption => ({
-  id: `${source}-ai-unlock-${item.id}`,
-  title: item.name,
-  subtitle: `AIチップ / WORLD ${item.world}`,
-  description: item.description,
-  accent: aiPackageAccent(item),
-  payload: { kind: "aiUnlock", packageId: item.id },
-});
 
 const creditRewardFor = (stage: number, stageType: StageType): RewardOption => {
   const world = Math.ceil(stage / 7);
@@ -188,19 +161,29 @@ const scaledStaticReward = (reward: RewardOption, stageType: StageType): RewardO
 export const generateRewardOptions = (
   stage: number,
   partInventory: PartInventory,
-  aiSlotCount: number,
   stageType: StageType = "normal",
-  unlockedAiPackageIds: AiUnlockPackageId[] = [],
+  relicBonuses: Partial<RelicBonuses> = {},
+  seedOffset = 0,
 ): RewardOption[] => {
   const parts = playableParts();
-  const partPool = stageType === "elite"
+  const rareBiased = stageType === "elite" || (stageType === "boss" && relicBonuses.bossRareBias);
+  const partPool = rareBiased
     ? [...parts].sort((a, b) => rarityScore(b.rarity) - rarityScore(a.rarity))
     : parts;
   const lockedParts = partPool.filter((part) => (partInventory[part.id] ?? 0) === 0);
   const duplicateParts = partPool.filter((part) => (partInventory[part.id] ?? 0) > 0 && !part.initial);
-  const rotatedDuplicates = duplicateParts.slice(stage % Math.max(1, duplicateParts.length));
-  const partCandidateCount = stageType === "elite" || stageType === "boss" ? 4 : 3;
-  const partCandidates = [...lockedParts, ...rotatedDuplicates, ...duplicateParts].slice(0, partCandidateCount);
+  const rotatedDuplicates = duplicateParts.slice((stage + seedOffset) % Math.max(1, duplicateParts.length));
+  const eliteBonusCount = stageType === "elite" ? relicBonuses.eliteRewardBonusCount ?? 0 : 0;
+  const specialBonusCount = relicBonuses.aiRewardBonusCount ?? 0;
+  const partCandidateCount = (stageType === "elite" || stageType === "boss" ? 4 : 3) + eliteBonusCount;
+  const specialParts = partPool.filter((part) => part.slot === "SPECIAL");
+  const specialCandidates = specialParts
+    .filter((part) => (partInventory[part.id] ?? 0) === 0)
+    .slice(0, specialBonusCount);
+  const partCandidates = [...specialCandidates, ...lockedParts, ...rotatedDuplicates, ...duplicateParts].slice(
+    0,
+    partCandidateCount + specialBonusCount,
+  );
   const partRewards = partCandidates.map<RewardOption>((part, index) => {
     const owned = partInventory[part.id] ?? 0;
     return {
@@ -208,34 +191,21 @@ export const generateRewardOptions = (
       title: owned > 0 ? "追加パーツ" : rewardPartTitle(part.slot),
       subtitle: part.name,
       description: `${getSlotLabel(part.slot)} / ${part.rarity.toUpperCase()} を1個入手${owned > 0 ? `（所持 ${owned}）` : ""}`,
-      accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
+      accent: part.slot === "SPECIAL" ? "purple" : part.slot.includes("ARM") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
       payload: { kind: "part", partId: part.id },
     };
   });
 
-  const aiUnlockCount = stageType === "elite" || stageType === "boss" ? 2 : 1;
-  const aiUnlockRewards = selectAiUnlockPackagesForReward(
-    stage,
-    stageType,
-    unlockedAiPackageIds,
-    aiUnlockCount,
-  ).map((item) => aiUnlockReward(item));
-  const aiReward =
-    aiSlotCount < 8
-      ? staticRewards.find((reward) => reward.id === "ai-slot")
-      : staticRewards.find((reward) => reward.id === "cooldown-boost");
-  const rotating = staticRewards.filter((reward) => reward.id !== "ai-slot");
-  const first = scaledStaticReward(rotating[(stage + 1) % rotating.length], stageType);
-  const second = scaledStaticReward(rotating[(stage + 3) % rotating.length], stageType);
+  const rotating = staticRewards;
+  const first = scaledStaticReward(rotating[(stage + 1 + seedOffset) % rotating.length], stageType);
+  const second = scaledStaticReward(rotating[(stage + 3 + seedOffset) % rotating.length], stageType);
   const repairReward = staticRewards.find((reward) => reward.id === "repair-kit");
   const pool = [
     creditRewardFor(stage, stageType),
-    ...aiUnlockRewards,
     stageType === "elite" ? undefined : repairReward,
     ...partRewards,
     first,
     second,
-    aiUnlockRewards.length === 0 && aiReward ? scaledStaticReward(aiReward, stageType) : undefined,
     stageType === "boss" ? creditRewardFor(stage, stageType) : undefined,
   ].filter(Boolean) as RewardOption[];
   const unique = new Map<string, RewardOption>();
@@ -244,15 +214,16 @@ export const generateRewardOptions = (
     unique.set(reward.id, reward);
   }
 
-  return [...unique.values()].slice(0, 4);
+  return [...unique.values()].slice(0, 4 + eliteBonusCount);
 };
 
 export const generateShopOffers = (
   stage: number,
   partInventory: PartInventory,
-  aiSlotCount: number,
-  unlockedAiPackageIds: AiUnlockPackageId[] = [],
+  relicBonuses: Partial<RelicBonuses> = {},
 ): ShopOffer[] => {
+  const discountedCost = (cost: number, discount = 0): number =>
+    Math.max(1, Math.ceil(cost * (1 - Math.min(0.35, Math.max(0, discount)))));
   const parts = playableParts();
   const lockedParts = parts.filter((part) => (partInventory[part.id] ?? 0) === 0);
   const duplicateParts = parts.filter((part) => (partInventory[part.id] ?? 0) > 0 && !part.initial);
@@ -262,17 +233,12 @@ export const generateShopOffers = (
     title: part.name,
     subtitle: `${getSlotLabel(part.slot)} / ${part.rarity.toUpperCase()}`,
     description: `${part.description} 所持 ${partInventory[part.id] ?? 0}`,
-    cost: 95 + rarityScore(part.rarity) * 65 + index * 20 + Math.ceil(stage / 7) * 25,
-    accent: part.slot.includes("ARM") || part.slot.includes("SHOULDER") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
+    cost: discountedCost(
+      95 + rarityScore(part.rarity) * 65 + index * 20 + Math.ceil(stage / 7) * 25,
+      part.slot === "SPECIAL" ? relicBonuses.aiShopDiscount : relicBonuses.partShopDiscount,
+    ),
+    accent: part.slot === "SPECIAL" ? "purple" : part.slot.includes("ARM") ? "orange" : part.slot === "BOOSTER" ? "green" : "blue",
     payload: { kind: "part", partId: part.id },
-  }));
-
-  const aiOffers = selectAiUnlockPackagesForShop(stage, unlockedAiPackageIds, 2).map<ShopOffer>((item, index) => ({
-    ...aiUnlockReward(item, "shop"),
-    id: `shop-ai-unlock-${item.id}`,
-    subtitle: `AIチップ / WORLD ${item.world}`,
-    cost: 80 + item.world * 70 + rarityScore(item.rarity) * 45 + index * 25,
-    payload: { kind: "aiUnlock", packageId: item.id },
   }));
 
   const utilityOffers: ShopOffer[] = [
@@ -295,18 +261,15 @@ export const generateShopOffers = (
       payload: { kind: "repairKit", amount: 1 },
     },
     {
-      id: "shop-ai-slot",
-      title: aiSlotCount < 8 ? "AIスロット追加" : "冷却チューニング",
-      subtitle: aiSlotCount < 8 ? "判断キュー拡張" : "武器同期調整",
-      description: aiSlotCount < 8 ? "選択中UNITのAIルール上限 +1。" : "武器クールダウンを8%短縮。",
+      id: "shop-cooldown-tune",
+      title: "冷却チューニング",
+      subtitle: "武器同期調整",
+      description: "武器クールダウンを8%短縮。",
       cost: 160 + Math.ceil(stage / 7) * 55,
       accent: "purple",
-      payload: aiSlotCount < 8 ? { kind: "aiSlot", amount: 1 } : { kind: "cooldown", multiplier: 0.92 },
+      payload: { kind: "cooldown", multiplier: 0.92 },
     },
   ];
 
-  return [...partOffers.slice(0, 2), ...aiOffers, ...utilityOffers].slice(0, 6);
+  return [...partOffers.slice(0, 3), ...utilityOffers].slice(0, 6);
 };
-
-export const getAiUnlockRewardTitle = (packageId: AiUnlockPackageId): string =>
-  getAiUnlockPackage(packageId).name;

@@ -50,8 +50,26 @@ export const damageAfterDefense = (raw: number, target: CombatActor, kind: Damag
   return Math.max(2, raw * teamScale * (1 - mitigation) * guard);
 };
 
+export const applyDamageToActor = (target: CombatActor, damage: number): number => {
+  const reduced = target.damageReductionRemaining && target.damageReductionRemaining > 0
+    ? damage * (target.damageReductionMultiplier ?? 1)
+    : damage;
+  let remaining = reduced;
+  if ((target.shieldHp ?? 0) > 0) {
+    const absorbed = Math.min(target.shieldHp ?? 0, remaining);
+    target.shieldHp = Math.max(0, (target.shieldHp ?? 0) - absorbed);
+    remaining -= absorbed;
+  }
+  const hpDamage = Math.max(0, remaining);
+  target.hp = Math.max(0, target.hp - hpDamage);
+  return hpDamage;
+};
+
 const livingPlayerActors = (state: CombatState): CombatActor[] =>
-  state.players.filter((unit) => unit.actor.hp > 0).map((unit) => unit.actor);
+  [
+    ...state.players.filter((unit) => unit.actor.hp > 0).map((unit) => unit.actor),
+    ...state.supportBits.filter((bit) => bit.hp > 0),
+  ];
 
 const livingCombatActors = (state: CombatState): CombatActor[] => [
   ...livingPlayerActors(state),
@@ -76,8 +94,10 @@ const applyBlastDamage = (
     }
 
     const falloff = clamp(1 - distance / Math.max(1, blastRadius), 0.22, 1);
-    const damage = damageAfterDefense(projectile.damage * damageScale * falloff, target, projectile.damageKind);
-    target.hp = Math.max(0, target.hp - damage);
+    const damage = applyDamageToActor(
+      target,
+      damageAfterDefense(projectile.damage * damageScale * falloff, target, projectile.damageKind),
+    );
     if (projectile.owner === "player" && target.team === "enemy" && projectile.sourceUnitIndex !== undefined) {
       state.report.damageByUnit[projectile.sourceUnitIndex] =
         (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;
@@ -97,6 +117,10 @@ export const updateHits = (
     const player = state.players.find((unit) => unit.actor.id === targetId)?.actor;
     if (player) {
       return player;
+    }
+    const bit = state.supportBits.find((item) => item.id === targetId);
+    if (bit) {
+      return bit;
     }
     return state.enemies.find((enemy) => enemy.id === targetId);
   };
@@ -187,8 +211,23 @@ export const updateHits = (
         const falloff = blastRadius > 0
           ? clamp(1 - distance / Math.max(1, blastRadius), 0.34, 1)
           : 1;
-        const damage = damageAfterDefense(projectile.damage * falloff, target, projectile.damageKind);
-        target.hp = Math.max(0, target.hp - damage);
+        const damage = applyDamageToActor(
+          target,
+          damageAfterDefense(projectile.damage * falloff, target, projectile.damageKind),
+        );
+        if (projectile.statusEffect && target.hp > 0) {
+          if (projectile.statusEffect.kind === "stun") {
+            target.stunRemaining = Math.max(target.stunRemaining ?? 0, projectile.statusEffect.duration);
+          }
+          if (projectile.statusEffect.kind === "poison") {
+            target.poisonRemaining = Math.max(target.poisonRemaining ?? 0, projectile.statusEffect.duration);
+            target.poisonDamagePerSecond = Math.max(
+              target.poisonDamagePerSecond ?? 0,
+              projectile.statusEffect.damagePerSecond ?? 0,
+            );
+            target.poisonSourceUnitIndex = projectile.sourceUnitIndex;
+          }
+        }
         if (projectile.owner === "player" && projectile.sourceUnitIndex !== undefined) {
           state.report.damageByUnit[projectile.sourceUnitIndex] =
             (state.report.damageByUnit[projectile.sourceUnitIndex] ?? 0) + damage;

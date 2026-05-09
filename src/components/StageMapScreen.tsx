@@ -19,7 +19,6 @@ interface StageMapScreenProps {
   canStartStage: boolean;
   onSelectStageNode: (nodeId: string) => void;
   onOpenAssemble: () => void;
-  onOpenAi: () => void;
   onStartCombat: () => void;
 }
 
@@ -54,7 +53,6 @@ export default function StageMapScreen({
   canStartStage,
   onSelectStageNode,
   onOpenAssemble,
-  onOpenAi,
   onStartCombat,
 }: StageMapScreenProps) {
   const currentPlan = stageChoices.find((choice) => choice.id === selectedNodeId) ?? stageChoices[0];
@@ -158,7 +156,6 @@ export default function StageMapScreen({
         </div>
         <div className="screen-actions">
           <button onClick={onOpenAssemble}>ASSEMBLE</button>
-          <button onClick={onOpenAi}>AI EDIT</button>
           <button className="primary" onClick={onStartCombat} disabled={!canStartStage}>
             {actionText[currentPlan.type]}
           </button>

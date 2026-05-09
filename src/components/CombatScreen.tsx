@@ -299,7 +299,8 @@ const drawUnitTag = (
 };
 
 const drawGuardShield = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
-  if (!actor.guard || !guardShieldEffectImage.complete || guardShieldEffectImage.naturalWidth === 0) {
+  const shielded = actor.guard || (actor.shieldHp ?? 0) > 0 || (actor.damageReductionRemaining ?? 0) > 0;
+  if (!shielded || !guardShieldEffectImage.complete || guardShieldEffectImage.naturalWidth === 0) {
     return;
   }
 
@@ -311,6 +312,22 @@ const drawGuardShield = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
   ctx.shadowBlur = 18;
   ctx.drawImage(guardShieldEffectImage, -size / 2, -size / 2, size, size);
   ctx.restore();
+};
+
+const drawSupportBit = (ctx: CanvasRenderingContext2D, bit: CombatActor) => {
+  ctx.save();
+  ctx.translate(bit.x, bit.y);
+  ctx.shadowColor = bit.color;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = "rgba(125, 255, 207, .9)";
+  ctx.strokeStyle = "#d8fff3";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, bit.radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  drawBar(ctx, bit.x - 15, bit.y - bit.radius - 10, 30, hpPercent(bit), "#7dffcf");
 };
 
 const drawEntryBoost = (ctx: CanvasRenderingContext2D, actor: CombatActor) => {
@@ -808,6 +825,9 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
     drawGuardShield(ctx, unit.actor);
     drawMech(ctx, unit.actor, true, unit.stats.legType, `U${unit.unitIndex + 1}`);
   });
+  state.supportBits.forEach((bit) => {
+    drawSupportBit(ctx, bit);
+  });
   for (const effect of state.effects.filter((item) => item.kind !== "boost")) {
     drawEffect(ctx, effect);
   }
@@ -1004,7 +1024,7 @@ export default function CombatScreen({
         <div className="panel compact current-action-panel">
           <div className="section-title">CURRENT ACTION</div>
           <strong className="active-action">{getActionLabel(activeUnit.activeAction)}</strong>
-          <small>{activeRule ? getConditionLabel(activeRule.condition) : "NO RULE"}</small>
+          <small>{activeRule ? getConditionLabel(activeRule.condition) : "AUTO TACTICS"}</small>
         </div>
         <div className="panel compact weapon-cool-panel">
           <div className="section-title">WEAPON COOL</div>
