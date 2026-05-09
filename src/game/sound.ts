@@ -2,8 +2,6 @@ import type { CombatSoundEvent } from "./combat";
 import alertOneUrl from "../assets/sfx/alert_1.ogg";
 import alertTwoUrl from "../assets/sfx/alert_2.ogg";
 import bladeCustomUrl from "../assets/sfx/blade_custom.mp3";
-import boostOneUrl from "../assets/sfx/boost_1.ogg";
-import boostTwoUrl from "../assets/sfx/boost_2.ogg";
 import defeatOneUrl from "../assets/sfx/defeat_1.ogg";
 import explosionOneUrl from "../assets/sfx/explosion_1.ogg";
 import explosionTwoUrl from "../assets/sfx/explosion_2.ogg";
@@ -11,6 +9,7 @@ import hitOneUrl from "../assets/sfx/hit_1.ogg";
 import hitTwoUrl from "../assets/sfx/hit_2.ogg";
 import missileOneUrl from "../assets/sfx/missile_1.ogg";
 import missileTwoUrl from "../assets/sfx/missile_2.ogg";
+import quickBoostCustomUrl from "../assets/sfx/quick_boost_custom.m4a";
 import shootBallisticOneUrl from "../assets/sfx/shoot_ballistic_1.ogg";
 import shootEnergyOneUrl from "../assets/sfx/shoot_energy_1.ogg";
 import shootEnergyTwoUrl from "../assets/sfx/shoot_energy_2.ogg";
@@ -76,9 +75,8 @@ const combatSamples: Record<CombatSoundEvent, SampleConfig> = {
     pitchJitter: 0.03,
   },
   boost: {
-    urls: [boostOneUrl, boostTwoUrl],
+    urls: [quickBoostCustomUrl],
     gain: 0.22,
-    pitchJitter: 0.04,
   },
   blade: {
     urls: [bladeCustomUrl],

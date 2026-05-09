@@ -4,6 +4,8 @@ Most sound effects in this folder are from Kenney audio asset packs.
 
 `blade_custom.mp3` is a user-provided replacement for the blade attack sound and is not from Kenney.
 
+`quick_boost_custom.m4a` is a user-provided replacement for the quick boost sound and is not from Kenney.
+
 Source packs:
 
 - Kenney Sci-fi Sounds: https://kenney.nl/assets/sci-fi-sounds
