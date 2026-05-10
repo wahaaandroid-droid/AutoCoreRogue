@@ -431,6 +431,7 @@ export interface AiRule {
 export type ScreenId =
   | "frameSelect"
   | "assemble"
+  | "briefing"
   | "ai"
   | "combat"
   | "reward"

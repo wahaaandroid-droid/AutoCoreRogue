@@ -31,11 +31,11 @@ const typeText: Record<StagePlan["type"], string> = {
 };
 
 const actionText: Record<StagePlan["type"], string> = {
-  normal: "出撃",
-  elite: "エリート戦へ",
+  normal: "準備へ",
+  elite: "準備へ",
   rest: "休憩する",
   shop: "商人を見る",
-  boss: "ボス戦へ",
+  boss: "準備へ",
 };
 
 const worldStageNumbers = (world: number): number[] =>
@@ -155,7 +155,7 @@ export default function StageMapScreen({
           <span className="legend-boss">ボス戦</span>
         </div>
         <div className="screen-actions">
-          <button onClick={onOpenAssemble}>ASSEMBLE</button>
+          <button onClick={onOpenAssemble}>整備室</button>
           <button className="primary" onClick={onStartCombat} disabled={!canStartStage}>
             {actionText[currentPlan.type]}
           </button>

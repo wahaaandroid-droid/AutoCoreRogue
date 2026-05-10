@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import AssembleScreen from "./components/AssembleScreen";
+import BriefingScreen from "./components/BriefingScreen";
 import CombatScreen from "./components/CombatScreen";
 import FrameSelectScreen from "./components/FrameSelectScreen";
 import RewardScreen from "./components/RewardScreen";
@@ -221,7 +222,7 @@ const restoreScreen = (screen: ScreenId | undefined, hasSavedUnit: boolean): Scr
   if (!hasSavedUnit) {
     return "frameSelect";
   }
-  return screen === "combat" ? "map" : screen ?? "map";
+  return screen === "combat" ? "briefing" : screen ?? "map";
 };
 
 const countEquippedPart = (loadouts: Loadout[], unlockedUnitCount: number, partId: string): number =>
@@ -351,6 +352,12 @@ export default function App() {
       setScreen("frameSelect");
     }
   }, [pendingRelicReward, screen]);
+
+  useEffect(() => {
+    if (screen === "briefing" && !isCombatStageType(currentStagePlan.type)) {
+      setScreen("map");
+    }
+  }, [currentStagePlan.type, screen]);
 
   useEffect(() => {
     saveMetaState(metaState);
@@ -522,6 +529,67 @@ export default function App() {
     setLastOutcome(`UNIT ${unitIndex + 1} を全回復`);
   };
 
+  const applyRecommendedPrep = () => {
+    const repairCandidate = statsByUnit
+      .slice(0, unlockedUnitCount)
+      .map((stats, index) => {
+        const hp = Math.ceil(Math.min(unitHpByUnit[index] ?? stats.hpMax, stats.hpMax));
+        return { index, hp, ratio: stats.hpMax > 0 ? hp / stats.hpMax : 0 };
+      })
+      .filter((unit) => unit.hp < (statsByUnit[unit.index]?.hpMax ?? unit.hp))
+      .sort((a, b) => a.ratio - b.ratio)[0];
+
+    if (repairCandidate && repairKitStock > 0 && repairCandidate.ratio <= 0.55) {
+      useRepairKit(repairCandidate.index);
+      return;
+    }
+
+    const disabledReadyIndex = statsByUnit
+      .slice(0, unlockedUnitCount)
+      .findIndex((stats, index) =>
+        !(sortieEnabled[index] ?? false) && (unitHpByUnit[index] ?? stats.hpMax) > 0,
+      );
+
+    if (disabledReadyIndex >= 0) {
+      playUiSound("toggle");
+      setSortieEnabled((current) =>
+        current.map((enabled, index) => (index === disabledReadyIndex ? true : enabled)),
+      );
+      setLastOutcome(`UNIT ${disabledReadyIndex + 1} を出撃ON`);
+      return;
+    }
+
+    const hasReadyUnit = statsByUnit
+      .slice(0, unlockedUnitCount)
+      .some((stats, index) => (unitHpByUnit[index] ?? stats.hpMax) > 0);
+
+    if (!hasReadyUnit) {
+      playUiSound("error");
+      setLastOutcome("全機大破: リペアキットの確保が必要です");
+      return;
+    }
+
+    const overloadedIndex = statsByUnit
+      .slice(0, unlockedUnitCount)
+      .findIndex((stats) => stats.overloadRatio > 0);
+
+    if (overloadedIndex >= 0) {
+      playUiSound("select");
+      setActiveUnitIndex(overloadedIndex);
+      setLastOutcome(`UNIT ${overloadedIndex + 1}: 積載超過を整備室で調整できます`);
+      setScreen("assemble");
+      return;
+    }
+
+    if (repairCandidate && repairKitStock > 0) {
+      setLastOutcome(`UNIT ${repairCandidate.index + 1}: 軽微な損耗。必要なら修理できます`);
+      return;
+    }
+
+    playUiSound("select");
+    setLastOutcome("準備完了: このまま出撃できます");
+  };
+
   const resetRun = (options?: { preservePendingRelic?: boolean; nextMetaState?: MetaSaveState }) => {
     const startingBonuses = calculateRelicBonuses(options?.nextMetaState ?? metaState);
     setStage(1);
@@ -576,7 +644,7 @@ export default function App() {
     );
     setActiveUnitIndex(unitIndex);
     setLastOutcome(`UNIT ${unitIndex + 1}: ${frame.name} 配備`);
-    setScreen(unitIndex === 0 ? "assemble" : "map");
+    setScreen("briefing");
   };
 
   const handleVictory = (remainingHpByUnit: number[], report: CombatReport) => {
@@ -733,6 +801,19 @@ export default function App() {
     }
   };
 
+  const rewardOutcomeText = (reward: RewardOption): string => {
+    const payload = reward.payload;
+    if (payload.kind !== "part") {
+      return `${reward.title} を獲得`;
+    }
+
+    const part = getPartById(payload.partId);
+    if (activeUnitIndex < unlockedUnitCount && EQUIP_SLOTS.includes(part.slot as EquipSlot)) {
+      return `UNIT ${activeUnitIndex + 1}: ${part.name} を自動装備`;
+    }
+    return `${part.name} を獲得`;
+  };
+
   const applyReward = (reward: RewardOption) => {
     playUiSound("reward");
     applyRewardPayload(reward.payload);
@@ -744,7 +825,7 @@ export default function App() {
       return;
     }
 
-    advanceToNextStage(`${reward.title} を獲得`);
+    advanceToNextStage(rewardOutcomeText(reward));
   };
 
   const rerollRewardOptions = () => {
@@ -825,8 +906,13 @@ export default function App() {
     }
     if (!sortieReady) {
       playUiSound("error");
-      setLastOutcome("出撃可能なユニットがありません");
-      setScreen(unlockedUnitCount === 0 ? "frameSelect" : "assemble");
+      setLastOutcome("出撃前確認: 修理または出撃ONが必要です");
+      setScreen(unlockedUnitCount === 0 ? "frameSelect" : "briefing");
+      return;
+    }
+    if (screen !== "briefing") {
+      playUiSound("select");
+      setScreen("briefing");
       return;
     }
     playUiSound("confirm");
@@ -969,6 +1055,26 @@ export default function App() {
           canStartCombat={sortieReady}
         />
       )}
+      {screen === "briefing" && hasUnit && isCombatStageType(currentStagePlan.type) && (
+        <BriefingScreen
+          stage={stage}
+          plan={currentStagePlan}
+          stageType={currentCombatStageType}
+          statsByUnit={statsByUnit}
+          unitHpByUnit={unitHpByUnit}
+          sortieEnabled={sortieEnabled}
+          unlockedUnitCount={unlockedUnitCount}
+          repairKitStock={repairKitStock}
+          targetPrioritiesByUnit={combatTargetPrioritiesByUnit}
+          canStartCombat={sortieReady}
+          lastOutcome={lastOutcome}
+          onOpenMap={() => openScreen("map")}
+          onOpenMaintenance={() => openScreen("assemble")}
+          onRecommendedPrep={applyRecommendedPrep}
+          onQuickRepair={useRepairKit}
+          onStartCombat={startCombat}
+        />
+      )}
       {screen === "combat" && hasUnit && (
         <CombatScreen
           stage={stage}
@@ -1031,7 +1137,7 @@ export default function App() {
           unitHpByUnit={unitHpByUnit}
           statsByUnit={statsByUnit}
           credits={credits}
-          canStartStage={sortieReady || !isCombatStageType(currentStagePlan.type)}
+          canStartStage={hasUnit}
           onSelectStageNode={selectStageNode}
           onOpenAssemble={() => openScreen("assemble")}
           onStartCombat={startCombat}
