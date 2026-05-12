@@ -685,8 +685,62 @@ run("blade growth cuts nearby enemy shots before impact", () => {
   stepCombat(state, 0.016, [[{ id: "cut-idle", condition: "always", action: "idle", enabled: true }]]);
 
   assert.equal(state.projectiles.some((projectile) => projectile.id === "cut-me"), false);
+  assert.ok(state.players[0].bladeCutCooldown > 0);
   assert.ok(state.effects.some((effect) => effect.kind === "slash" && effect.label === "CUT"));
   assert.ok(state.soundEvents.includes("intercept"));
+});
+
+run("blade cutting waits for reuse and scales sharply with growth", () => {
+  const addCuttableProjectile = (state: TestCombatState, id: string) => {
+    const player = state.players[0].actor;
+    state.projectiles.push({
+      id,
+      owner: "enemy",
+      kind: "bullet",
+      x: player.x + 36,
+      y: player.y,
+      vx: -90,
+      vy: 0,
+      damage: 100,
+      damageKind: "ballistic",
+      radius: 4,
+      life: 1,
+      color: "#ff5f42",
+    });
+  };
+  const lowStats = buildSimpleStats("cutter", {
+    reflex: 1,
+    boost: 1,
+    cutting: 2,
+    trigger: 1,
+    sync: 0,
+  });
+  const highStats = buildSimpleStats("cutter", {
+    reflex: 12,
+    boost: 4,
+    cutting: 12,
+    trigger: 4,
+    sync: 12,
+  });
+  const low = createCombatState(1, [lowStats], [lowStats.hpMax], [true], 1, []);
+  const high = createCombatState(1, [highStats], [highStats.hpMax], [true], 1, []);
+
+  addCuttableProjectile(low, "low-1");
+  addCuttableProjectile(high, "high-1");
+  stepCombat(low, 0.016, [[{ id: "low-idle", condition: "always", action: "idle", enabled: true }]]);
+  stepCombat(high, 0.016, [[{ id: "high-idle", condition: "always", action: "idle", enabled: true }]]);
+
+  const lowCooldown = low.players[0].bladeCutCooldown;
+  const highCooldown = high.players[0].bladeCutCooldown;
+  assert.ok(lowCooldown > 1.35);
+  assert.ok(highCooldown < lowCooldown * 0.3);
+
+  addCuttableProjectile(low, "low-2");
+  stepCombat(low, 0.016, [[{ id: "low-wait", condition: "always", action: "idle", enabled: true }]]);
+  assert.equal(low.projectiles.some((projectile) => projectile.id === "low-2"), true);
+
+  stepCombat(low, low.players[0].bladeCutCooldown + 0.08, [[{ id: "low-ready", condition: "always", action: "idle", enabled: true }]]);
+  assert.equal(low.projectiles.some((projectile) => projectile.id === "low-2"), false);
 });
 
 run("defensive special equipment can create shields and damage reduction", () => {

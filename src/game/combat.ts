@@ -123,6 +123,7 @@ export interface PlayerCombatUnit {
   activeRuleId?: string;
   weapons: PlayerWeaponState[];
   boostCooldown: number;
+  bladeCutCooldown: number;
   decisionCooldown: number;
   special?: PlayerSpecialState;
 }
@@ -217,6 +218,8 @@ const BEAM_WARNING_WIDTH = 34;
 const BEAM_HIT_WIDTH = 8;
 const BLADE_REACH_CAP = 86;
 const BLADE_ENGAGE_BUFFER = 146;
+const BLADE_CUT_COOLDOWN_MAX = 1.65;
+const BLADE_CUT_COOLDOWN_MIN = 0.32;
 let nextId = 1;
 
 const uid = (prefix: string): string => `${prefix}-${nextId++}`;
@@ -423,6 +426,7 @@ const createPlayerUnit = (
     activeAction: "idle",
     weapons,
     boostCooldown: 0,
+    bladeCutCooldown: 0,
     decisionCooldown: 0,
     special: createSpecialState(stats.special),
   };
@@ -2762,11 +2766,25 @@ const interceptIncomingMissile = (state: CombatState, unit: PlayerCombatUnit): b
   return true;
 };
 
+const bladeCutCooldownFor = (unit: PlayerCombatUnit): number => {
+  const cutting = unit.stats.growth?.cutting ?? 0;
+  const reflex = unit.stats.growth?.reflex ?? 0;
+  const sync = unit.stats.growth?.sync ?? 0;
+  const cuttingCurve = curvedGrowthPoints(cutting, 2.35);
+  const reflexCurve = curvedGrowthPoints(reflex, 2.25);
+  const syncCurve = curvedGrowthPoints(sync, 2.2);
+  return clamp(
+    BLADE_CUT_COOLDOWN_MAX - cuttingCurve * 0.088 - reflexCurve * 0.018 - syncCurve * 0.026,
+    BLADE_CUT_COOLDOWN_MIN,
+    BLADE_CUT_COOLDOWN_MAX,
+  );
+};
+
 const cutIncomingProjectiles = (state: CombatState, unit: PlayerCombatUnit): void => {
   const cutting = unit.stats.growth?.cutting ?? 0;
   const reflex = unit.stats.growth?.reflex ?? 0;
   const blade = unit.weapons.find((weapon) => weapon.weaponKind === "blade" && weapon.autoUse);
-  if (!blade || cutting <= 0 || unit.actor.hp <= 0) {
+  if (!blade || cutting <= 0 || unit.actor.hp <= 0 || unit.bladeCutCooldown > 0) {
     return;
   }
 
@@ -2804,6 +2822,7 @@ const cutIncomingProjectiles = (state: CombatState, unit: PlayerCombatUnit): voi
     return;
   }
 
+  unit.bladeCutCooldown = bladeCutCooldownFor(unit);
   state.soundEvents.push("blade", "intercept");
   state.effects.push(
     createEffect({
@@ -2984,6 +3003,7 @@ const updateRivalEnemy = (state: CombatState, enemy: CombatActor, dt: number): v
     activeRuleId: rival.activeRuleId,
     weapons: rival.weapons,
     boostCooldown: rival.boostCooldown,
+    bladeCutCooldown: 0,
     decisionCooldown: 0,
   };
   const rightWeapon = weaponByHardpoint(unit, "rightArm");
@@ -3200,6 +3220,7 @@ export const stepCombat = (
       updateWeaponRuntime(weapon, dt * tempoScale);
     }
     unit.boostCooldown = Math.max(0, unit.boostCooldown - dt * tempoScale);
+    unit.bladeCutCooldown = Math.max(0, unit.bladeCutCooldown - dt * tempoScale);
     unit.decisionCooldown = Math.max(0, unit.decisionCooldown - dt * tempoScale);
     if (unit.special) {
       unit.special.cooldownRemaining = Math.max(0, unit.special.cooldownRemaining - dt * tempoScale);
