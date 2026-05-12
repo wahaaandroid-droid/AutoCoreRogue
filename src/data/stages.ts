@@ -17,19 +17,19 @@ export interface StagePlan {
   focus: string;
 }
 
-export const STAGES_PER_WORLD = 7;
+export const STAGES_PER_WORLD = 4;
 export const WORLD_COUNT = 3;
 export const TOTAL_STAGES = STAGES_PER_WORLD * WORLD_COUNT;
 
 const typeLabels: Record<StageType, string> = {
-  normal: "BATTLE",
-  elite: "ELITE",
-  rest: "REST",
-  shop: "SHOP",
-  boss: "BOSS",
+  normal: "通常",
+  elite: "危険",
+  rest: "修理",
+  shop: "補給",
+  boss: "ボス",
 };
 
-const worldNames = ["", "Outer Yard", "Iron Sprawl", "Core Depth"] as const;
+const worldNames = ["", "外縁区", "鉄の街", "中枢部"] as const;
 
 export const worldForStage = (stage: number): number =>
   Math.min(WORLD_COUNT, Math.max(1, Math.ceil(stage / STAGES_PER_WORLD)));
@@ -71,7 +71,7 @@ export const createStageChoices = (stage: number, bonuses?: Partial<RelicBonuses
   const worldName = worldNames[world] ?? worldNames[1];
   const pressure = world === 1 ? "基礎" : world === 2 ? "連携" : "総力";
   const withScannerChoice = (choices: StagePlan[], bonuses?: Partial<RelicBonuses>): StagePlan[] => {
-    if (!bonuses?.extraRouteChoice || worldStage === 1 || worldStage === 7 || choices.length >= 3) {
+    if (!bonuses?.extraRouteChoice || worldStage === 1 || worldStage === STAGES_PER_WORLD || choices.length >= 3) {
       return choices;
     }
     return [
@@ -80,23 +80,23 @@ export const createStageChoices = (stage: number, bonuses?: Partial<RelicBonuses
         safeStage,
         3,
         "normal",
-        "Scanner flank",
-        "ルートスキャナが見つけた迂回路。戦闘リスクを抑えて通常報酬を狙う。",
-        "損耗を抑えた安定進行",
-        "SCAN",
+        "安全な迂回路",
+        "損耗を抑えて次の戦闘へ入る。",
+        "小隊を守る",
+        "索敵",
       ),
     ];
   };
 
-  if (worldStage === 7) {
+  if (worldStage === STAGES_PER_WORLD) {
     return [
       plan(
         safeStage,
         1,
         "boss",
-        `World ${world} overlord`,
-        `${worldName} の最終防衛線。巨大ボスが単体で戦域を支配する。`,
-        world === 1 ? "被弾を抑えながら基本AIを確認" : world === 2 ? "2機の射程とターゲット優先を合わせる" : "3機の役割分担と一斉射撃を完成させる",
+        `WORLD ${world} ボス`,
+        `${worldName} の最後に待つ大型コア。`,
+        world === 1 ? "初期AIで突破" : world === 2 ? "2機連携で突破" : "3機の超反応で突破",
       ),
     ];
   }
@@ -107,12 +107,12 @@ export const createStageChoices = (stage: number, bonuses?: Partial<RelicBonuses
         safeStage,
         1,
         "normal",
-        `${worldName} entry patrol`,
+        `${worldName} 入口`,
         world === 1
-          ? "最初の1機で戦闘手順を確認する低圧戦闘。"
-          : `新しいUNITを迎えた直後の${pressure}確認戦。`,
-        world === 1 ? "移動・射撃・AI条件の基礎" : "新加入機の装備と出撃ONを確認",
-        "ENTRY",
+          ? "弱い1機から始まる最初の戦闘。"
+          : `新しいUNITと合流して${pressure}戦へ入る。`,
+        world === 1 ? "反射速度の起動" : "新加入機の型を決める",
+        "入口",
       ),
     ];
   }
@@ -120,34 +120,17 @@ export const createStageChoices = (stage: number, bonuses?: Partial<RelicBonuses
   switch (worldStage) {
     case 2:
       return withScannerChoice([
-        plan(safeStage, 0, "normal", "Scout screen", "高速機が散発的に接近する。", "近距離条件と回避行動"),
-        plan(safeStage, 2, "normal", "Ranged picket", "長射程機が混ざるが敵数は控えめ。", "射程とターゲット優先"),
+        plan(safeStage, 0, "normal", "通常ルート", "標準的な敵部隊。", "安全にAIを伸ばす"),
+        plan(safeStage, 1, "elite", "危険ルート", "強い敵が混ざるが強化が伸びる。", "速い判断で押し切る"),
+        plan(safeStage, 2, "rest", "修理ルート", "戦闘前に小隊を回復する。", "損傷を戻す"),
       ], bonuses);
     case 3:
-      return [
-        plan(safeStage, 0, "normal", "Mixed patrol", "標準的な混成小隊。安定した報酬を狙える。", "通常報酬で装備幅を広げる"),
-        plan(safeStage, 1, "elite", "Elite frame", "危険な強化機。勝てば報酬候補とクレジットが厚い。", "集中攻撃AIと火力確認"),
-        plan(safeStage, 2, "shop", "Field merchant", "戦闘を避け、クレジットで部品や修理を買える。", "必要なパーツを購入"),
-      ];
-    case 4:
-      return [
-        plan(safeStage, 0, "rest", "Repair point", "補給地点。全機のHPを回復して次へ進む。", "損傷機の復帰"),
-        plan(safeStage, 1, "normal", "Pressure route", "戦闘を継続して報酬を増やす。", "継戦力の確認"),
-        plan(safeStage, 2, "shop", "Arms broker", "クレジットを使って装備を整える。", "不足スロットの補強"),
-      ];
-    case 5:
-      return [
-        plan(safeStage, 0, "normal", "Assault lane", "敵数が増える通常戦闘。", "範囲火力と弾幕処理"),
-        plan(safeStage, 1, "elite", "Prize hunter", "報酬重視のエリート戦。消耗は大きい。", "強敵優先と一斉射撃"),
-        plan(safeStage, 2, "normal", "Defensive line", "耐久寄りの敵が多い通常戦闘。", "防御とクールダウン"),
-      ];
-    case 6:
     default:
-      return [
-        plan(safeStage, 0, "rest", "Last repair", "ボス前の休憩地点。HPを戻せる。", "ボス前の立て直し"),
-        plan(safeStage, 1, "elite", "Gate elite", "ボス前の高リスク戦。報酬が最も厚い。", "完成したAI構成の確認"),
-        plan(safeStage, 2, "shop", "Last merchant", "ボス前の商人。クレジットを使い切る判断。", "最終調整"),
-      ];
+      return withScannerChoice([
+        plan(safeStage, 0, "normal", "通常ルート", "敵数が増えるが安定して進める。", "小隊の連携を伸ばす"),
+        plan(safeStage, 1, "elite", "危険ルート", "ボス前の高リスク戦。", "超反応をさらに尖らせる"),
+        plan(safeStage, 2, "rest", "修理ルート", "ボス前に小隊を回復する。", "最後の立て直し"),
+      ], bonuses);
   }
 };
 

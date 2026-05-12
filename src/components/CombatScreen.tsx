@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getActionLabel, getConditionLabel } from "../data/aiRules";
 import { getWeaponKindLabel } from "../data/parts";
 import { CombatStageType, getStagePlan } from "../data/stages";
@@ -9,7 +9,9 @@ import {
   PlayerCombatUnit,
   PlayerWeaponState,
   WorldBossArt,
+  activateOverdrive,
   createCombatState,
+  overdrivePhaseFor,
   stepCombat,
 } from "../game/combat";
 import { isEntryBoosting } from "../game/combatMovement";
@@ -34,6 +36,7 @@ interface CombatScreenProps {
   stageType: CombatStageType;
   statsByUnit: DerivedStats[];
   unitHpByUnit: number[];
+  overdriveCores: number;
   sortieEnabled: boolean[];
   unlockedUnitCount: number;
   rulesByUnit: AiRule[][];
@@ -42,7 +45,7 @@ interface CombatScreenProps {
   activeUnitIndex: number;
   onSelectUnit: (index: number) => void;
   onVictory: (unitHpByUnit: number[], report: CombatReport) => void;
-  onDefeat: () => void;
+  onDefeat: (report: CombatReport) => void;
 }
 
 const hpPercent = (actor: CombatActor): number => actor.hp / actor.maxHp;
@@ -832,6 +835,30 @@ const drawCombat = (ctx: CanvasRenderingContext2D, state: CombatState, paused = 
     drawEffect(ctx, effect);
   }
 
+  const overdrivePhase = overdrivePhaseFor(state);
+  if (overdrivePhase === "active" || overdrivePhase === "backlash") {
+    ctx.save();
+    const pulse = 0.45 + Math.sin(state.time * 16) * 0.18;
+    ctx.globalAlpha = overdrivePhase === "active" ? 0.34 + pulse * 0.18 : 0.28;
+    const gradient = ctx.createLinearGradient(0, 0, state.width, state.height);
+    gradient.addColorStop(0, overdrivePhase === "active" ? "rgba(84, 244, 167, 0.0)" : "rgba(0, 0, 0, 0.1)");
+    gradient.addColorStop(0.5, overdrivePhase === "active" ? "rgba(84, 244, 167, 0.28)" : "rgba(255, 70, 70, 0.26)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0.0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, state.width, state.height);
+    ctx.globalAlpha = overdrivePhase === "active" ? 0.54 : 0.34;
+    ctx.strokeStyle = overdrivePhase === "active" ? "#54f4a7" : "#ff6b57";
+    ctx.lineWidth = overdrivePhase === "active" ? 4 : 3;
+    for (let i = 0; i < 6; i += 1) {
+      const y = ((state.time * (overdrivePhase === "active" ? 220 : 90)) + i * 105) % state.height;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(state.width, y - 74);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   if (paused && state.status === "running") {
     ctx.save();
     ctx.fillStyle = "rgba(0, 0, 0, .46)";
@@ -861,43 +888,33 @@ export default function CombatScreen({
   stageType,
   statsByUnit,
   unitHpByUnit,
+  overdriveCores,
   sortieEnabled,
   unlockedUnitCount,
   rulesByUnit,
   targetPrioritiesByUnit,
   weaponAutoUseByUnit,
-  activeUnitIndex,
-  onSelectUnit,
   onVictory,
   onDefeat,
 }: CombatScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef<CombatState>(
-    createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit, stageType),
+    createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit, stageType, overdriveCores),
   );
   const resolvedRef = useRef(false);
   const resolveTimeoutRef = useRef<number | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<CombatState>(() => stateRef.current);
-  const [paused, setPaused] = useState(false);
-  const [speedMultiplier, setSpeedMultiplier] = useState(1);
-  const activeUnit = snapshot.players.find((unit) => unit.unitIndex === activeUnitIndex) ?? snapshot.players[0];
-  const selectedUnitIndex = activeUnit?.unitIndex ?? 0;
-  const activeStats = statsByUnit[selectedUnitIndex] ?? statsByUnit[0];
-  const activeRules = rulesByUnit[selectedUnitIndex] ?? rulesByUnit[0] ?? [];
   const stagePlan = getStagePlan(stage, stageNodeId);
-  const rulesById = useMemo(() => new Map(activeRules.map((rule) => [rule.id, rule])), [activeRules]);
-  const activeRule = activeUnit?.activeRuleId ? rulesById.get(activeUnit.activeRuleId) : undefined;
 
   useEffect(() => {
     if (resolveTimeoutRef.current !== undefined) {
       window.clearTimeout(resolveTimeoutRef.current);
       resolveTimeoutRef.current = undefined;
     }
-    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit, stageType);
+    stateRef.current = createCombatState(stage, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit, stageType, overdriveCores);
     resolvedRef.current = false;
-    setPaused(false);
     setSnapshot(stateRef.current);
-  }, [stage, stageType, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit]);
+  }, [overdriveCores, stage, stageType, statsByUnit, unitHpByUnit, sortieEnabled, unlockedUnitCount, weaponAutoUseByUnit]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -909,20 +926,21 @@ export default function CombatScreen({
       return undefined;
     }
 
-    let animation = 0;
+    let animationTimer: number | undefined;
+    let running = true;
     let last = performance.now();
     let lastSnapshot = 0;
 
-    const frame = (now: number) => {
-      const dt = paused ? 0 : Math.min(0.033, Math.max(0.001, (now - last) / 1000)) * speedMultiplier;
-      last = now;
-      const current = paused
-        ? stateRef.current
-        : stepCombat(stateRef.current, dt, rulesByUnit, targetPrioritiesByUnit);
-      if (!paused) {
-        playCombatSoundEvents(current.soundEvents);
+    const frame = () => {
+      if (!running) {
+        return;
       }
-      drawCombat(ctx, current, paused);
+      const now = performance.now();
+      const dt = Math.min(0.033, Math.max(0.001, (now - last) / 1000)) * 1.08;
+      last = now;
+      const current = stepCombat(stateRef.current, dt, rulesByUnit, targetPrioritiesByUnit);
+      playCombatSoundEvents(current.soundEvents);
+      drawCombat(ctx, current);
 
       if (now - lastSnapshot > 110) {
         setSnapshot({
@@ -937,7 +955,9 @@ export default function CombatScreen({
           report: {
             damageByUnit: [...current.report.damageByUnit],
             ruleHitsByUnit: current.report.ruleHitsByUnit.map((ruleHits) => ({ ...ruleHits })),
+            overdriveCoresSpent: current.report.overdriveCoresSpent,
           },
+          overdrive: { ...current.overdrive },
         });
         lastSnapshot = now;
       }
@@ -955,168 +975,105 @@ export default function CombatScreen({
               current.report,
             );
           } else {
-            onDefeat();
+            onDefeat(current.report);
           }
         }, 850);
       }
 
-      animation = requestAnimationFrame(frame);
+      animationTimer = window.setTimeout(frame, 16);
     };
 
-    animation = requestAnimationFrame(frame);
+    animationTimer = window.setTimeout(frame, 0);
     return () => {
-      cancelAnimationFrame(animation);
+      running = false;
+      if (animationTimer !== undefined) {
+        window.clearTimeout(animationTimer);
+      }
       if (resolveTimeoutRef.current !== undefined) {
         window.clearTimeout(resolveTimeoutRef.current);
         resolveTimeoutRef.current = undefined;
       }
     };
-  }, [onDefeat, onVictory, paused, rulesByUnit, speedMultiplier, stage, targetPrioritiesByUnit]);
+  }, [onDefeat, onVictory, rulesByUnit, stage, targetPrioritiesByUnit]);
 
-  if (!activeUnit || !activeStats) {
+  if (snapshot.players.length === 0) {
     return null;
   }
 
-  const activeActor = activeUnit.actor;
+  const handleOverdrive = () => {
+    if (activateOverdrive(stateRef.current)) {
+      setSnapshot({
+        ...stateRef.current,
+        players: stateRef.current.players.map((unit): PlayerCombatUnit => ({
+          ...unit,
+          actor: { ...unit.actor },
+          weapons: unit.weapons.map((weapon) => ({ ...weapon })),
+        })),
+        enemies: [...stateRef.current.enemies],
+        enemyQueue: [...stateRef.current.enemyQueue],
+        report: {
+          damageByUnit: [...stateRef.current.report.damageByUnit],
+          ruleHitsByUnit: stateRef.current.report.ruleHitsByUnit.map((ruleHits) => ({ ...ruleHits })),
+          overdriveCoresSpent: stateRef.current.report.overdriveCoresSpent,
+        },
+        overdrive: { ...stateRef.current.overdrive },
+      });
+    }
+  };
+
   const livingEnemies = snapshot.enemies.filter((enemy) => enemy.hp > 0);
   const incomingEnemyCount = snapshot.enemyQueue.length;
   const defeatedEnemyCount = Math.min(snapshot.enemyTotal, snapshot.defeatedEnemyCount);
+  const playerColumnCount = Math.max(1, snapshot.players.length);
+  const overdrivePhase = overdrivePhaseFor(snapshot);
+  const overdriveDisabled = overdrivePhase !== "ready";
+  const overdriveLabel =
+    overdrivePhase === "active"
+      ? `覚醒 ${Math.ceil(snapshot.overdrive.activeRemaining)}`
+      : overdrivePhase === "backlash"
+        ? `反動 ${Math.ceil(snapshot.overdrive.backlashRemaining)}`
+        : "覚醒";
 
   return (
-    <main className="combat-layout">
-      <section className="combat-hud left">
-        <div className="panel compact stage-brief-panel">
-          <div className="section-title">STAGE {stage}</div>
-          <strong>{stagePlan.label}</strong>
-          <small>{stagePlan.threat}</small>
-          <small>撃破 {defeatedEnemyCount}/{snapshot.enemyTotal}</small>
-          <small>交戦中 {livingEnemies.length} / 増援待ち {incomingEnemyCount}</small>
+    <main className={`combat-layout simple-combat-layout overdrive-${overdrivePhase}`}>
+      <section className="simple-combat-top">
+        <div>
+          <span>戦闘 {stage}</span>
+          <strong>{stagePlan.threat}</strong>
         </div>
-        <div className="panel compact combat-status-panel">
-          <div className="section-title">STATUS</div>
-          <div className="squad-status-list">
-            {snapshot.players.map((unit, index) => (
-              <button
-                key={unit.actor.id}
-                className={`squad-status-row ${selectedUnitIndex === unit.unitIndex ? "active" : ""}`}
-                onClick={() => onSelectUnit(unit.unitIndex)}
-              >
-                <span>UNIT {unit.unitIndex + 1}</span>
-                <b>{unit.actor.hp > 0 ? Math.ceil(unit.actor.hp) : "DOWN"}</b>
-              </button>
-            ))}
-          </div>
-          <div className="meter-label">
-            <span>HP</span>
-            <b>
-              {Math.ceil(activeActor.hp)} / {activeActor.maxHp}
-            </b>
-          </div>
-          <div className="meter hp"><span style={{ width: `${hpPercent(activeActor) * 100}%` }} /></div>
-          <div className="meter-label">
-            <span>EN</span>
-            <b>
-              {Math.ceil(activeActor.en)} / {activeActor.maxEn}
-            </b>
-          </div>
-          <div className="meter en"><span style={{ width: `${(activeActor.en / activeActor.maxEn) * 100}%` }} /></div>
+        <div>
+          <span>撃破</span>
+          <strong>{defeatedEnemyCount}/{snapshot.enemyTotal}</strong>
         </div>
-        <div className="panel compact current-action-panel">
-          <div className="section-title">CURRENT ACTION</div>
-          <strong className="active-action">{getActionLabel(activeUnit.activeAction)}</strong>
-          <small>{activeRule ? getConditionLabel(activeRule.condition) : "AUTO TACTICS"}</small>
-        </div>
-        <div className="panel compact weapon-cool-panel">
-          <div className="section-title">WEAPON COOL</div>
-          {activeUnit.weapons.map((weapon) => (
-            <div className="weapon-cool-entry" key={weapon.hardpoint}>
-              <div className="cool-row">
-                <span>{weapon.label}</span>
-                <b>{weapon.cooldownRemaining.toFixed(1)} / {resourceLabel(weapon)}</b>
-              </div>
-              <small>{getWeaponKindLabel(weapon.weaponKind)} / {firePatternLabel(weapon)} / {weapon.autoUse ? "使用許可" : "使用停止"}</small>
-              <div className={coolbarClass(weapon)}>
-                <span style={{ width: `${cooldownPercent(weapon.cooldownRemaining, weapon.cooldownMax) * 100}%` }} />
-              </div>
-              {weapon.resource === "energy" && (
-                <div className="meter heat">
-                  <span style={{ width: `${Math.min(100, weapon.heatLimit > 0 ? (weapon.heat / weapon.heatLimit) * 100 : 0)}%` }} />
-                </div>
-              )}
-              {weapon.cooldownRemaining <= 0 && weapon.resource === "energy" && activeActor.en < weapon.energyCost && (
-                <div className="shortage-line">{weapon.label} EN不足</div>
-              )}
-              {weapon.resource === "energy" && weapon.overheated && (
-                <div className="shortage-line">{weapon.label} 過熱冷却中</div>
-              )}
-              {weapon.resource === "ballistic" && weapon.reloadRemaining > 0 && (
-                <div className="shortage-line">{weapon.label} リロード中</div>
-              )}
-            </div>
-          ))}
+        <div>
+          <span>敵</span>
+          <strong>{livingEnemies.length + incomingEnemyCount}</strong>
         </div>
       </section>
 
-      <section className="combat-canvas-wrap">
+      <section className="combat-canvas-wrap simple-combat-canvas">
         <canvas ref={canvasRef} width={980} height={570} />
+        <div className="overdrive-screen-flash" style={{ opacity: snapshot.overdrive.flashRemaining > 0 ? snapshot.overdrive.flashRemaining : 0 }} />
       </section>
 
-      <section className="combat-hud right">
-        <div className="panel compact combat-control-panel">
-          <div className="section-title">TACTICS</div>
-          <button className={paused ? "active" : ""} onClick={() => setPaused((current) => !current)}>
-            {paused ? "再開" : "一時停止"}
-          </button>
-          <div className="speed-row">
-            {[1, 1.5, 2].map((speed) => (
-              <button
-                key={speed}
-                className={speedMultiplier === speed ? "active" : ""}
-                onClick={() => setSpeedMultiplier(speed)}
-              >
-                {speed}x
-              </button>
-            ))}
+      <section className="simple-combat-bottom" style={{ gridTemplateColumns: `repeat(${playerColumnCount}, minmax(0, 1fr))` }}>
+        {snapshot.players.map((unit) => (
+          <div className="simple-combat-unit" key={unit.actor.id}>
+            <span>U{unit.unitIndex + 1}</span>
+            <div className="simple-hp"><i style={{ width: `${hpPercent(unit.actor) * 100}%` }} /></div>
+            <strong>{unit.actor.hp > 0 ? getActionLabel(unit.activeAction) : "大破"}</strong>
           </div>
-        </div>
-        <div className="panel compact radar-panel">
-          <div className="section-title">RADAR</div>
-          <div className="radar">
-            {snapshot.players.map((unit) => (
-              <span
-                key={unit.actor.id}
-                className={`radar-player ${unit.actor.hp <= 0 ? "down" : ""}`}
-                style={{
-                  left: `${(unit.actor.x / snapshot.width) * 100}%`,
-                  top: `${(unit.actor.y / snapshot.height) * 100}%`,
-                  background: unit.actor.color,
-                  width: selectedUnitIndex === unit.unitIndex ? 10 : 8,
-                  height: selectedUnitIndex === unit.unitIndex ? 10 : 8,
-                }}
-              />
-            ))}
-            {livingEnemies.map((enemy) => (
-              <span
-                key={enemy.id}
-                className={`radar-enemy ${enemy.rank}`}
-                style={{
-                  left: `${(enemy.x / snapshot.width) * 100}%`,
-                  top: `${(enemy.y / snapshot.height) * 100}%`,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="panel compact enemy-list target-list-panel">
-          <div className="section-title">TARGETS</div>
-          {livingEnemies.map((enemy) => (
-            <div className="enemy-row" key={enemy.id}>
-              <span>{enemy.name}</span>
-              <div className="meter hp mini"><span style={{ width: `${hpPercent(enemy) * 100}%` }} /></div>
-            </div>
-          ))}
-        </div>
+        ))}
       </section>
+
+      <button
+        className="simple-overdrive-button"
+        disabled={overdriveDisabled}
+        onClick={handleOverdrive}
+      >
+        <span>{overdriveLabel}</span>
+        <strong>{snapshot.overdrive.cores}</strong>
+      </button>
     </main>
   );
 }

@@ -117,6 +117,11 @@ const combatSamples: Record<CombatSoundEvent, SampleConfig> = {
     urls: [alertOneUrl, alertTwoUrl],
     gain: 0.28,
   },
+  overdrive: {
+    urls: [uiConfirmTwoUrl, alertOneUrl, quickBoostCustomUrl],
+    gain: 0.26,
+    pitch: 1.18,
+  },
 };
 
 const uiSamples: Record<UiSoundEvent, SampleConfig> = {
@@ -360,6 +365,11 @@ const playSynthEvent = (context: AudioContext, event: CombatSoundEvent): void =>
       playTone(context, "sawtooth", 520, 240, 0.24, 0.052);
       playTone(context, "square", 880, 320, 0.18, 0.032);
       playNoise(context, 0.18, 0.035, 980, 1.4);
+      break;
+    case "overdrive":
+      playTone(context, "sawtooth", 220, 980, 0.45, 0.06);
+      playTone(context, "triangle", 980, 1720, 0.32, 0.045);
+      playNoise(context, 0.38, 0.052, 1800, 1.15);
       break;
   }
 };

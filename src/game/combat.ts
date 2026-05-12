@@ -3,10 +3,12 @@ import { applyDamageToActor, damageAfterDefense, updateHits } from "./combatDama
 import { updateEnemyDestructions } from "./combatDestruction";
 import { isEntryBoosting, resolveActorCollisions, updatePositions } from "./combatMovement";
 import { CombatStageType, worldForStage, worldStageForStage } from "../data/stages";
+import { curvedGrowthPoints } from "../data/simpleRogue";
 import {
   activeEnemyCap,
   createEnemyRanks,
   enemySpawnDelayFor,
+  isRivalAmbushStage,
   nextEnemyBatchSize,
 } from "./enemyWaves";
 import {
@@ -34,6 +36,15 @@ import {
 } from "../types";
 
 export type WorldBossArt = "world1" | "world2" | "world3";
+export type OverdrivePhase = "ready" | "active" | "backlash" | "empty";
+
+export interface CombatOverdriveState {
+  cores: number;
+  coresSpent: number;
+  activeRemaining: number;
+  backlashRemaining: number;
+  flashRemaining: number;
+}
 
 export interface CombatActor {
   id: string;
@@ -162,11 +173,13 @@ export type CombatSoundEvent =
   | "intercept"
   | "explosion"
   | "defeat"
-  | "alert";
+  | "alert"
+  | "overdrive";
 
 export interface CombatReport {
   damageByUnit: number[];
   ruleHitsByUnit: Record<string, number>[];
+  overdriveCoresSpent: number;
 }
 
 export interface CombatState {
@@ -187,11 +200,15 @@ export interface CombatState {
   effects: Effect[];
   soundEvents: CombatSoundEvent[];
   report: CombatReport;
+  overdrive: CombatOverdriveState;
   status: "running" | "victory" | "defeat";
 }
 
 const ARENA_WIDTH = 980;
 const ARENA_HEIGHT = 570;
+export const MAX_OVERDRIVE_CORES = 2;
+export const OVERDRIVE_DURATION = 5.5;
+export const OVERDRIVE_BACKLASH_DURATION = 4;
 const BOOST_LOCK_BREAK_MIN_DISTANCE = 52;
 const BOOST_LOCK_BREAK_MAX_DISTANCE = 108;
 const BOOST_LOCK_BREAK_MIN_APPROACH = 0.35;
@@ -209,6 +226,77 @@ const boostSoundForActor = (actor: CombatActor): CombatSoundEvent =>
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
+
+export const overdrivePhaseFor = (state: Pick<CombatState, "overdrive">): OverdrivePhase => {
+  if (state.overdrive.activeRemaining > 0) {
+    return "active";
+  }
+  if (state.overdrive.backlashRemaining > 0) {
+    return "backlash";
+  }
+  return state.overdrive.cores > 0 ? "ready" : "empty";
+};
+
+const overdriveTempoScale = (state: CombatState): number => {
+  const phase = overdrivePhaseFor(state);
+  return phase === "active" ? 2.65 : phase === "backlash" ? 0.42 : 1;
+};
+
+const overdriveMotionScale = (state: CombatState): number => {
+  const phase = overdrivePhaseFor(state);
+  return phase === "active" ? 1.58 : phase === "backlash" ? 0.48 : 1;
+};
+
+const overdriveEnergyScale = (state: CombatState): number => {
+  const phase = overdrivePhaseFor(state);
+  return phase === "active" ? 2.35 : phase === "backlash" ? 0.36 : 1;
+};
+
+export const activateOverdrive = (state: CombatState): boolean => {
+  if (
+    state.status !== "running" ||
+    state.overdrive.cores <= 0 ||
+    state.overdrive.activeRemaining > 0 ||
+    state.overdrive.backlashRemaining > 0
+  ) {
+    return false;
+  }
+
+  state.overdrive.cores -= 1;
+  state.overdrive.coresSpent += 1;
+  state.overdrive.activeRemaining = OVERDRIVE_DURATION;
+  state.overdrive.backlashRemaining = 0;
+  state.overdrive.flashRemaining = 0.75;
+  state.report.overdriveCoresSpent = state.overdrive.coresSpent;
+  state.soundEvents.push("overdrive", "boost");
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "muzzle",
+      x: state.width / 2,
+      y: state.height * 0.5,
+      life: 0.82,
+      maxLife: 0.82,
+      color: "#54f4a7",
+      size: 120,
+      label: "覚醒ドライブ",
+    }),
+  );
+  return true;
+};
+
+const updateOverdrive = (state: CombatState, dt: number): void => {
+  state.overdrive.flashRemaining = Math.max(0, state.overdrive.flashRemaining - dt);
+  if (state.overdrive.activeRemaining > 0) {
+    state.overdrive.activeRemaining = Math.max(0, state.overdrive.activeRemaining - dt);
+    if (state.overdrive.activeRemaining <= 0) {
+      state.overdrive.backlashRemaining = OVERDRIVE_BACKLASH_DURATION;
+      state.overdrive.flashRemaining = 0.34;
+    }
+    return;
+  }
+  state.overdrive.backlashRemaining = Math.max(0, state.overdrive.backlashRemaining - dt);
+};
 
 const normalize = (dx: number, dy: number): { x: number; y: number; distance: number } => {
   const distance = Math.max(1, Math.hypot(dx, dy));
@@ -590,6 +678,125 @@ const createStageSevenRivalBossSpec = (): RivalBossSpec => {
   };
 };
 
+const createStageSixAmbushSpec = (): RivalBossSpec => {
+  const weapons = [
+    createRivalWeapon("rightArm", "R-ARM", "Haze Carbine", {
+      range: 350,
+      attack: 38,
+      cooldown: 0.62,
+      resource: "energy",
+      weaponKind: "rifle",
+      energyCost: 8,
+    }),
+    createRivalWeapon("leftArm", "L-ARM", "Blink Blade", {
+      range: 96,
+      attack: 78,
+      cooldown: 1.08,
+      resource: "energy",
+      weaponKind: "blade",
+      energyCost: 18,
+    }),
+    createRivalWeapon("rightShoulder", "R-SHOULDER", "Snap Missiles", {
+      range: 440,
+      attack: 58,
+      cooldown: 2.0,
+      resource: "ballistic",
+      weaponKind: "missile",
+      ammoMax: 6,
+      blastRadius: 30,
+    }),
+  ];
+
+  return {
+    stats: createRivalStats("light", "Phantom Haze", "reverse", {
+      hpMax: 1320,
+      enMax: 760,
+      enRegen: 44,
+      defense: 92,
+      moveSpeed: 126,
+      turnSpeed: 98,
+      weight: 3900,
+      loadLimit: 5500,
+    }, weapons),
+    color: "#d889ff",
+    targetPriority: "lowestHpPercent",
+    radius: 28,
+    rules: [
+      { id: "haze-1", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
+      { id: "haze-2", condition: "enemyClose", action: "shootLeft", enabled: true },
+      { id: "haze-3", condition: "shoulderReady", action: "fireMissile", enabled: true },
+      { id: "haze-4", condition: "enemyMid", action: "suppressiveFire", enabled: true },
+      { id: "haze-5", condition: "always", action: "strafe", enabled: true },
+    ],
+  };
+};
+
+const createStageTenAmbushSpec = (): RivalBossSpec => {
+  const weapons = [
+    createRivalWeapon("rightArm", "R-ARM", "Vector Burst", {
+      range: 390,
+      attack: 50,
+      cooldown: 0.5,
+      resource: "energy",
+      weaponKind: "pulse",
+      energyCost: 10,
+      firePattern: "burst",
+      burstCount: 3,
+      burstInterval: 0.07,
+    }),
+    createRivalWeapon("leftArm", "L-ARM", "Vector Edge", {
+      range: 106,
+      attack: 96,
+      cooldown: 0.96,
+      resource: "energy",
+      weaponKind: "blade",
+      energyCost: 22,
+    }),
+    createRivalWeapon("leftShoulder", "L-SHOULDER", "Orbit Grenade", {
+      range: 380,
+      attack: 98,
+      cooldown: 2.4,
+      resource: "ballistic",
+      weaponKind: "grenade",
+      ammoMax: 5,
+      blastRadius: 78,
+    }),
+    createRivalWeapon("rightShoulder", "R-SHOULDER", "Vector Seekers", {
+      range: 490,
+      attack: 74,
+      cooldown: 1.66,
+      resource: "ballistic",
+      weaponKind: "missile",
+      ammoMax: 8,
+      blastRadius: 34,
+    }),
+  ];
+
+  return {
+    stats: createRivalStats("quad", "Vector Seraph", "quad", {
+      hpMax: 2380,
+      enMax: 980,
+      enRegen: 54,
+      defense: 146,
+      moveSpeed: 112,
+      turnSpeed: 82,
+      weight: 6500,
+      loadLimit: 8200,
+    }, weapons, true),
+    color: "#54f4a7",
+    targetPriority: "lowestHp",
+    radius: 34,
+    rules: [
+      { id: "seraph-1", condition: "incomingMissile", action: "interceptMissile", enabled: true },
+      { id: "seraph-2", condition: "enemyProjectileNear", action: "boostDodge", enabled: true },
+      { id: "seraph-3", condition: "enemyClustered", action: "fireExplosive", enabled: true },
+      { id: "seraph-4", condition: "enemyClose", action: "shootLeft", enabled: true },
+      { id: "seraph-5", condition: "enemyMid", action: "alphaStrike", enabled: true },
+      { id: "seraph-6", condition: "always", action: "strafe", enabled: true },
+    ],
+  };
+};
+
 const createWorldOneBossSpec = (): RivalBossSpec => {
   const weapons = [
     createRivalWeapon("rightArm", "R-ARM", "Training Beam", {
@@ -801,6 +1008,9 @@ const createRivalBossSpec = (stage: number): RivalBossSpec =>
       ? createWorldTwoBossSpec()
       : createWorldOneBossSpec();
 
+const createRivalAmbushSpec = (stage: number): RivalBossSpec =>
+  stage >= 10 ? createStageTenAmbushSpec() : createStageSixAmbushSpec();
+
 const createEnemy = (
   stage: number,
   stageType: CombatStageType,
@@ -811,6 +1021,9 @@ const createEnemy = (
 ): CombatActor => {
   const role = (() => {
     if (rank === "boss") {
+      return "rival" as const;
+    }
+    if (rank === "elite" && isRivalAmbushStage(stage) && index >= total - 1) {
       return "rival" as const;
     }
     if (rank === "elite") {
@@ -864,7 +1077,9 @@ const createEnemy = (
         : clamp(entryTargetY, 84, ARENA_HEIGHT - 84);
   const entryDirection = normalize(entryTargetX - entryX, entryTargetY - entryY);
   const initialSpeed = rank === "boss" ? 112 : rank === "elite" ? 172 : 198;
-  const rivalSpec = role === "rival" ? createRivalBossSpec(stage) : undefined;
+  const rivalSpec = role === "rival"
+    ? rank === "boss" ? createRivalBossSpec(stage) : createRivalAmbushSpec(stage)
+    : undefined;
   const rivalRightWeapon = rivalSpec?.stats.weapons.find((weapon) => weapon.hardpoint === "rightArm");
   const rivalLeftWeapon = rivalSpec?.stats.weapons.find((weapon) => weapon.hardpoint === "leftArm");
   const rivalRange = rivalSpec
@@ -1026,7 +1241,7 @@ const refillEnemyWave = (state: CombatState): void => {
   const spawned = spawnEnemies(state.stage, state.stageType, incoming, state.spawnedEnemyCount, state.enemyTotal, true);
   state.enemies.push(...spawned);
   for (const enemy of spawned) {
-    if (enemy.rank === "boss") {
+    if (enemy.rank === "boss" || enemy.rivalAi) {
       pushBossAlert(state, enemy);
     }
   }
@@ -1042,6 +1257,7 @@ export const createCombatState = (
   unlockedUnitCount: number,
   weaponAutoUseByUnit: WeaponAutoUse[] = [],
   stageType: CombatStageType = "normal",
+  overdriveCores = 1,
 ): CombatState => {
   const players = statsByUnit
     .map((stats, unitIndex) => ({ stats, unitIndex }))
@@ -1081,6 +1297,14 @@ export const createCombatState = (
     report: {
       damageByUnit: statsByUnit.map(() => 0),
       ruleHitsByUnit: statsByUnit.map(() => ({})),
+      overdriveCoresSpent: 0,
+    },
+    overdrive: {
+      cores: clamp(overdriveCores, 0, MAX_OVERDRIVE_CORES),
+      coresSpent: 0,
+      activeRemaining: 0,
+      backlashRemaining: 0,
+      flashRemaining: 0,
     },
     status: "running",
   };
@@ -1424,8 +1648,15 @@ const fireProjectile = (
   );
 };
 
-const reactionIntervalFor = (stats: DerivedStats): number =>
-  clamp(0.46 - stats.aiReaction * 0.006, 0.12, 0.48);
+export const reactionIntervalFor = (stats: DerivedStats, tempoScale = 1): number => {
+  const growth = stats.growth;
+  const growthReduction =
+    curvedGrowthPoints(growth?.reflex ?? 0) * 0.012 +
+    curvedGrowthPoints(growth?.sync ?? 0) * 0.006 +
+    curvedGrowthPoints(growth?.trigger ?? 0) * 0.004;
+  const base = clamp(0.5 - stats.aiReaction * 0.006 - growthReduction, 0.04, 0.54);
+  return clamp(base / Math.max(0.25, tempoScale), 0.035, 0.72);
+};
 
 const updateActorStatus = (state: CombatState, actor: CombatActor, dt: number): void => {
   actor.shieldRemaining = Math.max(0, (actor.shieldRemaining ?? 0) - dt);
@@ -2218,8 +2449,9 @@ const fireWeaponShot = (
     if (!consumeWeapon(unit, weapon)) {
       return false;
     }
-    player.vx += toTarget.x * player.moveSpeed * 0.88;
-    player.vy += toTarget.y * player.moveSpeed * 0.88;
+    const bladeLungeScale = player.team === "player" ? overdriveMotionScale(state) : 1;
+    player.vx += toTarget.x * player.moveSpeed * 0.88 * bladeLungeScale;
+    player.vy += toTarget.y * player.moveSpeed * 0.88 * bladeLungeScale;
     performBladeAttack(state, player, target, weapon.attack * 1.55, bladeReach);
     weapon.cooldownRemaining = weapon.cooldownMax;
     return true;
@@ -2530,6 +2762,65 @@ const interceptIncomingMissile = (state: CombatState, unit: PlayerCombatUnit): b
   return true;
 };
 
+const cutIncomingProjectiles = (state: CombatState, unit: PlayerCombatUnit): void => {
+  const cutting = unit.stats.growth?.cutting ?? 0;
+  const reflex = unit.stats.growth?.reflex ?? 0;
+  const blade = unit.weapons.find((weapon) => weapon.weaponKind === "blade" && weapon.autoUse);
+  if (!blade || cutting <= 0 || unit.actor.hp <= 0) {
+    return;
+  }
+
+  const actor = unit.actor;
+  const motionScale = overdriveMotionScale(state);
+  const cutRadius = (34 + curvedGrowthPoints(cutting) * 13 + curvedGrowthPoints(reflex) * 2.8) * motionScale;
+  const maxCuts = Math.max(1, Math.min(8, Math.floor((1 + Math.floor(cutting / 3)) * motionScale)));
+  let cutCount = 0;
+  let cutX = actor.x;
+  let cutY = actor.y;
+
+  state.projectiles = state.projectiles.filter((projectile) => {
+    if (projectile.owner !== "enemy" || cutCount >= maxCuts) {
+      return true;
+    }
+
+    const dx = actor.x - projectile.x;
+    const dy = actor.y - projectile.y;
+    const distance = Math.hypot(dx, dy);
+    const approaching = dx * projectile.vx + dy * projectile.vy > -20;
+    if (distance > cutRadius + projectile.radius || (!approaching && distance > actor.radius + 18)) {
+      return true;
+    }
+
+    cutCount += 1;
+    cutX = projectile.x;
+    cutY = projectile.y;
+    const aim = normalize(projectile.x - actor.x, projectile.y - actor.y);
+    actor.facingX = aim.x;
+    actor.facingY = aim.y;
+    return false;
+  });
+
+  if (cutCount <= 0) {
+    return;
+  }
+
+  state.soundEvents.push("blade", "intercept");
+  state.effects.push(
+    createEffect({
+      id: uid("effect"),
+      kind: "slash",
+      x: (actor.x + cutX) * 0.5,
+      y: (actor.y + cutY) * 0.5,
+      life: 0.18,
+      maxLife: 0.18,
+      color: "#8cf8ff",
+      size: 74 + cutting * 6,
+      rotation: Math.atan2(cutY - actor.y, cutX - actor.x),
+      label: cutCount > 1 ? `${cutCount} CUT` : "CUT",
+    }),
+  );
+};
+
 const applyPlayerAction = (
   state: CombatState,
   unit: PlayerCombatUnit,
@@ -2550,35 +2841,41 @@ const applyPlayerAction = (
   const strafeDirection = Math.sin(state.time * 2.7) > 0 ? 1 : -1;
   const perpendicular = { x: -toTarget.y * strafeDirection, y: toTarget.x * strafeDirection };
   const rangeBias = toTarget.distance > 285 ? 0.44 : toTarget.distance < 118 ? -0.62 : 0.05;
+  const motionScale = player.team === "player" ? overdriveMotionScale(state) : 1;
+  const playerThrust = (x: number, y: number, strength: number) => {
+    applyThrust(player, x, y, strength * motionScale);
+  };
   const combatDrift = () => {
-    applyThrust(player, perpendicular.x * 0.45 + toTarget.x * rangeBias, perpendicular.y * 0.45 + toTarget.y * rangeBias, 0.5);
+    playerThrust(perpendicular.x * 0.45 + toTarget.x * rangeBias, perpendicular.y * 0.45 + toTarget.y * rangeBias, 0.5);
   };
 
   switch (action) {
     case "approach":
-      applyThrust(player, toTarget.x, toTarget.y, 0.82);
+      playerThrust(toTarget.x, toTarget.y, 0.82);
       break;
     case "retreat":
-      applyThrust(player, -toTarget.x, -toTarget.y, 0.68);
+      playerThrust(-toTarget.x, -toTarget.y, 0.68);
       break;
     case "strafe":
-      applyThrust(player, perpendicular.x * 0.55 + toTarget.x * rangeBias, perpendicular.y * 0.55 + toTarget.y * rangeBias, 0.58);
+      playerThrust(perpendicular.x * 0.55 + toTarget.x * rangeBias, perpendicular.y * 0.55 + toTarget.y * rangeBias, 0.58);
       break;
     case "boostDodge": {
-      const cost = unit.stats.quickBoostCost;
+      const boostGrowth = unit.stats.growth?.boost ?? 0;
+      const syncGrowth = unit.stats.growth?.sync ?? 0;
+      const cost = Math.max(4, unit.stats.quickBoostCost * clamp(1 - boostGrowth * 0.05, 0.42, 1));
       if (unit.boostCooldown <= 0 && spendEnergy(player, cost)) {
-        const thrust = unit.stats.quickBoostThrust;
+        const thrust = unit.stats.quickBoostThrust * (1 + curvedGrowthPoints(boostGrowth) * 0.035) * motionScale;
         player.vx += perpendicular.x * thrust;
         player.vy += perpendicular.y * thrust;
-        applyThrust(player, perpendicular.x, perpendicular.y, clamp(thrust / Math.max(1, player.moveSpeed * 2.6), 0.6, 1.55));
+        playerThrust(perpendicular.x, perpendicular.y, clamp(thrust / Math.max(1, player.moveSpeed * 2.6), 0.6, 1.55));
         player.quickBoostTime = unit.stats.quickBoostDuration;
         player.quickBoostMaxSpeed = unit.stats.boostSpeed;
         pushBoostBurst(state, player, perpendicular, player.team === "enemy" ? player.color : "#21e0ff");
         breakIncomingMissileLocks(state, player);
-        unit.boostCooldown = unit.stats.quickBoostCooldown;
+        unit.boostCooldown = unit.stats.quickBoostCooldown * clamp(1 - curvedGrowthPoints(boostGrowth) * 0.055 - curvedGrowthPoints(syncGrowth) * 0.02, 0.25, 1);
         state.soundEvents.push(boostSoundForActor(player));
       } else {
-        applyThrust(player, perpendicular.x * 0.35 + toTarget.x * rangeBias, perpendicular.y * 0.35 + toTarget.y * rangeBias, 0.32);
+        playerThrust(perpendicular.x * 0.35 + toTarget.x * rangeBias, perpendicular.y * 0.35 + toTarget.y * rangeBias, 0.32);
       }
       break;
     }
@@ -2607,11 +2904,11 @@ const applyPlayerAction = (
       if (leftWeapon?.weaponKind === "blade") {
         const bladeReach = bladeReachFor(player, target, leftWeapon);
         if (toTarget.distance > bladeReach) {
-          applyThrust(player, toTarget.x, toTarget.y, 1.15);
+          playerThrust(toTarget.x, toTarget.y, 1.15);
           break;
         }
 
-        applyThrust(player, toTarget.x, toTarget.y, 0.58);
+        playerThrust(toTarget.x, toTarget.y, 0.58);
         firePlayerWeapon(state, unit, leftWeapon, target);
         break;
       }
@@ -2644,7 +2941,7 @@ const applyPlayerAction = (
     case "guard":
       if (unit.stats.canGuard && player.canGuard) {
         player.guard = true;
-        applyThrust(player, -toTarget.x, -toTarget.y, 0.2);
+        playerThrust(-toTarget.x, -toTarget.y, 0.2);
       } else {
         combatDrift();
       }
@@ -2880,8 +3177,11 @@ export const stepCombat = (
 
   state.soundEvents = [];
   state.time += dt;
+  updateOverdrive(state, dt);
   updateStatuses(state, dt);
   updateSupportBits(state, dt);
+  const tempoScale = overdriveTempoScale(state);
+  const energyScale = overdriveEnergyScale(state);
 
   for (let unitIndex = 0; unitIndex < state.players.length; unitIndex += 1) {
     const unit = state.players[unitIndex];
@@ -2895,14 +3195,14 @@ export const stepCombat = (
       continue;
     }
 
-    player.en = Math.min(player.maxEn, player.en + player.enRegen * dt);
+    player.en = Math.min(player.maxEn, player.en + player.enRegen * dt * energyScale);
     for (const weapon of unit.weapons) {
-      updateWeaponRuntime(weapon, dt);
+      updateWeaponRuntime(weapon, dt * tempoScale);
     }
-    unit.boostCooldown = Math.max(0, unit.boostCooldown - dt);
-    unit.decisionCooldown = Math.max(0, unit.decisionCooldown - dt);
+    unit.boostCooldown = Math.max(0, unit.boostCooldown - dt * tempoScale);
+    unit.decisionCooldown = Math.max(0, unit.decisionCooldown - dt * tempoScale);
     if (unit.special) {
-      unit.special.cooldownRemaining = Math.max(0, unit.special.cooldownRemaining - dt);
+      unit.special.cooldownRemaining = Math.max(0, unit.special.cooldownRemaining - dt * tempoScale);
       unit.special.activeRemaining = Math.max(0, unit.special.activeRemaining - dt);
     }
 
@@ -2917,7 +3217,7 @@ export const stepCombat = (
     const leftShoulderWeapon = weaponByHardpoint(unit, "leftShoulder");
     const rightShoulderWeapon = weaponByHardpoint(unit, "rightShoulder");
     const bothShoulderWeapon = weaponByHardpoint(unit, "bothShoulders");
-    resolveWeaponSequences(state, unit, target, dt);
+    resolveWeaponSequences(state, unit, target, dt * tempoScale);
     const projectileThreats = hostileProjectileThreatDistances(state, player);
     const clusteredCount = clusteredEnemyCount(state, target);
 
@@ -2981,7 +3281,7 @@ export const stepCombat = (
 
     unit.activeAction = decision[0].action;
     unit.activeRuleId = decision[0].ruleId;
-    unit.decisionCooldown = reactionIntervalFor(unit.stats);
+    unit.decisionCooldown = reactionIntervalFor(unit.stats, tempoScale);
     for (const item of decision) {
       if (item.ruleId) {
         const unitRuleHits = state.report.ruleHitsByUnit[unit.unitIndex] ?? {};
@@ -2996,6 +3296,10 @@ export const stepCombat = (
     if (enemy.hp > 0) {
       updateEnemy(state, enemy, dt);
     }
+  }
+
+  for (const unit of state.players) {
+    cutIncomingProjectiles(state, unit);
   }
 
   updatePositions(state, dt);

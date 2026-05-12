@@ -6,15 +6,23 @@ export type EnemyRank = CombatActor["rank"];
 const normals = (count: number): EnemyRank[] =>
   Array.from({ length: count }, () => "normal" as const);
 
+export const isRivalAmbushStage = (stage: number): boolean => stage === 6 || stage === 10;
+
+const progressPowerForStage = (stage: number): number => {
+  const progress = Math.max(0, Math.min(1, (stage - 1) / 11));
+  return progress * progress;
+};
+
 const worldNormalCount = (stage: number, playerCount: number, stageType: CombatStageType): number => {
   const world = worldForStage(stage);
   const worldStage = worldStageForStage(stage);
   const playerScale = Math.max(0, playerCount - 1);
-  const tutorialTrim = world === 1 ? -2 : 0;
-  const base = world === 1 ? 3 : world === 2 ? 6 : 8;
-  const ramp = worldStage + playerScale * (world === 3 ? 2 : 1);
-  const typeBonus = stageType === "elite" ? 2 + world : stageType === "boss" ? world + 1 : 0;
-  return Math.max(world === 1 ? 3 : 5, base + ramp + typeBonus + tutorialTrim);
+  const curve = progressPowerForStage(stage);
+  const base = 2 + Math.round(curve * 12);
+  const worldPressure = (world - 1) * 2 + Math.max(0, worldStage - 1);
+  const typeBonus = stageType === "elite" ? 2 + Math.round(curve * 4) : stageType === "boss" ? 1 + world : 0;
+  const playerBonus = playerScale * (1 + Math.round(curve * 2));
+  return Math.max(stage <= 2 ? 2 : 4, base + worldPressure + typeBonus + playerBonus);
 };
 
 export const createEnemyRanks = (
@@ -33,14 +41,18 @@ export const createEnemyRanks = (
 
   if (stageType === "elite") {
     const world = worldForStage(stage);
-    const eliteCount = world === 1 ? 1 : world === 2 ? 1 : 2;
+    const eliteCount = world === 1 ? 1 : world === 2 ? 2 : 3;
     return [
       ...normals(worldNormalCount(stage, playerCount, stageType)),
       ...Array.from({ length: eliteCount }, () => "elite" as const),
+      ...(isRivalAmbushStage(stage) ? ["elite" as const] : []),
     ];
   }
 
-  return normals(worldNormalCount(stage, playerCount, stageType));
+  return [
+    ...normals(worldNormalCount(stage, playerCount, stageType)),
+    ...(isRivalAmbushStage(stage) ? ["elite" as const] : []),
+  ];
 };
 
 export const activeEnemyCap = (
@@ -49,9 +61,10 @@ export const activeEnemyCap = (
   stageType: CombatStageType = "normal",
 ): number => {
   const world = worldForStage(stage);
-  const base = world === 1 ? 3 : world === 2 ? 5 : 7;
+  const curve = progressPowerForStage(stage);
+  const base = world === 1 ? 2 : world === 2 ? 5 : 7;
   const typeBonus = stageType === "boss" ? 1 : stageType === "elite" ? 1 : 0;
-  return Math.min(base + typeBonus + playerCount, Math.max(3, playerCount * (world + 2)));
+  return Math.min(base + typeBonus + playerCount + Math.round(curve * 4), Math.max(2, playerCount * (world + 3)));
 };
 
 const countFrontRanks = (
@@ -85,10 +98,11 @@ export const nextEnemyBatchSize = (state: CombatState, capacity: number): number
   const midBattleSurge = progress >= 0.42 && progress <= 0.64;
   const livingCount = state.enemies.filter((enemy) => enemy.hp > 0).length;
   const quietBonus = livingCount <= Math.max(1, state.players.length) ? 1 : 0;
+  const curve = progressPowerForStage(state.stage);
   const baseSize = opening
-    ? world === 1 ? 2 : world === 2 ? 3 : 4
+    ? world === 1 ? 1 : world === 2 ? 3 : 4
     : midBattleSurge
-      ? world === 1 ? 2 : world === 2 ? 3 : 4
+      ? world === 1 ? 2 : world === 2 ? 3 : 4 + Math.round(curve * 2)
       : world === 1 ? 1 : 2;
 
   return Math.max(1, Math.min(capacity, normalSpan, baseSize + quietBonus));
@@ -100,10 +114,10 @@ export const enemySpawnDelayFor = (
 ): number => {
   const world = worldForStage(state.stage);
   if (incoming.some((rank) => rank !== "normal")) {
-    return world === 1 ? 1.45 : 1.25;
+    return world === 1 ? 1.55 : world === 2 ? 1.18 : 0.95;
   }
   if (incoming.length >= 3) {
-    return world === 1 ? 2.1 : world === 2 ? 1.75 : 1.45;
+    return world === 1 ? 2.2 : world === 2 ? 1.55 : 1.08;
   }
-  return world === 1 ? 1.35 : world === 2 ? 1.05 : 0.9;
+  return world === 1 ? 1.48 : world === 2 ? 0.96 : 0.72;
 };

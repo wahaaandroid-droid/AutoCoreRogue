@@ -23,11 +23,22 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   min-width: 0;
   min-height: 100vh;
   overflow: auto;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
   background:
     linear-gradient(135deg, rgba(54, 207, 255, 0.07), transparent 34%),
     repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 72px),
@@ -46,6 +57,9 @@ button {
   min-height: 36px;
   padding: 0 14px;
   cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
   transition:
     border-color 150ms ease,
     transform 150ms ease,
@@ -3402,5 +3416,819 @@ button.relic-card {
     min-height: 32px;
     padding: 0 4px;
     font-size: 12px;
+  }
+}
+
+/* Simple rogue redesign */
+.simple-app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  background:
+    linear-gradient(135deg, #081114 0%, #111817 46%, #251a12 100%);
+  color: #f6fbf8;
+  overflow: hidden;
+}
+
+.simple-screen {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  gap: 18px;
+  padding:
+    calc(clamp(14px, 2vw, 26px) + env(safe-area-inset-top))
+    calc(clamp(14px, 2vw, 26px) + env(safe-area-inset-right))
+    calc(clamp(14px, 2vw, 26px) + env(safe-area-inset-bottom))
+    calc(clamp(14px, 2vw, 26px) + env(safe-area-inset-left));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.simple-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(135deg, #071114, #111817 54%, #21160f);
+}
+
+.simple-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.68), rgba(0, 0, 0, 0.18) 52%, rgba(0, 0, 0, 0.64));
+}
+
+.prep-screen-simple::before {
+  background:
+    linear-gradient(90deg, rgba(3, 7, 9, 0.72), rgba(3, 7, 9, 0.26) 56%, rgba(3, 7, 9, 0.72)),
+    url("./assets/simple/prep-hangar.png") center / cover;
+}
+
+.map-screen-simple::before {
+  background:
+    linear-gradient(180deg, rgba(4, 9, 10, 0.5), rgba(4, 9, 10, 0.76)),
+    url("./assets/simple/route-map.png") center / cover;
+}
+
+.complete-screen-simple.clear::before {
+  background:
+    linear-gradient(180deg, rgba(4, 9, 10, 0.2), rgba(4, 9, 10, 0.7)),
+    url("./assets/simple/clear-bg.png") center / cover;
+}
+
+.complete-screen-simple.defeat::before {
+  background:
+    linear-gradient(180deg, rgba(4, 9, 10, 0.3), rgba(4, 9, 10, 0.82)),
+    url("./assets/simple/defeat-bg.png") center / cover;
+}
+
+.prep-screen-simple {
+  grid-template-columns: 1fr 1.35fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "hero hero"
+    "squad cards"
+    "outcome actions";
+}
+
+.simple-hero {
+  grid-area: hero;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 68px;
+  border-bottom: 1px solid rgba(246, 251, 248, 0.18);
+}
+
+.simple-core-stock {
+  display: grid;
+  grid-template-columns: repeat(2, 44px) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 152px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.36);
+}
+
+.simple-core-stock i {
+  width: 38px;
+  height: 38px;
+  border: 2px solid rgba(84, 244, 167, 0.5);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(84, 244, 167, 0.12), rgba(84, 244, 167, 0.02)),
+    url("./assets/simple/overdrive-core.png") center / cover;
+  opacity: 0.32;
+}
+
+.simple-core-stock i.filled {
+  opacity: 1;
+  box-shadow: 0 0 18px rgba(84, 244, 167, 0.44);
+}
+
+.simple-core-stock b {
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.simple-hero span,
+.simple-section-title,
+.simple-combat-top span,
+.simple-combat-unit span,
+.complete-panel-simple span {
+  color: #94d8ff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.simple-hero strong {
+  display: block;
+  font-size: clamp(2rem, 4vw, 4.4rem);
+  line-height: 0.92;
+}
+
+.simple-hero p {
+  max-width: 48ch;
+  margin: 0 0 8px;
+  color: #d7e7df;
+  font-size: clamp(1rem, 1.6vw, 1.35rem);
+  font-weight: 700;
+  text-align: right;
+}
+
+.simple-squad {
+  grid-area: squad;
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 0;
+}
+
+.simple-unit {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-rows: auto auto auto auto;
+  align-content: center;
+  gap: 4px 12px;
+  padding: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(7, 16, 18, 0.72);
+}
+
+.simple-unit b {
+  grid-row: 1 / 5;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 8px;
+  background: #163d45;
+  color: #9ff1ff;
+  font-size: 1.15rem;
+}
+
+.simple-unit strong {
+  font-size: clamp(1.1rem, 2vw, 1.55rem);
+}
+
+.simple-unit span,
+.simple-unit small,
+.simple-outcome,
+.route-card-simple small,
+.upgrade-card-simple small,
+.join-choice-grid small,
+.complete-panel-simple p {
+  color: #d8e3dd;
+  font-weight: 700;
+}
+
+.simple-unit.locked {
+  opacity: 0.46;
+}
+
+.simple-hp {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.simple-hp i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #57f287, #41d7ff);
+}
+
+.upgrade-grid-simple,
+.join-panel-simple {
+  grid-area: cards;
+  min-height: 0;
+}
+
+.upgrade-grid-simple {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.upgrade-card-simple,
+.join-choice-grid button,
+.route-card-simple {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(12, 26, 28, 0.86);
+  color: #f6fbf8;
+  cursor: pointer;
+  min-height: 128px;
+  text-align: left;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.upgrade-card-simple::before,
+.route-card-simple::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: rgba(12, 26, 28, 0.86);
+  opacity: 0.58;
+}
+
+.upgrade-card-simple::after,
+.route-card-simple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.78));
+}
+
+.upgrade-card-simple.icon-eye::before {
+  background: url("./assets/simple/upgrade-reflex.png") center / cover;
+}
+
+.upgrade-card-simple.icon-boost::before {
+  background: url("./assets/simple/upgrade-boost.png") center / cover;
+}
+
+.upgrade-card-simple.icon-slash::before {
+  background: url("./assets/simple/upgrade-cutting.png") center / cover;
+}
+
+.upgrade-card-simple.icon-burst::before {
+  background: url("./assets/simple/upgrade-trigger.png") center / cover;
+}
+
+.upgrade-card-simple.icon-sync::before {
+  background: url("./assets/simple/upgrade-sync.png") center / cover;
+}
+
+.upgrade-card-simple {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 18px;
+}
+
+.upgrade-card-simple:hover,
+.join-choice-grid button:hover,
+.route-card-simple:hover {
+  transform: translateY(-2px);
+  border-color: rgba(84, 244, 167, 0.82);
+  background: rgba(19, 45, 42, 0.96);
+}
+
+.upgrade-card-simple:disabled {
+  cursor: default;
+  opacity: 0.54;
+  transform: none;
+}
+
+.upgrade-card-simple span,
+.join-choice-grid span,
+.route-card-simple span {
+  display: grid;
+  place-items: center;
+  width: min(100%, 124px);
+  height: 74px;
+  border-radius: 8px;
+  background: #f0b44f;
+  color: #15110a;
+  font-size: clamp(1rem, 2.1vw, 1.7rem);
+  font-weight: 900;
+}
+
+.upgrade-pips {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr) auto;
+  gap: 5px;
+  align-items: center;
+  min-height: 16px;
+}
+
+.upgrade-pips i {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.upgrade-pips i.filled {
+  background: #54f4a7;
+  box-shadow: 0 0 10px rgba(84, 244, 167, 0.42);
+}
+
+.upgrade-pips b {
+  color: #54f4a7;
+  font-size: 0.72rem;
+}
+
+.upgrade-card-simple:nth-child(2) span,
+.join-choice-grid button:nth-child(2) span,
+.route-card-simple.rest span {
+  background: #54f4a7;
+}
+
+.upgrade-card-simple:nth-child(3) span,
+.join-choice-grid button:nth-child(3) span,
+.route-card-simple.elite span,
+.route-card-simple.boss span {
+  background: #ff6b57;
+  color: #260b06;
+}
+
+.upgrade-card-simple strong,
+.join-choice-grid strong,
+.route-card-simple strong {
+  font-size: clamp(1.35rem, 2.7vw, 2.35rem);
+  line-height: 1.05;
+}
+
+.join-panel-simple {
+  display: grid;
+  gap: 12px;
+  align-content: stretch;
+}
+
+.join-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.join-choice-grid button {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 18px;
+}
+
+.simple-outcome {
+  grid-area: outcome;
+  display: flex;
+  align-items: center;
+  min-height: 58px;
+  padding: 0 16px;
+  border-left: 5px solid #41d7ff;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.simple-action-row {
+  grid-area: actions;
+  display: grid;
+  grid-template-columns: 0.75fr 1.4fr;
+  gap: 12px;
+}
+
+.simple-action-row.solo {
+  grid-template-columns: 1fr;
+}
+
+.simple-action-row button,
+.complete-panel-simple button {
+  min-height: 74px;
+  border: 0;
+  border-radius: 8px;
+  background: #273338;
+  color: #f6fbf8;
+  font-size: clamp(1.2rem, 2.7vw, 2rem);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.simple-action-row button.primary,
+.complete-panel-simple button.primary {
+  background: #54f4a7;
+  color: #07100d;
+}
+
+.simple-action-row button.primary:disabled {
+  background: #2d3d38;
+  color: #9ca9a3;
+}
+
+.simple-action-row button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.map-screen-simple {
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.simple-progress {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 7px;
+}
+
+.simple-progress i {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.simple-progress i.done {
+  background: #54f4a7;
+}
+
+.simple-progress i.now {
+  background: #f0b44f;
+}
+
+.route-grid-simple {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.route-card-simple {
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  padding: 22px;
+}
+
+.route-card-simple.normal::before {
+  background: url("./assets/simple/route-map.png") center / cover;
+}
+
+.route-card-simple.elite::before {
+  background: url("./assets/simple/rival-warning.png") center / cover;
+}
+
+.route-card-simple.rest::before {
+  background: url("./assets/simple/overdrive-core.png") center / cover;
+}
+
+.route-card-simple.boss::before {
+  background: url("./assets/simple/rival-warning.png") center / cover;
+}
+
+.route-card-simple.boss {
+  grid-column: 1 / -1;
+  text-align: center;
+  justify-items: center;
+}
+
+.simple-combat-layout {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding:
+    calc(10px + env(safe-area-inset-top))
+    calc(10px + env(safe-area-inset-right))
+    calc(10px + env(safe-area-inset-bottom))
+    calc(10px + env(safe-area-inset-left));
+  background: #061013;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.simple-combat-layout.overdrive-active {
+  background:
+    linear-gradient(90deg, rgba(84, 244, 167, 0.14), transparent 45%, rgba(84, 244, 167, 0.16)),
+    #061013;
+}
+
+.simple-combat-layout.overdrive-backlash {
+  background:
+    linear-gradient(90deg, rgba(255, 60, 70, 0.13), rgba(0, 0, 0, 0.42), rgba(255, 60, 70, 0.1)),
+    #05090b;
+}
+
+.simple-combat-top,
+.simple-combat-bottom {
+  display: grid;
+  grid-template-columns: 1.6fr 0.75fr 0.75fr;
+  gap: 10px;
+}
+
+.simple-combat-top > div,
+.simple-combat-unit {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  min-height: 58px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.simple-combat-top strong {
+  font-size: clamp(1.2rem, 2.3vw, 1.9rem);
+  line-height: 1.05;
+}
+
+.simple-combat-canvas {
+  position: relative;
+  min-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #071114;
+  place-items: center;
+}
+
+.overdrive-screen-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(84, 244, 167, 0.32), transparent 42%),
+    url("./assets/simple/overdrive-overlay.png") center / cover;
+  mix-blend-mode: screen;
+  transition: opacity 120ms ease;
+}
+
+.simple-combat-canvas canvas {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+  display: block;
+}
+
+.simple-combat-bottom {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.simple-combat-unit strong {
+  font-size: clamp(0.95rem, 1.6vw, 1.25rem);
+}
+
+.simple-overdrive-button {
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right));
+  bottom: calc(86px + env(safe-area-inset-bottom));
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto 42px;
+  align-items: center;
+  gap: 10px;
+  min-width: 172px;
+  min-height: 78px;
+  border: 2px solid rgba(84, 244, 167, 0.7);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(2, 12, 10, 0.66), rgba(2, 12, 10, 0.2)),
+    url("./assets/simple/overdrive-core.png") right center / auto 150%;
+  color: #ecfff5;
+  font-weight: 900;
+  box-shadow: 0 0 24px rgba(84, 244, 167, 0.24);
+}
+
+.simple-overdrive-button span {
+  font-size: clamp(1.35rem, 3vw, 2.1rem);
+}
+
+.simple-overdrive-button strong {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(84, 244, 167, 0.92);
+  color: #07100d;
+  font-size: 1.35rem;
+}
+
+.simple-overdrive-button:disabled {
+  border-color: rgba(255, 255, 255, 0.16);
+  filter: grayscale(0.9);
+  opacity: 0.62;
+}
+
+.complete-screen-simple {
+  place-items: center;
+}
+
+.complete-panel-simple {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: min(680px, 92vw);
+  padding: 34px;
+  border-radius: 8px;
+  background: rgba(8, 18, 20, 0.9);
+  text-align: center;
+}
+
+.complete-panel-simple h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 7vw, 5rem);
+}
+
+.complete-panel-simple strong {
+  color: #f0b44f;
+  font-size: clamp(1.4rem, 4vw, 2.8rem);
+}
+
+@media (orientation: landscape) and (max-height: 540px), (max-width: 960px) and (max-height: 540px) {
+  .simple-screen {
+    gap: 8px;
+    padding:
+      calc(8px + env(safe-area-inset-top))
+      calc(8px + env(safe-area-inset-right))
+      calc(8px + env(safe-area-inset-bottom))
+      calc(8px + env(safe-area-inset-left));
+  }
+
+  .prep-screen-simple {
+    grid-template-columns: 0.9fr 1.5fr;
+    grid-template-rows: 44px 1fr 58px;
+  }
+
+  .simple-hero {
+    min-height: 44px;
+  }
+
+  .simple-hero strong {
+    font-size: 1.55rem;
+  }
+
+  .simple-hero p {
+    font-size: 0.86rem;
+    margin-bottom: 4px;
+  }
+
+  .simple-squad,
+  .upgrade-grid-simple,
+  .join-choice-grid,
+  .route-grid-simple {
+    gap: 8px;
+  }
+
+  .simple-unit {
+    grid-template-columns: 44px 1fr;
+    padding: 8px;
+  }
+
+  .simple-unit b {
+    width: 42px;
+    height: 42px;
+  }
+
+  .simple-unit span,
+  .simple-unit small {
+    font-size: 0.72rem;
+  }
+
+  .upgrade-card-simple,
+  .join-choice-grid button,
+  .route-card-simple {
+    min-height: 112px;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .upgrade-card-simple span,
+  .join-choice-grid span,
+  .route-card-simple span {
+    height: 48px;
+    font-size: 1rem;
+  }
+
+  .simple-action-row button,
+  .complete-panel-simple button {
+    min-height: 58px;
+    font-size: 1.35rem;
+  }
+
+  .simple-outcome {
+    min-height: 58px;
+    font-size: 0.82rem;
+  }
+
+  .simple-progress i {
+    height: 9px;
+  }
+
+  .simple-combat-layout {
+    gap: 6px;
+    padding:
+      calc(6px + env(safe-area-inset-top))
+      calc(6px + env(safe-area-inset-right))
+      calc(6px + env(safe-area-inset-bottom))
+      calc(6px + env(safe-area-inset-left));
+  }
+
+  .simple-combat-top > div,
+  .simple-combat-unit {
+    min-height: 42px;
+    padding: 5px 8px;
+  }
+
+  .simple-combat-top strong {
+    font-size: 1rem;
+  }
+
+  .simple-overdrive-button {
+    right: calc(8px + env(safe-area-inset-right));
+    bottom: calc(56px + env(safe-area-inset-bottom));
+    min-width: 132px;
+    min-height: 54px;
+    grid-template-columns: auto 32px;
+    gap: 7px;
+  }
+
+  .simple-overdrive-button span {
+    font-size: 1.15rem;
+  }
+
+  .simple-overdrive-button strong {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+}
+
+@media (orientation: portrait) {
+  .simple-app-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
+  .simple-screen {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
+  .prep-screen-simple {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto auto;
+    grid-template-areas:
+      "hero"
+      "squad"
+      "cards"
+      "outcome"
+      "actions";
+  }
+
+  .simple-hero {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .simple-hero p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .upgrade-grid-simple,
+  .join-choice-grid,
+  .route-grid-simple {
+    grid-template-columns: 1fr;
+  }
+
+  .simple-combat-layout {
+    height: 100dvh;
   }
 }

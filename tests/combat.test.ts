@@ -1,7 +1,13 @@
 import { strict as assert } from "node:assert";
-import { createCombatState, stepCombat } from "../src/game/combat";
+import {
+  activateOverdrive,
+  createCombatState,
+  overdrivePhaseFor,
+  reactionIntervalFor,
+  stepCombat,
+} from "../src/game/combat";
 import { applyDamageToActor, damageAfterDefense } from "../src/game/combatDamage";
-import { createEnemyRanks } from "../src/game/enemyWaves";
+import { createEnemyRanks, isRivalAmbushStage } from "../src/game/enemyWaves";
 import {
   createAiPresetRules,
   getAvailableActionDefinitions,
@@ -23,8 +29,20 @@ import {
   createPendingRelicReward,
   grantRelicToMeta,
 } from "../src/data/relics";
-import { createStageChoices } from "../src/data/stages";
-import type { AiRule, DerivedStats, WeaponStats } from "../src/types";
+import {
+  STAGES_PER_WORLD,
+  TOTAL_STAGES,
+  createStageChoices,
+  worldStageForStage,
+} from "../src/data/stages";
+import {
+  buildSimpleStats,
+  createInitialUnitGrowth,
+  createPrepUpgradeOptions,
+  curvedGrowthPoints,
+  joinIndexForStage,
+} from "../src/data/simpleRogue";
+import type { AiRule, DerivedStats, UnitGrowth, WeaponStats } from "../src/types";
 import { EQUIP_SLOTS } from "../src/types";
 
 const rules: AiRule[][] = [[]];
@@ -264,7 +282,7 @@ run("relic bonuses affect only run-start style modifiers", () => {
 
 run("full clear relic flow grants a normal relic and then the clear key", () => {
   const meta = createInitialMetaSaveState();
-  const pending = createPendingRelicReward("clear", 21, 21, meta);
+  const pending = createPendingRelicReward("clear", TOTAL_STAGES, TOTAL_STAGES, meta);
   assert.ok(pending);
   assert.equal(pending.phase, "normal");
   assert.equal(pending.picksRemaining, 2);
@@ -273,8 +291,8 @@ run("full clear relic flow grants a normal relic and then the clear key", () => 
   const granted = grantRelicToMeta(meta, pending.options[0].relicId);
   const clearPending = createPendingRelicReward(
     "clear",
-    21,
-    21,
+    TOTAL_STAGES,
+    TOTAL_STAGES,
     granted.metaState,
     "clear",
     [pending.options[0].relicId],
@@ -296,8 +314,111 @@ run("relic bonuses can widen rewards, discount shops, and reveal scanner routes"
   const discountedShopCost = generateShopOffers(3, {}, { partShopDiscount: 0.12 })[0].cost;
   assert.ok(discountedShopCost < baseShopCost);
 
-  assert.equal(createStageChoices(2).length, 2);
+  assert.equal(createStageChoices(2).length, 3);
   assert.equal(createStageChoices(2, { extraRouteChoice: true }).length, 3);
+});
+
+run("simple rogue run uses twelve stages with boss gates and unit joins", () => {
+  assert.equal(STAGES_PER_WORLD, 4);
+  assert.equal(TOTAL_STAGES, 12);
+  assert.equal(worldStageForStage(4), 4);
+  assert.equal(createStageChoices(4)[0].type, "boss");
+  assert.equal(createStageChoices(8)[0].type, "boss");
+  assert.equal(createStageChoices(12)[0].type, "boss");
+  assert.equal(joinIndexForStage(5), 1);
+  assert.equal(joinIndexForStage(9), 2);
+  assert.equal(joinIndexForStage(1), undefined);
+  assert.equal(createPrepUpgradeOptions(3, 2, ["evasive", "cutter", undefined]).length, 3);
+});
+
+run("danger routes make prep cards visibly stronger", () => {
+  const totalGrowth = (option: ReturnType<typeof createPrepUpgradeOptions>[number]) =>
+    (option.effect.reflex ?? 0)
+    + (option.effect.boost ?? 0)
+    + (option.effect.cutting ?? 0)
+    + (option.effect.trigger ?? 0)
+    + (option.effect.sync ?? 0);
+  const normal = createPrepUpgradeOptions(2, 1, ["evasive", undefined, undefined], "normal");
+  const elite = createPrepUpgradeOptions(2, 1, ["evasive", undefined, undefined], "elite");
+
+  assert.deepEqual(elite.map((option) => option.id), normal.map((option) => option.id));
+  assert.ok(Math.max(...elite.map(totalGrowth)) > Math.max(...normal.map(totalGrowth)));
+});
+
+run("overdrive consumes a core, accelerates briefly, then enters backlash", () => {
+  const stats = buildSimpleStats("rapid", {
+    reflex: 6,
+    boost: 6,
+    cutting: 0,
+    trigger: 6,
+    sync: 2,
+  });
+  const state = createCombatState(1, [stats], [stats.hpMax], [true], 1, [], "normal", 1);
+  const weapon = state.players[0].weapons[0];
+  assert.ok(weapon);
+  weapon.cooldownRemaining = 1;
+
+  assert.equal(activateOverdrive(state), true);
+  assert.equal(state.overdrive.cores, 0);
+  assert.equal(state.report.overdriveCoresSpent, 1);
+  assert.equal(overdrivePhaseFor(state), "active");
+  stepCombat(state, 0.1, rules);
+  assert.ok(weapon.cooldownRemaining < 0.8);
+
+  state.overdrive.activeRemaining = 0.01;
+  stepCombat(state, 0.02, rules);
+  assert.equal(overdrivePhaseFor(state), "backlash");
+  weapon.cooldownRemaining = 1;
+  stepCombat(state, 0.1, rules);
+  assert.ok(weapon.cooldownRemaining > 0.93);
+  assert.equal(activateOverdrive(state), false);
+});
+
+run("exponential growth starts modest and ends superhuman", () => {
+  const starter = buildSimpleStats("evasive", createInitialUnitGrowth("evasive"));
+  const mid = buildSimpleStats("evasive", {
+    reflex: 6,
+    boost: 6,
+    cutting: 0,
+    trigger: 6,
+    sync: 2,
+  });
+  const max = buildSimpleStats("evasive", {
+    reflex: 12,
+    boost: 12,
+    cutting: 0,
+    trigger: 12,
+    sync: 12,
+  });
+
+  assert.ok(curvedGrowthPoints(2) * 2 < curvedGrowthPoints(8));
+  assert.ok(reactionIntervalFor(starter) > 0.3);
+  assert.ok(reactionIntervalFor(mid) < reactionIntervalFor(starter));
+  assert.ok(reactionIntervalFor(max) <= 0.05);
+  assert.ok(max.quickBoostCooldown < starter.quickBoostCooldown);
+  assert.ok(max.weapons[0].cooldown < starter.weapons[0].cooldown);
+});
+
+run("enemy pressure and rival ambushes ramp toward the end", () => {
+  const opening = createEnemyRanks(1, 1, "normal");
+  const finale = createEnemyRanks(12, 3, "normal");
+  assert.ok(opening.length < finale.length);
+  assert.ok(isRivalAmbushStage(6));
+  assert.ok(isRivalAmbushStage(10));
+  assert.equal(createEnemyRanks(6, 2, "normal").slice(-1)[0], "elite");
+  assert.equal(createEnemyRanks(10, 3, "normal").slice(-1)[0], "elite");
+
+  const state = createCombatState(6, [testStats, testStats], [testStats.hpMax, testStats.hpMax], [true, true], 2, []);
+  state.enemyQueue = ["elite"];
+  state.enemyTotal = 1;
+  state.spawnedEnemyCount = 0;
+  stepCombat(state, 0.016, rules);
+  const rival = state.enemies[0];
+  assert.ok(rival);
+  assert.equal(rival.rank, "elite");
+  assert.equal(rival.enemyRole, "rival");
+  assert.ok(rival.rivalAi);
+  assert.ok(state.effects.some((effect) => effect.kind === "alert" && effect.label === rival.name));
 });
 
 run("initial enemies wait outside the active arena", () => {
@@ -357,7 +478,7 @@ run("elite route queues elite enemies and boss route queues a single giant boss 
 });
 
 run("rival boss spawns with player-style weapons and alert effect", () => {
-  const state = createOneUnitState(5);
+  const state = createOneUnitState(4);
   state.enemyQueue = ["boss"];
   state.enemyTotal = 1;
   stepCombat(state, 0.016, rules);
@@ -377,7 +498,7 @@ run("rival boss spawns with player-style weapons and alert effect", () => {
 });
 
 run("boss boost sounds use the standard boost event", () => {
-  const state = createOneUnitState(5);
+  const state = createOneUnitState(4);
   state.enemyQueue = ["boss"];
   state.enemyTotal = 1;
   stepCombat(state, 0.016, rules);
@@ -463,6 +584,109 @@ run("AI reaction changes how quickly new threats are evaluated", () => {
   stepCombat(high, 0.18, dodgeRules);
   assert.equal(low.players[0].activeAction, "idle");
   assert.equal(high.players[0].activeAction, "boostDodge");
+});
+
+run("AI growth pushes reaction speed into superhuman timing", () => {
+  const starterGrowth: UnitGrowth = createInitialUnitGrowth("evasive");
+  const evolvedGrowth: UnitGrowth = {
+    reflex: 10,
+    boost: 8,
+    cutting: 0,
+    trigger: 6,
+    sync: 4,
+  };
+  const starter = buildSimpleStats("evasive", starterGrowth);
+  const evolved = buildSimpleStats("evasive", evolvedGrowth);
+
+  assert.ok(reactionIntervalFor(evolved) < reactionIntervalFor(starter));
+  assert.ok(reactionIntervalFor(evolved) <= 0.06);
+});
+
+run("boost growth shortens quick boost recovery after a dodge", () => {
+  const dodgeRules: AiRule[][] = [[{ id: "growth-dodge", condition: "enemyProjectileNear", action: "boostDodge", enabled: true }]];
+  const baseStats = buildSimpleStats("evasive", createInitialUnitGrowth("evasive"));
+  const grownStats = buildSimpleStats("evasive", {
+    reflex: 8,
+    boost: 10,
+    cutting: 0,
+    trigger: 3,
+    sync: 3,
+  });
+  const base = createCombatState(1, [baseStats], [baseStats.hpMax], [true], 1, []);
+  const grown = createCombatState(1, [grownStats], [grownStats.hpMax], [true], 1, []);
+  stepCombat(base, 0.016, rules);
+  stepCombat(grown, 0.016, rules);
+  base.enemyQueue = [];
+  grown.enemyQueue = [];
+  base.players[0].decisionCooldown = 0;
+  grown.players[0].decisionCooldown = 0;
+  if (base.enemies[0]) {
+    base.enemies[0].entryBoostTime = 0;
+    base.enemies[0].cooldown = 999;
+  }
+  if (grown.enemies[0]) {
+    grown.enemies[0].entryBoostTime = 0;
+    grown.enemies[0].cooldown = 999;
+  }
+  const addThreat = (state: TestCombatState) => {
+    const player = state.players[0].actor;
+    state.projectiles.push({
+      id: `boost-threat-${state.time}`,
+      owner: "enemy",
+      kind: "bullet",
+      x: player.x + 42,
+      y: player.y,
+      vx: -120,
+      vy: 0,
+      damage: 10,
+      damageKind: "ballistic",
+      radius: 4,
+      life: 1,
+      color: "#ff5f42",
+    });
+  };
+
+  addThreat(base);
+  addThreat(grown);
+  stepCombat(base, 0.016, dodgeRules);
+  stepCombat(grown, 0.016, dodgeRules);
+
+  assert.equal(base.players[0].activeAction, "boostDodge");
+  assert.equal(grown.players[0].activeAction, "boostDodge");
+  assert.ok(grown.players[0].boostCooldown < base.players[0].boostCooldown);
+});
+
+run("blade growth cuts nearby enemy shots before impact", () => {
+  const cutterStats = buildSimpleStats("cutter", {
+    reflex: 6,
+    boost: 2,
+    cutting: 7,
+    trigger: 2,
+    sync: 1,
+  });
+  const state = createCombatState(1, [cutterStats], [cutterStats.hpMax], [true], 1, []);
+  const player = state.players[0].actor;
+  state.enemyQueue = [];
+  state.projectiles.push({
+    id: "cut-me",
+    owner: "enemy",
+    kind: "bullet",
+    x: player.x + 44,
+    y: player.y,
+    vx: -80,
+    vy: 0,
+    damage: 100,
+    damageKind: "ballistic",
+    radius: 4,
+    life: 1,
+    color: "#ff5f42",
+  });
+
+  stepCombat(state, 0.016, [[{ id: "cut-idle", condition: "always", action: "idle", enabled: true }]]);
+
+  assert.equal(state.projectiles.some((projectile) => projectile.id === "cut-me"), false);
+  assert.ok(state.effects.some((effect) => effect.kind === "slash" && effect.label === "CUT"));
+  assert.ok(state.soundEvents.includes("intercept"));
 });
 
 run("defensive special equipment can create shields and damage reduction", () => {

@@ -232,6 +232,34 @@ export interface DerivedStats {
   guardProfile: GuardProfile;
   weapons: WeaponStats[];
   special?: EquippedSpecial;
+  archetype?: UnitArchetypeId;
+  growth?: UnitGrowth;
+}
+
+export type UnitArchetypeId = "evasive" | "cutter" | "rapid";
+
+export interface UnitGrowth {
+  reflex: number;
+  boost: number;
+  cutting: number;
+  trigger: number;
+  sync: number;
+}
+
+export type UnitGrowthKey = keyof UnitGrowth;
+
+export type PrepUpgradeIcon = "eye" | "boost" | "slash" | "burst" | "sync" | "repair";
+
+export interface PrepUpgradeOption {
+  id: string;
+  title: string;
+  icon: PrepUpgradeIcon;
+  shortText: string;
+  target: "all" | "unit";
+  unitIndex?: number;
+  effect: Partial<UnitGrowth> & {
+    healPercent?: number;
+  };
 }
 
 export type AiConditionId =
@@ -428,16 +456,4 @@ export interface AiRule {
   enabled: boolean;
 }
 
-export type ScreenId =
-  | "frameSelect"
-  | "assemble"
-  | "briefing"
-  | "ai"
-  | "combat"
-  | "reward"
-  | "relicReward"
-  | "relicCollection"
-  | "map"
-  | "shop"
-  | "rest"
-  | "complete";
+export type ScreenId = "prep" | "combat" | "map" | "complete";
